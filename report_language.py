@@ -280,6 +280,10 @@ CORE = {
     "tok_contrast_header": ("对比", "Contrast"),
     "tok_candidate_header": ("候选", "Candidate"),
     "tok_representative_header": ("代表蛋白", "Representative protein"),
+    # the noun that turns a subject header into a table name ("代表蛋白" + "表" /
+    # "Representative protein" + " table"). Split out because the released zh literal is a
+    # concatenation, and the English branch previously appended the Chinese character.
+    "tok_table_word": ("表", " table"),
     "tok_table_significance": ("通过筛选|显著", "passed screening|significant"),
     "tok_current_matrix": ("当前矩阵", "current matrix"),
     "tok_offline_enrichment": ("离线富集", "offline enrichment"),
@@ -316,3 +320,91 @@ def reader_headings(lang=None):
 def t_list(key, **fmt):
     """Template split on the pipe character, for multi-word wording probes."""
     return tuple(part for part in t(key, **fmt).split("|") if part)
+
+
+# --------------------------------------------------------------------------- task tokens
+# A task text names the proteins the analyst wants examined. That list must not be decided by
+# what happens to be in the matrix: an explicitly named protein that is absent from the data is
+# still reported, as "not matched", rather than dropped. It must also not become English prose:
+# a token that cannot be resolved in the run is suppressed only when it is an ordinary word.
+#
+# One implementation, shared by the candidate audit in main_agent.py and the candidate trace in
+# analysis_extensions.py, so the two cannot drift apart.
+
+TASK_TOKEN_RE = re.compile(r"\b[A-Z][A-Za-z0-9]{1,9}\b")
+
+# Function words and generic domain nouns. Deliberately short, and never used on its own:
+# resolution wins, so a word that is also a real symbol survives whenever the run's own data
+# contains it.
+PROSE_TOKENS = frozenset("""
+a about above after again against all am an and any are as at be because been before being
+below between both but by can cannot could did do does doing down during each few for from
+further had has have having he her here hers herself him himself his how i if in into is it
+its itself just me more most my myself no nor not now of off on once only or other others our
+ours ourselves out over own same she should so some such than that the their theirs them
+themselves then there these they this those through to too under until up very was we were
+what when where which while who whom why will with would you your yours yourself yourselves
+analysis analyses cell cells data dataset datasets demo figure figures gene genes group groups
+matrix matrices method methods note notes number numbers please protein proteins report reports
+request requested result results run runs sample samples section sections software step steps
+study studies synthetic table tables target targets task tasks test tests time times use used
+using value values
+also assess check close comment compare compute describe evaluate finally finish give include
+list next overall provide reuse show state status summarize tell then val write
+""".split())
+
+
+def has_lowercase_occurrence(text, token):
+    """True when the same word, matched whole, also occurs all lowercase in the text.
+
+    English prose repeats its words in lowercase ("The ... the ..."); a gene symbol does not.
+    """
+    if not text or not token:
+        return False
+    pattern = re.compile(r"(?<![A-Za-z])" + re.escape(token) + r"(?![A-Za-z])", re.IGNORECASE)
+    for match in pattern.finditer(text):
+        piece = match.group(0)
+        if piece == piece.lower():
+            return True
+    return False
+
+
+def is_prose_token(token, text="", resolved=None, labels=None):
+    """Classify one task token as prose, which is what keeps it out of the candidate list.
+
+    Resolution wins: a token present in this run's own data is never treated as prose, so a
+    protein whose symbol is also an ordinary word still survives when the matrix holds it.
+    labels carries the run's design group values: a group name is not a protein either.
+    """
+    if not token:
+        return False
+    if resolved and token in resolved:
+        return False
+    if labels and token.upper() in labels:
+        return True
+    if token.lower() in PROSE_TOKENS:
+        return True
+    return has_lowercase_occurrence(text, token)
+
+
+def classify_task_tokens(text, resolved=None, stop=None, labels=None):
+    """The task-named candidates of one task text, as (kept, suppressed).
+
+    kept preserves first-seen order and is de-duplicated. suppressed lists the prose tokens
+    that were not treated as candidates, so a suppression can be reported rather than hidden.
+    A token already covered by stop is dropped without being reported as prose, which keeps the
+    released stop-word behaviour exactly as it was.
+    """
+    kept, suppressed = [], []
+    for token in TASK_TOKEN_RE.findall(text or ""):
+        if len(token) < 2:
+            continue
+        if stop and token.upper() in stop:
+            continue
+        if is_prose_token(token, text, resolved, labels):
+            if token not in suppressed:
+                suppressed.append(token)
+            continue
+        if token not in kept:
+            kept.append(token)
+    return kept, suppressed

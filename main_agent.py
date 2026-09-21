@@ -4027,6 +4027,11 @@ MAIN_TEXT = {
     "cand_audit_title_named": (
         "**任务点名的候选蛋白（%d 个，全部呈现，不按数据存在性截断）**",
         "**Candidate proteins named by the task (%d, all shown, not truncated by whether data exists)**"),
+    # English-only line: a zh report must stay byte-identical to the released text, so the zh
+    # value is never emitted (see _build_candidate_audit_lines).
+    "cand_audit_prose_note": (
+        "**说明**：任务文本中另有 %d 个词按普通用词或设计分组名处理，未计入候选蛋白。",
+        "**Note**: %d further tokens in the task text were read as ordinary words or design group labels and are not counted as candidate proteins."),
     "cand_audit_unresolved": (
         "未评估：未在任何矩阵、候选表或差异表中匹配到该符号（名称待解析或当前矩阵未检出）",
         "not evaluated: the symbol did not match any matrix, candidate table or differential table (the name is unresolved, or it is not detected in the current matrix)"),
@@ -5698,27 +5703,85 @@ def _build_deliverable_checklist_lines(run_folder: str, report_body: str) -> Lis
     return lines
 
 
-def _task_named_genes(run_folder: str) -> List[str]:
-    """Every gene-like symbol named by the task. Presence in data must not decide the list."""
+def _resolved_run_symbols(run_folder: str) -> set:
+    """Symbols this run's own data contains, used to protect a named protein from the prose rule.
+
+    A named protein whose symbol is also an ordinary English word must still be reported when
+    the run's data holds it. Only two cheap sources are read, and a read failure leaves the set
+    empty, which can never invent a candidate.
+    """
+    import glob as _glob
+    symbols = set()
+    try:
+        pattern = os.path.join(run_folder, "processed_proteins", "differential_*.csv")
+        for path in sorted(_glob.glob(pattern)):
+            for row in _read_csv_rows(path, limit=20000):
+                for column in ("PG.Genes", "Genes"):
+                    for part in re.split(r"[;,]", str(row.get(column) or "")):
+                        if part.strip():
+                            symbols.add(part.strip())
+    except Exception:
+        pass
+    try:
+        evidence = os.path.join(run_folder, "evaluation_evidence", "candidate_protein_evidence.csv")
+        for row in _read_csv_rows(evidence, limit=4000):
+            for column in ("matched_gene", "candidate"):
+                value = str(row.get(column) or "").strip()
+                if value:
+                    symbols.add(value)
+    except Exception:
+        pass
+    return symbols
+
+
+def _task_named_genes_and_prose(run_folder: str) -> Tuple[List[str], List[str]]:
+    """(candidates the task names, tokens read as ordinary words rather than candidates).
+
+    Presence in data must not decide the candidate list: a protein the task names explicitly is
+    kept whether or not the matrix contains it, and is later reported as not matched instead of
+    being dropped. Ordinary English prose is not a symbol, so a token that cannot be resolved in
+    this run and reads as a plain English word is suppressed. The suppression is counted and
+    surfaced (see _build_candidate_audit_lines), never silent.
+    """
     params = _run_parameters(run_folder)
     path = str(params.get("user_input_path") or "")
     if not path or not os.path.exists(path):
-        return []
+        return [], []
     try:
         text = open(path, "r", encoding="utf-8", errors="replace").read()
     except Exception:
-        return []
+        return [], []
     stop = {"CSV", "TSV", "QC", "PCA", "UMAP", "MS", "GO", "KEGG", "FDR", "PBS", "DMSO", "DNA",
             "RNA", "ATP", "PH", "ID", "AI", "LLM", "HGNC", "SP", "THP", "NF", "KB", "IL", "TNF",
             "IFN", "CD", "GSEA", "ORA", "FC", "CV", "SD", "SE", "CI", "IQR", "HSC", "MPP", "LMPP",
             "GMP", "MEP", "EB", "IPSC", "IPS", "RG", "ORG", "EN", "IPC", "LPS", "EDTA", "LC", "MS2", "HLA"}
-    ordered: List[str] = []
-    for token in re.findall(r"\b[A-Z][A-Za-z0-9]{1,9}\b", text):
-        if token.upper() in stop or len(token) < 2:
-            continue
-        if token not in ordered:
-            ordered.append(token)
-    return ordered
+    return _report_language.classify_task_tokens(
+        text,
+        resolved=_resolved_run_symbols(run_folder),
+        stop=stop,
+        labels=_run_design_labels(run_folder),
+    )
+
+
+def _run_design_labels(run_folder: str) -> set:
+    """Design group values recorded for this run, upper-cased.
+
+    A group name such as "Control" is a label of the experiment, not a candidate protein, so it
+    must not reach the candidate audit as an unresolved symbol.
+    """
+    labels = set()
+    path = os.path.join(run_folder, "evaluation_evidence", "group_composition_qc.csv")
+    for row in _read_csv_rows(path, limit=2000):
+        for column in ("group", "\ufeffgroup"):
+            value = str(row.get(column) or "").strip()
+            if value and value.lower() != "nan":
+                labels.add(value.upper())
+    return labels
+
+
+def _task_named_genes(run_folder: str) -> List[str]:
+    """Every gene-like symbol named by the task. Presence in data must not decide the list."""
+    return _task_named_genes_and_prose(run_folder)[0]
 
 
 def _candidate_trace_verdicts(run_folder: str) -> Dict[str, str]:
@@ -5826,7 +5889,7 @@ def _build_candidate_audit_lines(run_folder: str) -> List[str]:
     """
     evidence = os.path.join(run_folder, "evaluation_evidence", "candidate_protein_evidence.csv")
     rows = _read_csv_rows(evidence, limit=4000)
-    required = _task_named_genes(run_folder)
+    required, prose_suppressed = _task_named_genes_and_prose(run_folder)
     lines: List[str] = []
 
     trace_verdicts = _candidate_trace_verdicts(run_folder)
@@ -5834,6 +5897,10 @@ def _build_candidate_audit_lines(run_folder: str) -> List[str]:
         lines.append(tm("cand_audit_title_named") % len(required))
     else:
         lines.append(tm("cand_audit_no_named"))
+    # en only: a zh report must stay byte-identical to the released text, so the zh value of this
+    # key is never emitted even though the registry carries both languages
+    if prose_suppressed and _report_language.get_language() != "zh":
+        lines.append(tm("cand_audit_prose_note") % len(prose_suppressed))
     if required:
         lines.append("")
         lines.append(tm("cand_audit_header_full"))
@@ -6309,6 +6376,20 @@ def _renumber_report_headings(text: str) -> str:
     return re.sub(r"(?m)^##\s*\d+\.\s*(.+)$", repl, text)
 
 
+def _candidate_audit_block_present(text: str, title: str) -> bool:
+    """Whether the candidate audit table itself is already in the report text.
+
+    The zh path keeps the released substring test. A zh report quotes the block title inside the
+    required-deliverables sentence, so the released code never appends the block there; that
+    behaviour is frozen because a zh run has to stay byte-identical to the released text. The
+    English report carries its own equivalent sentence, which is why the same substring test
+    would now suppress the block in English too, so the English path asks for a real heading.
+    """
+    if _report_language.get_language() == "en":
+        return re.search(r"(?m)^#{2,4}\s*" + re.escape(title) + r"\s*$", text or "") is not None
+    return title in text
+
+
 def _inject_selfcontained_sections(report_text: str, run_folder: str, report_body: str) -> str:
     """Deterministically lift the analysis conditions, deliverable coverage and
     candidate audit from the artifact layer into the main report."""
@@ -6337,7 +6418,7 @@ def _inject_selfcontained_sections(report_text: str, run_folder: str, report_bod
         text = text.rstrip() + chr(10) + chr(10) + chr(10).join(block).strip(chr(10)) + chr(10)
 
     candidate_lines = _build_candidate_audit_lines(run_folder)
-    if candidate_lines and tm("candidate_audit_title") not in text:
+    if candidate_lines and not _candidate_audit_block_present(text, tm("candidate_audit_title")):
         tail_anchor = (
             _numbered_heading_re(_report_language.t("core.story_conclusion")).search(text)
             or _numbered_heading_re(_report_language.t("core.story_assets")).search(text))
@@ -6723,6 +6804,22 @@ def _quantitative_table_present(headers, subject_tokens, value_tokens) -> bool:
             return True
     return False
 
+
+def _candidate_evidence_row_count(run_folder: str) -> Optional[int]:
+    """Rows in this run's candidate evidence table, or None when the table itself is absent.
+
+    The two cases are not the same defect. An empty table with a header means the analysis ran and
+    no candidate passed screening; an absent table means the run did not produce the artifact that
+    the candidate audit is built from.
+    """
+    path = os.path.join(run_folder, "evaluation_evidence", "candidate_protein_evidence.csv")
+    if not os.path.exists(path):
+        return None
+    try:
+        return len(_read_csv_rows(path, limit=4000))
+    except Exception:
+        return None
+
 def run_report_self_check(report_content: str, run_folder: str) -> Dict[str, Any]:
     evidence_dir = os.path.join(run_folder, "evaluation_evidence")
     external_annotation_json = os.path.join(evidence_dir, "external_annotation_asd_ndd_local.json")
@@ -6790,6 +6887,24 @@ def run_report_self_check(report_content: str, run_folder: str) -> Dict[str, Any
         dataset_for_style not in V3_MAIN_DATASETS
         or (3 <= key_summary_count <= 6 and key_summary_longest <= 300)
     )
+    # A missing representative-protein table is only a defect when a candidate exists to
+    # report. With an empty candidate table the honest state is "absent, no candidates", which
+    # is recorded as its own state instead of being passed off as a present table.
+    candidate_evidence_rows = _candidate_evidence_row_count(run_folder)
+    representative_table_present = (
+        _report_language.t("core.tok_representative_header")
+        + _report_language.t("core.tok_table_word") in report_content
+    ) or _quantitative_table_present(
+        _markdown_table_headers(report_content),
+        (_report_language.t("core.tok_candidate_header"), _report_language.t("core.tok_representative_header")),
+        ("logFC", "log2FC", "adj.P"),
+    )
+    if representative_table_present:
+        representative_table_state = "present"
+    elif candidate_evidence_rows == 0:
+        representative_table_state = "absent_no_candidates"
+    else:
+        representative_table_state = "missing_expected"
     checks = {
         "chinese_executive_summary": _has_h2(report_content, canonical_report_headings()["executive"]) or _has_h2(report_content, story_report_headings()[0]),
         "chinese_scoring_first_screen": _has_h2(report_content, canonical_report_headings()["scoring"]) or _has_story_task_heading(report_content),
@@ -6810,9 +6925,7 @@ def run_report_self_check(report_content: str, run_folder: str) -> Dict[str, Any
         "core_story_table_present": (_report_language.t("core.tok_core_contrast_table") in report_content) or _quantitative_table_present(
             _markdown_table_headers(report_content), (_report_language.t("core.tok_contrast_header"),),
             ("logFC", "log2FC", "adj.P", "FDR") + _report_language.t_list("core.tok_table_significance")),
-        "representative_protein_table_present": (_report_language.t("core.tok_representative_header") + "表" in report_content) or _quantitative_table_present(
-            _markdown_table_headers(report_content), (_report_language.t("core.tok_candidate_header"), _report_language.t("core.tok_representative_header")),
-            ("logFC", "log2FC", "adj.P")),
+        "representative_protein_table_present": representative_table_state != "missing_expected",
         "figures_present": any(_path_exists(path) for path in figure_candidates),
         "asset_files_present": asset_files_present,
         "key_summary_concise": key_summary_concise,
@@ -6845,6 +6958,8 @@ def run_report_self_check(report_content: str, run_folder: str) -> Dict[str, Any
         "checks": checks,
         "failures": failures,
         "warnings": warnings,
+        "representative_protein_table_state": representative_table_state,
+        "candidate_evidence_rows": candidate_evidence_rows,
         "required_csvs": required_csvs,
         "figure_candidates": figure_candidates,
         "chinese_body_ratio": chinese_ratio,
@@ -8012,6 +8127,7 @@ def run_interactive_agent(config: Config):
         )
         try:
             current_state = app.invoke(current_state, config={"recursion_limit": 200})
+            finalize_continued_artifacts(config, output_path)
             record_event(
                 output_path,
                 "run_end",
@@ -8024,6 +8140,7 @@ def run_interactive_agent(config: Config):
             tb = traceback.format_exc()
             record_report(output_path, f"\n\n## [Runner] Run failed: {e}\n\n```text\n{tb}\n```")
             if isinstance(e, RequestBudgetExceeded):
+                finalize_continued_artifacts(config, output_path)
                 record_event(
                     output_path,
                     "run_end",
@@ -8276,6 +8393,59 @@ def seed_continued_run(parent_folder: str, run_folder: str) -> List[Dict[str, An
             "note": "seed-time snapshot; the run may recompute and overwrite this file",
         })
     return records
+
+
+def finalize_continued_artifacts(config: Config, record_file_path: str) -> Dict[str, Any]:
+    """Re-hash every seeded artefact at run end, persist the outcome and record it.
+
+    Copying a parent artefact into a new run does not prove that the run consumed it: a run
+    derives its matrix from its own input, and a deterministic recomputation can produce the
+    same bytes. What is recorded here is therefore a file-level fact only, and the metadata
+    states explicitly that computation reuse is not claimed.
+    """
+    records = list(config.get("continued_artifacts") or [])
+    run_folder = str(config.get("this_run_folder_path") or "")
+    if not records or not run_folder:
+        return {}
+    for item in records:
+        destination = str(item.get("destination_path") or "")
+        if not destination:
+            destination = os.path.join(run_folder, str(item.get("relative_path") or ""))
+        try:
+            current = sha256_file(destination)
+        except Exception:
+            current = ""
+        item["final_sha256"] = current
+        if not current:
+            item["final_state"] = "missing"
+        elif current == str(item.get("seeded_destination_sha256") or ""):
+            item["final_state"] = "unchanged"
+        else:
+            item["final_state"] = "recomputed"
+    outcome = {
+        "artifacts": len(records),
+        "unchanged": sum(1 for item in records if item.get("final_state") == "unchanged"),
+        "recomputed": sum(1 for item in records if item.get("final_state") == "recomputed"),
+        "missing": sum(1 for item in records if item.get("final_state") == "missing"),
+        "computation_reuse": "not_claimed",
+        "note": "unchanged = the bytes at run end equal the seed-time snapshot, which does not by "
+                "itself show that the run consumed the copy, because a deterministic recomputation "
+                "can produce the same bytes; recomputed = the run overwrote the seeded file",
+    }
+    for path in (os.path.join(run_folder, "run_metadata.json"), str(config.get("parameters_path") or "")):
+        if not path or not os.path.exists(path):
+            continue
+        try:
+            payload = json.loads(open(path, "r", encoding="utf-8").read())
+        except Exception:
+            continue
+        if "continued_artifacts" not in payload:
+            continue
+        payload["continued_artifacts"] = records
+        payload["continued_artifacts_outcome"] = outcome
+        record_report(path, json.dumps(payload, ensure_ascii=False, indent=2), mode="w", visible=False)
+    record_event(record_file_path, "continued_artifacts_finalized", "completed", **outcome)
+    return outcome
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
