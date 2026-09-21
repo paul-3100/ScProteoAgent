@@ -3546,6 +3546,20 @@ def _numbered_heading_re(heading: str, number: str = "[0-9]+"):
     return re.compile(pattern)
 
 
+def _numbered_heading_re_for_key(key: str, number: str = "[0-9]+"):
+    """Matcher for a numbered heading whose template already carries its own section number.
+
+    The story-first keys come in two shapes: the reader-heading keys (core.story_assets and
+    friends) hold a bare title, while the canonical keys (core.s1 and friends) hold a title
+    that already begins with its number. Passing the second shape into _numbered_heading_re
+    makes the pattern demand the number twice, so it can never match a real heading and the
+    insertion silently degrades to an append. Stripping the leading number here is what keeps
+    the two shapes interchangeable.
+    """
+    title = re.sub("^[0-9]+[.][ \t]*", "", _report_language.t(key))
+    return _numbered_heading_re(title, number)
+
+
 CANONICAL_REPORT_HEADINGS = {
     "executive": "一、执行摘要",
     "scoring": "二、核心证据首页",
@@ -5235,7 +5249,7 @@ def _inject_selfcontained_sections(report_text: str, run_folder: str, report_bod
         block.extend(["", "## 9. " + tm("required_deliverables"), ""])
         block.extend(required)
 
-    anchor = _numbered_heading_re(_report_language.t("core.s1"), "1").search(text)
+    anchor = _numbered_heading_re_for_key("core.s1", "1").search(text)
     if anchor:
         nxt = re.search(r"(?m)^##\s", text[anchor.end():])
         insert_at = anchor.end() + (nxt.start() if nxt else len(text[anchor.end():]))
