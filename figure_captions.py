@@ -1662,7 +1662,7 @@ def _caption_qc(file_name: str, title: str, record: Dict[str, Any], context: Dic
 
 
 def _caption_pca(file_name: str, title: str, record: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-    group_col = context.get("group_col") or "分组"
+    group_col = context.get("group_col") or _cap("group_col_default")
     outline = context.get("outline") or {}
     claim = _clean_cell(outline.get("executive_claim"))
     interp = _cap("pca_interp_prefix") + str(group_col) + _cap("pca_interp_suffix")
@@ -1689,7 +1689,7 @@ def _caption_pca(file_name: str, title: str, record: Dict[str, Any], context: Di
 
 
 def _caption_umap(file_name: str, title: str, record: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-    group_col = context.get("group_col") or "分组"
+    group_col = context.get("group_col") or _cap("group_col_default")
     outline = context.get("outline") or {}
     claim = _clean_cell(outline.get("executive_claim"))
     interp = _cap("umap_interp_prefix") + str(group_col) + _cap("umap_interp_suffix")
@@ -1716,7 +1716,7 @@ def _caption_umap(file_name: str, title: str, record: Dict[str, Any], context: D
 
 def _caption_heatmap(file_name: str, title: str, record: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     th = _resolve_thresholds(record, context)
-    group_col = context.get("group_col") or "分组"
+    group_col = context.get("group_col") or _cap("group_col_default")
     top = th.get("top_proteins")
     scale = (
         _cap("heatmap_scale_top_prefix") + _fmt_num(top) + _cap("heatmap_scale_top_suffix")
@@ -2039,7 +2039,7 @@ def _caption_protein_bubble(file_name: str, title: str, record: Dict[str, Any], 
 
 def _caption_top_means(file_name: str, title: str, record: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     th = _resolve_thresholds(record, context)
-    group_col = context.get("group_col") or "分组"
+    group_col = context.get("group_col") or _cap("group_col_default")
     top = th.get("top_proteins")
     module_summary = context.get("module_summary") or {}
     module_order = module_summary.get("order") or []
@@ -2054,7 +2054,7 @@ def _caption_top_means(file_name: str, title: str, record: Dict[str, Any], conte
             + _cap("punct_comma")
             + _fmt_num(n_genes)
             + _cap("module_cross_mid")
-+            + _cap("module_cross_tail")
+            + _cap("module_cross_tail")
         )
     else:
         module_bits = _cap("module_cross_plain")
@@ -2214,7 +2214,7 @@ def _caption_pathway_heatmap(file_name: str, title: str, record: Dict[str, Any],
     term = term_match.group(1) if term_match else os.path.splitext(os.path.basename(file_name))[0]
     info = _parse_enrichment_bubble_name(file_name)
     contrast_human = _human_contrast(info.get("contrast", ""))
-    group_col = context.get("group_col") or "分组"
+    group_col = context.get("group_col") or _cap("group_col_default")
     source_line = (
         _cap("source_file_label")
         + os.path.basename(str((record.get("inputs") or [""])[0]))
