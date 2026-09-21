@@ -19,10 +19,12 @@ re-derive the reported case-study numbers field by field, a statistical panel re
 one synthetic example and the offline tests. No DOI, release tag or version badge is claimed,
 because none exists yet.
 
-This repository is a **candidate** for publication, not a published release: no remote repository,
-tag or archive location exists yet. The data archive that supplies the frozen inputs is a local
-candidate of the same submission and is described in `docs/DATA_MANIFEST.md`; `docs/REPRODUCTION.md`
-records, per component, what runs, which fields were checked and what is not reproduced.
+This repository is a **candidate** for publication, not a published release. It is hosted at
+https://github.com/paul-3100/ScProteoAgent and is currently **private**: making it public depends on
+the software-licence decision recorded in `LICENSE_PENDING.md`. No tag, release or archive location
+exists yet. The data archive that supplies the frozen inputs is a local candidate of the same
+submission and is described in `docs/DATA_MANIFEST.md`; `docs/REPRODUCTION.md` records, per
+component, what runs, which fields were checked and what is not reproduced.
 
 ## Choose a workflow
 
@@ -143,8 +145,9 @@ off by default.
 ## Citation, licence and contact
 
 If you use this software, cite the manuscript named in `CITATION.cff`, with the authors, title and
-software version given there. The file validates against the Citation File Format 1.2.0 schema.
-No DOI, release tag or commit identifier is claimed, because none exists yet.
+software version given there. The file validates against the Citation File Format 1.2.0 schema. The
+code accompanying this text is the `main` branch of https://github.com/paul-3100/ScProteoAgent
+(private); no DOI, release tag or archived snapshot is claimed, because none exists yet.
 
 No software licence has been chosen, so **no open-source licence is granted** and no licence
 identifier is claimed in `CITATION.cff` (`LICENSE_PENDING.md` records the open decision). Copyright
