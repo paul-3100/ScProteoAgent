@@ -7099,8 +7099,13 @@ def parent_run_language(parent_folder: str) -> Tuple[Optional[str], Optional[str
             continue
         if not isinstance(payload, dict) or "report_language" not in payload:
             continue
+        recorded = payload.get("report_language")
+        if not (isinstance(recorded, str) and recorded.strip()):
+            # an empty or blank value is not a recorded language; treating it as one would
+            # report an inheritance that never happened
+            continue
         try:
-            return _report_language.normalize(payload.get("report_language")), path
+            return _report_language.normalize(recorded), path
         except _report_language.UnknownReportLanguage:
             continue
     return None, None
@@ -7142,9 +7147,34 @@ def collect_continued_artifacts(parent_folder: str) -> List[Tuple[str, str]]:
     return pairs
 
 
+def skipped_continued_artifacts(parent_folder: str) -> List[str]:
+    """Entries under processed_proteins that the copy deliberately does not carry over.
+
+    Recorded rather than dropped silently, so a reader can tell "the parent had nothing else"
+    apart from "a whole subdirectory was skipped".
+    """
+    processed_src = os.path.join(parent_folder, "processed_proteins")
+    if not os.path.isdir(processed_src):
+        return []
+    skipped = []
+    for name in sorted(os.listdir(processed_src)):
+        source = os.path.join(processed_src, name)
+        if os.path.isdir(source):
+            skipped.append("processed_proteins/" + name + "/")
+        elif name.startswith(CONTINUED_ARTIFACT_SKIP_PREFIXES) or name in CONTINUED_ARTIFACT_SKIP_NAMES:
+            skipped.append("processed_proteins/" + name)
+    return skipped
+
+
 def seed_continued_run(parent_folder: str, run_folder: str) -> List[Dict[str, Any]]:
-    """Copy the reusable parent products into the new run and hash every one of them."""
+    """Copy the reusable parent products into the new run and hash every one of them.
+
+    The destination hashes are a seed-time snapshot. A run may legitimately recompute and
+    overwrite a seeded file, so the key is named accordingly rather than implying that the
+    file on disk at run end is the one that was carried over.
+    """
     records: List[Dict[str, Any]] = []
+    seeded_at = datetime.now().isoformat(timespec="seconds")
     for source, relative in collect_continued_artifacts(parent_folder):
         destination = os.path.join(run_folder, relative)
         os.makedirs(os.path.dirname(destination), exist_ok=True)
@@ -7154,8 +7184,10 @@ def seed_continued_run(parent_folder: str, run_folder: str) -> List[Dict[str, An
             "relative_path": relative.replace(os.sep, "/"),
             "destination_path": destination,
             "source_sha256": sha256_file(source),
-            "destination_sha256": sha256_file(destination),
+            "seeded_destination_sha256": sha256_file(destination),
             "bytes": os.path.getsize(destination),
+            "seeded_at": seeded_at,
+            "note": "seed-time snapshot; the run may recompute and overwrite this file",
         })
     return records
 
@@ -7288,6 +7320,10 @@ def main(argv: Optional[List[str]] = None) -> None:
             continued_from=args.continue_from,
             artifact_count=len(continued_artifacts),
             artifacts=[item["relative_path"] for item in continued_artifacts],
+            skipped=skipped_continued_artifacts(args.continue_from),
+            note="seeded_destination_sha256 is a seed-time snapshot; a run may recompute and "
+                 "overwrite a seeded file, so the file on disk at run end is not guaranteed to "
+                 "be the one that was carried over",
         )
 
     sampleinfo_path = os.path.join(input_file_path, "SampleInfo.csv")

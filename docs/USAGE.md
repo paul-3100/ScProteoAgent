@@ -33,7 +33,10 @@ Two optional flags control the report language and follow-up runs.
 Resolution order is explicit `--report-language` > the language recorded by
 `--continue-from` > `zh`. The task text is never inspected. The resolved language and its
 source are written to `run_metadata.json` and `parameters.json`, and reused artefacts are
-listed under `continued_artifacts` with their source paths and both hashes.
+listed under `continued_artifacts` with their source paths and a seed-time destination hash.
+The destination hash is a snapshot taken when the file was copied: a run may recompute and
+overwrite a copied file, so it is not a claim that the file was consumed as a cache. Entries
+that were deliberately skipped are listed as well.
 
 English output is not a translation of the Chinese report: the prompts, the headings, the
 deterministic prose and the captions have English templates of their own. Where a template is

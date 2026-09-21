@@ -202,11 +202,13 @@ parsing before the agent starts. The resolved language and where it came from (`
 `parameters.json`.
 
 `--continue-from <run_folder>` continues an earlier run. It inherits that run's report
-language unless an explicit `--report-language` is given, reuses the saved analysis design
-and the saved normalized matrix, and records each reused artefact with its source path and
-both hashes under `continued_artifacts`. Contrast tables are deliberately not reused, so a
-continuation recomputes the comparisons it needs on the inherited matrix instead of replaying
-the previous report.
+language unless an explicit `--report-language` is given, and copies the saved analysis
+design and normalized matrix into the new run. Contrast tables are deliberately not copied,
+so a continuation recomputes the comparisons it needs instead of replaying the previous
+report; and because a run may legitimately recompute and overwrite a copied file, the record
+under `continued_artifacts` gives each carried-over artefact a source path and a seed-time
+destination hash, labelled as such, rather than a claim that the file was consumed. Entries
+that were skipped are listed too, so a skipped subdirectory is never silent.
 
 Scope of the English mode: the report skeleton, the headings, the deterministic report prose,
 the figure captions and the report fact-check vocabulary are bilingual. Anything that still
