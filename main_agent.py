@@ -1417,11 +1417,11 @@ def _appendix_source_text(text: str) -> str:
     """
     joined = chr(95).join(("current", "matrix"))
     out = str(text)
-    for internal, readable in ((joined, "当前矩阵"), ("offline" + chr(95) + "enrichment", "离线富集"),
-                               ("analysis" + chr(95) + "design", "分析设计"),
-                               ("external" + chr(95) + "literature", "外部文献"),
-                               ("drug" + chr(95) + "database", "药物数据库"),
-                               ("external" + chr(95) + "annotation", "外部注释")):
+    for internal, readable in ((joined, _report_language.t("core.tok_current_matrix")), ("offline" + chr(95) + "enrichment", _report_language.t("core.tok_offline_enrichment")),
+                               ("analysis" + chr(95) + "design", tm("src_label_analysis_design")),
+                               ("external" + chr(95) + "literature", tm("src_label_external_literature")),
+                               ("drug" + chr(95) + "database", tm("src_label_drug_database")),
+                               ("external" + chr(95) + "annotation", _report_language.t("core.tok_external_annotation"))):
         out = out.replace(internal, readable)
     return out
 
@@ -1429,12 +1429,12 @@ def _appendix_source_text(text: str) -> str:
 def _source_label_zh(source: str) -> str:
     """Reader-facing name for an internal evidence-source label; unknown labels pass through."""
     text = str(source or "").strip()
-    for internal, readable in (("current_matrix", "当前矩阵"), ("offline_enrichment", "离线富集"),
-                               ("external_annotation", "外部注释"), ("external_literature", "外部文献"),
-                               ("drug_database", "药物数据库"), ("analysis_design", "分析设计"),
-                               ("audit_trail", "审计记录")):
+    for internal, readable in (("current_matrix", _report_language.t("core.tok_current_matrix")), ("offline_enrichment", _report_language.t("core.tok_offline_enrichment")),
+                               ("external_annotation", _report_language.t("core.tok_external_annotation")), ("external_literature", tm("src_label_external_literature")),
+                               ("drug_database", tm("src_label_drug_database")), ("analysis_design", tm("src_label_analysis_design")),
+                               ("audit_trail", tm("src_label_audit_record"))):
         text = re.sub(re.escape(internal), readable, text, flags=re.I)
-    return text or "当前矩阵"
+    return text or _report_language.t("core.tok_current_matrix")
 
 
 def _report_path(path: str, run_folder: str) -> str:
@@ -1713,7 +1713,7 @@ def _display_groups_from_contrast(row: Dict[str, Any]) -> Tuple[str, str]:
     if " vs " in contrast:
         left, right = contrast.split(" vs ", 1)
         return _human_contrast_label(left), _human_contrast_label(right)
-    return "A 组", "B 组"
+    return _report_language.t("captions.group_a_default"), _report_language.t("captions.group_b_default")
 
 
 def _story_direction_zh(row: Dict[str, Any]) -> str:
@@ -1739,12 +1739,12 @@ def _story_direction_zh(row: Dict[str, Any]) -> str:
         "display_group_b_higher",
     }
     if direction in group_a_higher:
-        return f"{group_a} 较高"
+        return tm("story_group_a_higher", group_a=group_a)
     if direction in group_b_higher:
-        return f"{group_b} 较高"
+        return tm("story_group_b_higher", group_b=group_b)
     if logfc is not None:
-        return f"{group_a} 较高" if logfc >= 0 else f"{group_b} 较高"
-    return _short_story_value(row.get("direction_display"), 80) or "方向未判定"
+        return tm("story_group_a_higher", group_a=group_a) if logfc >= 0 else tm("story_group_b_higher", group_b=group_b)
+    return _short_story_value(row.get("direction_display"), 80) or tm("story_direction_undetermined")
 
 
 def _brief_gene_list(value: Any, limit: int = 4) -> str:
@@ -1758,7 +1758,7 @@ def _brief_gene_list(value: Any, limit: int = 4) -> str:
             genes.append(gene)
         if len(genes) >= limit:
             break
-    return "、".join(genes)
+    return tm("sep_comma").join(genes)
 
 
 def _candidate_key_value(row: Dict[str, Any]) -> str:
@@ -1767,15 +1767,15 @@ def _candidate_key_value(row: Dict[str, Any]) -> str:
     logfc = _fmt_story_number(row.get("logFC_display"))
     fdr = _fmt_story_number(row.get("adj.P.Val"))
     if logfc and fdr:
-        return f"{gene}（{direction}，logFC={logfc}，FDR={fdr}）"
+        return tm("ckv_full", gene=gene, direction=direction, logfc=logfc, fdr=fdr)
     if logfc:
-        return f"{gene}（{direction}，logFC={logfc}）"
-    return f"{gene}（{direction}）"
+        return tm("ckv_logfc", gene=gene, direction=direction, logfc=logfc)
+    return tm("ckv_direction", gene=gene, direction=direction)
 
 
 def _module_display_name(module: Any) -> str:
     key = _short_story_value(module, 100)
-    return PISPA_MODULE_DISPLAY_NAMES.get(key, key)
+    return _table_module_display_names().get(key, key)
 
 
 def _story_candidate_rows_for_report(run_folder: str, limit: int = 12) -> List[Dict[str, Any]]:
@@ -1823,7 +1823,7 @@ def _pispa_cluster_type_composition_row(run_folder: str) -> Optional[str]:
     c3_total = c3["Migrated Cell"] + c3["Control Cell"]
     other_migrated = c2["Migrated Cell"] + c3["Migrated Cell"]
     other_control = c2["Control Cell"] + c3["Control Cell"]
-    fisher_text = "Fisher OR=NA，p=NA"
+    fisher_text = tm("pct_fisher_na")
     chi_text = "χ² p=NA"
     try:
         from scipy.stats import chi2_contingency, fisher_exact
@@ -1837,25 +1837,21 @@ def _pispa_cluster_type_composition_row(run_folder: str) -> Optional[str]:
             ],
             correction=False,
         )
-        fisher_text = f"Fisher OR={_fmt_story_number(fisher.statistic)}，p={_fmt_story_number(fisher.pvalue)}"
-        chi_text = f"整体 χ² p={_fmt_story_number(chi2.pvalue)}"
+        fisher_text = tm("pct_fisher", a0=_fmt_story_number(fisher.statistic), a1=_fmt_story_number(fisher.pvalue))
+        chi_text = tm("pct_chi2", a0=_fmt_story_number(chi2.pvalue))
     except Exception:
         pass
     c1_pct = (c1["Migrated Cell"] / c1_total * 100) if c1_total else 0
     c2_pct = (c2["Migrated Cell"] / c2_total * 100) if c2_total else 0
     c3_pct = (c3["Migrated Cell"] / c3_total * 100) if c3_total else 0
     direction = (
-        f"C1 迁移细胞 {c1['Migrated Cell']}/{c1_total}（{c1_pct:.1f}%）；"
-        f"C2 {c2['Migrated Cell']}/{c2_total}（{c2_pct:.1f}%）；"
-        f"C3 {c3['Migrated Cell']}/{c3_total}（{c3_pct:.1f}%）；{fisher_text}；{chi_text}"
+        tm("pct_composition_direction", a0=c1['Migrated Cell'], c1_total=c1_total, c1_pct=c1_pct, a3=c2['Migrated Cell'], c2_total=c2_total, c2_pct=c2_pct, a6=c3['Migrated Cell'], c3_total=c3_total, c3_pct=c3_pct, fisher_text=fisher_text, chi_text=chi_text)
     )
-    evidence = "Cluster × Type 组成显示迁移标签主要集中在 Cluster 1"
-    interpretation = "该组成证据说明 Cluster 1 是迁移状态的主要承载群体，后续差异统计以 Cluster 两两对比解释蛋白质组机制。"
-    boundary = "这是表型组成统计，不是蛋白差异对比；效应量为迁移比例、OR 和组成检验 p 值。"
+    evidence = tm("pct_composition_evidence")
+    interpretation = tm("pct_composition_interpretation")
+    boundary = tm("pct_composition_boundary")
     return (
-        f"| 迁移标签与聚类的对应 | Migrated_vs_Control / Cluster × Type | "
-        f"{_fmt_cell(direction, 120)} | {_fmt_cell(evidence, 120)} | "
-        f"{_fmt_cell(interpretation, 140)} | {_fmt_cell(boundary, 130)} |"
+        tm("pct_composition_row", a0=_fmt_cell(direction, 120), a1=_fmt_cell(evidence, 120), a2=_fmt_cell(interpretation, 140), a3=_fmt_cell(boundary, 130))
     )
 
 
@@ -1887,7 +1883,7 @@ def _display_convention_notes(run_folder: str) -> List[Tuple[str, str, str]]:
             continue
         seen.add(display)
         group_a, group_b = _display_groups_from_contrast(row)
-        notes.append((display, source, f"A 组 {group_a}、B 组 {group_b}"))
+        notes.append((display, source, tm("convention_groups_pair", group_a=group_a, group_b=group_b)))
     return notes
 
 
@@ -1897,8 +1893,8 @@ def _story_contrast_table_lines(run_folder: str) -> List[str]:
     if not contrast_rows:
         return []
     lines = [
-        "### 核心对比表",
-        "| 科学问题 | 对比 | 方向强度 | 代表蛋白与效应量 | 解释 | 边界 |",
+        tm("task_table_title"),
+        tm("sct_header"),
         "|---|---|---|---|---|---|",
     ]
     for row in contrast_rows[:8]:
@@ -1909,14 +1905,13 @@ def _story_contrast_table_lines(run_folder: str) -> List[str]:
         top_down = _brief_gene_list(row.get("top_down_display_group_a"), 4)
         evidence_bits = []
         if top_up:
-            evidence_bits.append(f"{group_a} 较高：{top_up}")
+            evidence_bits.append(tm("sct_group_a_higher", group_a=group_a, top_up=top_up))
         if top_down:
-            evidence_bits.append(f"{group_b} 较高：{top_down}")
-        effect_summary = (f"n_sig={_fmt_cell(row.get('n_sig', ''))}（{convention}）；"
-                          f"{group_a}较高={up}；{group_b}较高={down}")
+            evidence_bits.append(tm("sct_group_b_higher", group_b=group_b, top_down=top_down))
+        effect_summary = (tm("sct_effect_summary", n_sig=_fmt_cell(row.get('n_sig', '')), convention=convention, group_a=group_a, up=up, group_b=group_b, down=down))
         lines.append(
             f"| {_fmt_cell(row.get('claim_title', ''), 80)} | {_fmt_cell(_human_contrast_label(row.get('display_contrast', '')), 70)} | "
-            f"{_fmt_cell(effect_summary, 90)} | {_fmt_cell('；'.join(evidence_bits), 150)} | "
+            f"{_fmt_cell(effect_summary, 90)} | {_fmt_cell(tm("sep_semicolon").join(evidence_bits), 150)} | "
             f"{_fmt_cell(row.get('interpretation', ''), 140)} | {_fmt_cell(row.get('boundary', ''), 130)} |"
         )
     composition_row = _pispa_cluster_type_composition_row(run_folder)
@@ -1930,8 +1925,8 @@ def _story_candidate_table_lines(run_folder: str) -> List[str]:
     if not candidate_rows:
         return []
     lines = [
-        "### 代表蛋白表",
-        "| 对比 | 候选蛋白 | 当前矩阵方向 | logFC | P.Value | adj.P.Val/FDR | 置信度 | 功能解释 |",
+        tm("candidate_table_title"),
+        tm("sct_candidate_header"),
         "|---|---|---|---:|---:|---:|---|---|",
     ]
     for row in candidate_rows:
@@ -1939,14 +1934,13 @@ def _story_candidate_table_lines(run_folder: str) -> List[str]:
             f"| {_fmt_cell(_human_contrast_label(row.get('display_contrast', '')), 70)} | {_fmt_cell(row.get('candidate', ''))} | "
             f"{_fmt_cell(_story_direction_zh(row))} | {_fmt_story_number(row.get('logFC_display'))} | "
             f"{_fmt_story_number(row.get('P.Value'))} | {_fmt_story_number(row.get('adj.P.Val'))} | "
-            f"{_fmt_cell(row.get('confidence', ''))} | {_fmt_cell(row.get('interpretation', '') or '同模块候选，需结合效应量和 FDR 判断优先级', 150)} |"
+            f"{_fmt_cell(row.get('confidence', ''))} | {_fmt_cell(row.get('interpretation', '') or tm("sct_default_reading"), 150)} |"
         )
     lines.append("")
-    lines.append("注：低置信候选表示检出或方向可用但 FDR/效应量不足，不单独作为机制驱动结论。")
+    lines.append(tm("sct_low_confidence_note"))
     for display, source, groups in _display_convention_notes(run_folder)[:2]:
         lines.append(
-            f"注：本表按「{_human_contrast_label(display)}」显示（{groups}）；底层差异表为 `{source}`，"
-            f"其 logFC 符号与本表相反，方向以文字与差异表对比名为准。"
+            tm("sct_display_note", a0=_human_contrast_label(display), groups=groups, source=source)
         )
     return lines
 
@@ -1964,8 +1958,8 @@ def _story_module_table_lines(run_folder: str) -> List[str]:
 
     ordered_rows = sorted(module_rows, key=module_row_key)
     lines = [
-        "### 模块证据表",
-        "| 任务/对比 | 模块 | A组均值 | B组均值 | Δ(A-B) | 代表蛋白数 | 统计口径 | 解读 |",
+        tm("smt_title"),
+        tm("smt_header"),
         "|---|---|---:|---:|---:|---:|---|---|",
     ]
 
@@ -1981,18 +1975,18 @@ def _story_module_table_lines(run_folder: str) -> List[str]:
         matched = _short_story_value(row.get("n_matched_genes"))
         module_key = str(module).lower()
         if delta is None:
-            interpretation = "该模块在本对比中未能计算均值差，通常是分组不存在或模块匹配蛋白不足。"
+            interpretation = tm("smt_no_delta")
         elif abs(delta) < 0.15:
-            interpretation = f"{group_a} 与 {group_b} 的模块差异较弱，适合作为背景线索。"
+            interpretation = tm("smt_weak", group_a=group_a, group_b=group_b)
         elif delta > 0:
-            interpretation = f"{group_a} 在该模块上更高，支持与“{row.get('claim_title', contrast)}”相关的方向性解释。"
+            interpretation = tm("smt_a_higher_context", group_a=group_a, claim_title=row.get('claim_title', contrast))
         else:
-            interpretation = f"{group_b} 在该模块上更高，提示该任务存在反向或背景状态差异。"
+            interpretation = tm("smt_b_higher_context", group_b=group_b)
         if any(token in module_key for token in ["migration", "gtpase", "erm", "myosin", "talin", "vinculin", "cytoskeleton"]):
-            interpretation = interpretation.replace("该模块", "骨架/迁移模块")
+            interpretation = interpretation.replace(tm("module_this_token"), tm("module_name_cytoskeleton"))
         if "translation" in module_key or "ribosome" in module_key:
-            interpretation = interpretation.replace("该模块", "翻译/核糖体模块")
-        method = "未计算 FDR；效应量=模块平均分差 Δ"
+            interpretation = interpretation.replace(tm("module_this_token"), tm("module_name_translation"))
+        method = tm("smt_method")
         lines.append(
             f"| {_fmt_cell(contrast, 90)} | {_fmt_cell(_module_display_name(module), 80)} | "
             f"{_fmt_story_number(a_mean)} | "
@@ -2014,9 +2008,9 @@ def _build_story_executive_summary(run_folder: str) -> str:
     main_contrast = contrast_rows[0]
     main_nsig = int(_float_or_none(main_contrast.get("n_sig")) or 0)
     main_change_phrase = (
-        f"显著上调 {main_contrast.get('n_up_display_group_a', 0)}、显著下调 {main_contrast.get('n_down_display_group_a', 0)}；代表上调为 {_short_story_value(main_contrast.get('top_up_display_group_a'), 190)}"
+        tm("story_exec_change_phrase", n_up_display_group_a=main_contrast.get('n_up_display_group_a', 0), n_down_display_group_a=main_contrast.get('n_down_display_group_a', 0), top_up_display_group_a=_short_story_value(main_contrast.get('top_up_display_group_a'), 190))
         if main_nsig > 0
-        else f"在当前阈值下没有显著差异蛋白；按效应量排序的上调候选为 {_short_story_value(main_contrast.get('top_up_display_group_a'), 190)}"
+        else tm("story_exec_change_phrase_none", top_up_display_group_a=_short_story_value(main_contrast.get('top_up_display_group_a'), 190))
     )
     top_candidates = "; ".join(
         f"{r.get('candidate')} {r.get('display_contrast')} logFC={_fmt_story_number(r.get('logFC_display'))}, FDR={_fmt_story_number(r.get('adj.P.Val'))}"
@@ -2029,14 +2023,14 @@ def _build_story_executive_summary(run_folder: str) -> str:
             module_bits.append(f"{row.get('module')} Δ={delta}")
     lines = [
         f"## {canonical_report_headings()['executive']}",
-        f"- `{dataset}` 的核心问题是：{metadata.get('story_title', '当前矩阵核心对比故事')}；本报告先给结论和核心表格，再把完整证据放入附录。",
-        f"- current_matrix 核心对比：{main_contrast.get('display_contrast')}，{main_change_phrase}。",
+        tm("story_exec_question", dataset=dataset, story_title=metadata.get('story_title', '当前矩阵核心对比故事')),
+        tm("story_exec_core_contrast", display_contrast=main_contrast.get('display_contrast'), main_change_phrase=main_change_phrase),
     ]
     if top_candidates:
-        lines.append(f"- current_matrix 代表蛋白：{top_candidates}；这些数值用于支撑主线，不把候选存在性写成显著差异。")
+        lines.append(tm("story_exec_representatives", top_candidates=top_candidates))
     if module_bits:
-        lines.append(f"- current_matrix 模块证据：{'; '.join(module_bits[:5])}；模块分数用于整合方向，正式显著性仍以差异表/富集表为边界。")
-    lines.append(f"- 证据边界：{metadata.get('boundary', 'current_matrix、offline_enrichment、external_annotation 与 extension 分层解释。')}")
+        lines.append(tm("story_exec_modules", a0='; '.join(module_bits[:5])))
+    lines.append(tm("story_exec_boundary", boundary=metadata.get('boundary', 'current_matrix、offline_enrichment、external_annotation 与 extension 分层解释。')))
     return "\n".join(lines)
 
 
@@ -2045,7 +2039,7 @@ def _build_story_scoring_first_screen(run_folder: str) -> str:
         return ""
     lines = [
         f"## {canonical_report_headings()['scoring']}",
-        "本节只放用户最需要先看到的核心表格：核心对比、代表蛋白和模块证据。完整文件路径、coverage table 与日志放在证据附录。",
+        tm("story_scoring_intro"),
         "",
     ]
     for block in [
@@ -2069,21 +2063,21 @@ def _build_story_main_findings(run_folder: str) -> str:
     enrichment_bits = _enrichment_summary_lines(run_folder, metadata.get("dataset") or _get_dataset_name(run_folder), limit=5)
     lines = [
         f"## {canonical_report_headings()['findings']}",
-        f"### 主线判断：{metadata.get('story_title', '当前矩阵核心对比')}",
-        f"{metadata.get('executive_claim', '本节按数据集核心问题组织结果，而不是按工具调用顺序罗列证据。')}",
+        tm("story_findings_mainline", story_title=metadata.get('story_title', '当前矩阵核心对比')),
+        f"{metadata.get('executive_claim', tm("story_findings_intro"))}",
     ]
     for row in contrast_rows[:6]:
         nsig = int(_float_or_none(row.get("n_sig")) or 0)
         change_phrase = (
-            f"当前矩阵中上调 {row.get('n_up_display_group_a', 0)}、下调 {row.get('n_down_display_group_a', 0)}。代表上调：{_short_story_value(row.get('top_up_display_group_a'), 230)}；代表下调：{_short_story_value(row.get('top_down_display_group_a'), 230)}。"
+            tm("story_findings_change_phrase", n_up_display_group_a=row.get('n_up_display_group_a', 0), n_down_display_group_a=row.get('n_down_display_group_a', 0), top_up_display_group_a=_short_story_value(row.get('top_up_display_group_a'), 230), top_down_display_group_a=_short_story_value(row.get('top_down_display_group_a'), 230))
             if nsig > 0
-            else f"当前阈值下没有显著差异蛋白；因此本段只把按效应量排序的候选变化作为低置信度线索。A组较高候选：{_short_story_value(row.get('top_up_display_group_a'), 230)}；B组较高候选：{_short_story_value(row.get('top_down_display_group_a'), 230)}。"
+            else tm("story_findings_change_phrase_none", top_up_display_group_a=_short_story_value(row.get('top_up_display_group_a'), 230), top_down_display_group_a=_short_story_value(row.get('top_down_display_group_a'), 230))
         )
         lines.extend([
             "",
-            f"### {row.get('claim_title', row.get('display_contrast', '核心对比'))}",
-            f"`{row.get('display_contrast')}` 是本段标准方向；{change_phrase}",
-            f"解释：{row.get('interpretation', '')} 边界：{row.get('boundary', metadata.get('boundary', ''))}",
+            f"### {row.get('claim_title', row.get('display_contrast', tm("story_task_default_title")))}",
+            tm("story_findings_direction", display_contrast=row.get('display_contrast'), change_phrase=change_phrase),
+            tm("story_findings_interpretation", interpretation=row.get('interpretation', ''), boundary=row.get('boundary', metadata.get('boundary', ''))),
         ])
         cand = [r for r in candidate_rows if r.get("claim_id") == row.get("claim_id")]
         if cand:
@@ -2091,13 +2085,13 @@ def _build_story_main_findings(run_folder: str) -> str:
                 f"{r.get('candidate')} logFC={_fmt_story_number(r.get('logFC_display'))}, FDR={_fmt_story_number(r.get('adj.P.Val'))}"
                 for r in cand[:5]
             ]
-            lines.append("代表蛋白数值为：" + "；".join(bits) + "。")
+            lines.append(tm("story_findings_representatives_prefix") + tm("sep_semicolon").join(bits) + tm("sentence_stop"))
         mods = [r for r in module_rows if r.get("claim_id") == row.get("claim_id") and _fmt_story_number(r.get("module_delta_group_a_minus_group_b"))]
         if mods:
             bits = [f"{r.get('module')} Δ={_fmt_story_number(r.get('module_delta_group_a_minus_group_b'))}" for r in mods[:4]]
-            lines.append("模块层面为：" + "；".join(bits) + "。")
+            lines.append(tm("story_findings_modules_prefix") + tm("sep_semicolon").join(bits) + tm("sentence_stop"))
     if enrichment_bits:
-        lines.extend(["", "### 离线富集补充", "offline_enrichment 用于补充机制名词，但只有带 FDR/q-value 支持的条目才写成显著富集；探索性 fallback 只作为提示。"])
+        lines.extend(["", tm("sub_offline"), tm("story_findings_enrichment_rule")])
         for bit in enrichment_bits[:5]:
             lines.append(f"- {bit}")
     return "\n".join(lines)
@@ -2168,19 +2162,19 @@ def _candidate_direction_for_user(row: Dict[str, Any]) -> str:
     contrast = row.get("display_contrast") or row.get("contrast") or ""
     group_a, group_b = _display_groups_from_contrast({"display_contrast": contrast})
     if direction in {"up_in_display_group_a", "up_in_group_a", "up", "higher_in_group_a"}:
-        return f"{group_a} 较高"
+        return tm("story_group_a_higher", group_a=group_a)
     if direction in {"down_in_display_group_a", "down_in_group_a", "down", "higher_in_group_b"}:
-        return f"{group_b} 较高"
+        return tm("story_group_b_higher", group_b=group_b)
     if "matrix_presence" in direction:
-        return "当前矩阵检出"
+        return tm("cand_dir_matrix_detected")
     if "symbol_not_matched_in_available_matrix" in direction or "symbol_not_mapped" in direction:
         # R29: an unmapped symbol is not an absent protein and must not read as one.
-        return "未建立符号映射（该符号未匹配到矩阵标识，不等同于未检出）"
+        return tm("cand_dir_no_symbol_map")
     if "not_detected_in_available_matrix" in direction:
         # R17: the internal enum reached the reader appendix verbatim; keep the state, fix the wording.
-        return "在可用矩阵中未检出"
+        return tm("cand_dir_not_detected")
     if not direction:
-        return "方向未定"
+        return tm("cand_dir_undetermined")
     return direction.replace("_", " ")
 
 
@@ -2214,22 +2208,26 @@ def _reader_boundary_text(value: Any) -> str:
     instead of being paraphrased.
     """
     text = str(value or "").strip()
+    if _report_language.get_language() != "zh":
+        # the recorded boundary sentences carry the evidence layer own English wording,
+        # and the map above is the released Chinese rendering of those sentences
+        return text
     return EVIDENCE_BOUNDARY_ZH.get(text, text)
 
 
 def _reader_detected(value: Any) -> str:
     text = str(value or "").strip().lower()
     if text in {"true", "1", "yes"}:
-        return "已检出"
+        return tm("cand_audit_detected")
     if text in {"false", "0", "no"}:
-        return "未检出"
+        return tm("cand_audit_not_detected")
     return _fmt_cell(value)
 
 
 def _reader_contrast_text(value: Any) -> str:
     text = str(value or "").strip()
     if text == "matrix_presence_only":
-        return "未进入统计检验"
+        return tm("reader_contrast_not_tested")
     return text
 
 
@@ -2265,51 +2263,51 @@ def _pispa_enrichment_family(term: str) -> Tuple[int, str, str]:
     families = [
         (
             1,
-            "线粒体/能量代谢",
+            tm("pispa_family_mito"),
             r"mitochond|oxidative phosphorylation|electron transport|respiratory|thermogenesis|atp synthesis",
-            "提示对照亚群的能量代谢活跃度不同，尤其适合解释 C2/C3 背景状态差异。",
+            tm("pispa_family_mito_note"),
         ),
         (
             2,
-            "翻译/核糖体",
+            tm("pispa_family_translation"),
             r"translation|ribosome|ribosomal|elongation|peptide biosynthetic",
-            "提示蛋白合成程序更活跃，是 Cluster 内部状态分层的重要功能轴。",
+            tm("pispa_family_translation_note"),
         ),
         (
             3,
-            "核质运输/RNA定位",
+            tm("pispa_family_rna"),
             r"nucleocytoplasmic|nuclear transport|nuclear pore|rna localization|mrna transport|rna transport",
-            "提示核质转运或 RNA 定位变化，可能连接应激、增殖或蛋白合成状态。",
+            tm("pispa_family_rna_note"),
         ),
         (
             4,
-            "黏附/细胞连接/骨架",
+            tm("pispa_family_adhesion"),
             r"cadherin|adhesion|junction|actin|cytoskeleton|cell-substrate|cell substrate|focal adhesion|binding",
-            "提示细胞连接、黏附或骨架预激活差异，可作为迁移状态的背景层。",
+            tm("pispa_family_adhesion_note"),
         ),
         (
             5,
-            "蛋白转运/定位",
+            tm("pispa_family_transport"),
             r"protein transport|protein localization|vesicle|endoplasmic reticulum|organelle localization|secretion|secretory",
-            "提示膜系统、囊泡或蛋白定位程序变化，可能连接分泌和膜重塑状态。",
+            tm("pispa_family_transport_note"),
         ),
         (
             6,
-            "ECM/分泌重塑",
+            tm("pispa_family_ecm"),
             r"extracellular matrix|ecm|collagen|secreted|extracellular structure|matrisome",
-            "提示分泌型基质和微环境重塑，是迁移相关解释中更接近表型的一层。",
+            tm("pispa_family_ecm_note"),
         ),
         (
             9,
-            "宽泛应激/疾病交叉",
+            tm("pispa_family_stress"),
             r"disease|infection|salmonella|parkinson|huntington|alzheimer|prion|amyotrophic|viral|virus",
-            "属于通用应激或疾病基因集重叠，只有与线粒体、翻译或骨架条目一致时才作为背景线索。",
+            tm("pispa_family_stress_note"),
         ),
     ]
     for priority, family, pattern, interpretation in families:
         if re.search(pattern, lower, flags=re.I):
             return priority, family, interpretation
-    return 8, "其它功能线索", "补充说明差异蛋白集合的功能背景，需结合对应核心对比和代表蛋白解读。"
+    return 8, tm("pispa_family_other"), tm("pispa_family_other_note")
 
 
 def _enrichment_direction_phrase(row: Dict[str, str]) -> str:
@@ -2317,9 +2315,9 @@ def _enrichment_direction_phrase(row: Dict[str, str]) -> str:
     group_a, group_b = _display_groups_from_contrast({"display_contrast": contrast})
     raw = str(row.get("raw_direction", "")).lower()
     if raw.startswith("down"):
-        return f"{group_b} 较高蛋白"
+        return tm("enrich_direction_group_b", group_b=group_b)
     if raw.startswith("up"):
-        return f"{group_a} 较高蛋白"
+        return tm("enrich_direction_group_a", group_a=group_a)
     return row.get("direction", "")
 
 
@@ -2333,13 +2331,13 @@ def _contrast_effect_summary_for_enrichment(row: Dict[str, str], contrast_rows: 
         group_a, group_b = _display_groups_from_contrast(contrast_row)
         up = _fmt_story_number(contrast_row.get("n_up_display_group_a"))
         down = _fmt_story_number(contrast_row.get("n_down_display_group_a"))
-        bits = [f"{group_a}较高={up or 'NA'}", f"{group_b}较高={down or 'NA'}"]
+        bits = [tm("enrich_effect_group_a", group_a=group_a, a1=up or 'NA'), tm("enrich_effect_group_b", group_b=group_b, a1=down or 'NA')]
         top_key = "top_up_display_group_a" if str(row.get("raw_direction", "")).lower().startswith("up") else "top_down_display_group_a"
         top = _brief_gene_list(contrast_row.get(top_key), 3)
         if top:
-            bits.append(f"代表={top}")
-        return "；".join(bits)
-    return "效应量见对应核心对比表"
+            bits.append(tm("enrich_effect_representative", top=top))
+        return tm("sep_semicolon").join(bits)
+    return tm("enrich_effect_pointer")
 
 
 def _pispa_enrichment_table_lines(enrichment_bits: List[str], contrast_rows: Optional[List[Dict[str, Any]]] = None) -> List[str]:
@@ -2364,8 +2362,8 @@ def _pispa_enrichment_table_lines(enrichment_bits: List[str], contrast_rows: Opt
         selected.append((family_priority.get(family, 99), family, entries[:3]))
     selected.sort(key=lambda item: (item[0], item[1]))
     lines = [
-        "### 离线富集补充表",
-        "| 语义家族 | 代表条目 | 对比与方向 | p.adjust/FDR | Count | 相关效应量 | 解读 |",
+        tm("pispa_enrich_title"),
+        tm("pispa_enrich_header"),
         "|---|---|---|---:|---:|---|---|",
     ]
     for _, family, entries in selected:
@@ -2378,19 +2376,19 @@ def _pispa_enrichment_table_lines(enrichment_bits: List[str], contrast_rows: Opt
         for idx, (_, _, row, _) in enumerate(entries, start=1):
             term = row.get("term", "")
             source_terms.append(f"{idx}. {row.get('source', 'offline')}: {term}")
-            contrast_directions.append(f"{row.get('contrast', '')}；{_enrichment_direction_phrase(row)}")
+            contrast_directions.append(tm("pispa_enrich_contrast_direction", contrast=row.get('contrast', ''), a1=_enrichment_direction_phrase(row)))
             padj_values.append(row.get("padjust", ""))
             count_values.append(row.get("count", ""))
             effect_values.append(_contrast_effect_summary_for_enrichment(row, contrast_rows))
-        contrast_direction = "；".join(dict.fromkeys(contrast_directions))
-        effect = "；".join(dict.fromkeys(effect_values))
+        contrast_direction = tm("sep_semicolon").join(dict.fromkeys(contrast_directions))
+        effect = tm("sep_semicolon").join(dict.fromkeys(effect_values))
         lines.append(
             f"| {_fmt_cell(family, 40)} | {_fmt_cell('<br>'.join(source_terms), 180)} | {_fmt_cell(contrast_direction, 120)} | "
-            f"{_fmt_cell('；'.join(padj_values))} | {_fmt_cell('；'.join(count_values))} | "
+            f"{_fmt_cell(tm("sep_semicolon").join(padj_values))} | {_fmt_cell(tm("sep_semicolon").join(count_values))} | "
             f"{_fmt_cell(effect, 110)} | {_fmt_cell(interpretation, 120)} |"
         )
     lines.append("")
-    lines.append("注：offline_enrichment 为本地离线富集解释，用于给差异蛋白集合命名并形成可检验假设；因果关系仍需独立实验验证。")
+    lines.append(tm("genr_table_note"))
     return lines
 
 
@@ -2409,26 +2407,20 @@ def _pispa_task_four_lines(
     lines = [
         f"## {story_report_headings()[5]}",
         (
-            f"结论先行：{group_a} 与 {group_b} 不是完全等价的对照背景。"
-            f"{_contrast_sentence(c2c3_contrast)} 这说明对照群体内部仍有可解释的蛋白组状态分层。"
+            tm("pt4_control_not_equivalent", group_a=group_a, group_b=group_b, a2=_contrast_sentence(c2c3_contrast))
         ),
         "",
-        "### C2/C3 代表蛋白与模块证据表",
-        "| 证据层级 | Cluster 2 侧 | Cluster 3 侧 | FDR/统计口径 | 效应量 | 解读 |",
+        tm("pt4_c2c3_table_title"),
+        tm("pt4_c2c3_header"),
         "|---|---|---|---|---|---|",
         (
-            f"| 差异蛋白 | {_fmt_cell(_brief_gene_list(c2c3_contrast.get('top_up_display_group_a'), 5), 120)} | "
-            f"{_fmt_cell(_brief_gene_list(c2c3_contrast.get('top_down_display_group_a'), 5), 120)} | "
-            f"adj.P.Val/FDR 见差异表 | "
-            f"n_sig={_fmt_story_number(c2c3_contrast.get('n_sig'))}；{group_a}较高={_fmt_story_number(c2c3_contrast.get('n_up_display_group_a'))}；{group_b}较高={_fmt_story_number(c2c3_contrast.get('n_down_display_group_a'))} | "
-            "Cluster 2 侧若集中于翻译、线粒体或黏附相关候选，说明其代表较活跃的对照状态；Cluster 3 侧候选则提示另一类非迁移背景。 |"
+            tm("pt4_c2c3_diff_row", top_up_display_group_a=_fmt_cell(_brief_gene_list(c2c3_contrast.get('top_up_display_group_a'), 5), 120), top_down_display_group_a=_fmt_cell(_brief_gene_list(c2c3_contrast.get('top_down_display_group_a'), 5), 120), n_sig=_fmt_story_number(c2c3_contrast.get('n_sig')), group_a=group_a, n_up_display_group_a=_fmt_story_number(c2c3_contrast.get('n_up_display_group_a')), group_b=group_b, n_down_display_group_a=_fmt_story_number(c2c3_contrast.get('n_down_display_group_a')))
         ),
     ]
     if c2c3_candidates:
         bits = [_candidate_key_value(row) for row in c2c3_candidates[:6]]
         lines.append(
-            f"| 骨架/黏附候选 | {_fmt_cell('；'.join(bits), 180)} | 见 logFC 方向 | "
-            "P.Value/adj.P.Val 见括号 FDR | logFC 见括号 | 用于判断对照内部是否已有局部骨架或黏附预激活线索。 |"
+            tm("pt4_c2c3_cytoskeleton_row", a0=_fmt_cell('；'.join(bits), 180))
         )
     if c2c3_modules:
         module_bits = [
@@ -2438,22 +2430,21 @@ def _pispa_task_four_lines(
         ]
         if module_bits:
             lines.append(
-                f"| 模块分数 | {_fmt_cell('；'.join(module_bits), 180)} | 相对较低或未覆盖 | "
-                "未计算 FDR；模块平均分差 | Δ 见左列 | 模块差异提示对照内部存在迁移相关程序的梯度，而不是二元开关。 |"
+                tm("pt4_c2c3_module_row", a0=_fmt_cell('；'.join(module_bits), 180))
             )
     lines.extend([
         "",
-        "### 当前矩阵支持",
-        f"- `current_matrix` 支持 {group_a} 与 {group_b} 的差异来自 C2/C3 对比本身：{group_a}较高={_fmt_story_number(c2c3_contrast.get('n_up_display_group_a'))}，{group_b}较高={_fmt_story_number(c2c3_contrast.get('n_down_display_group_a'))}，代表蛋白见上表。",
-        "- C2/C3 差异可以作为解释迁移轴的背景层：Cluster 1 的迁移相关信号需要与这种对照内部梯度区分开，避免把所有非迁移细胞看作同一种状态。",
+        tm("sub_current_matrix"),
+        tm("pt4_c2c3_current_matrix", group_a=group_a, group_b=group_b, n_up_display_group_a=_fmt_story_number(c2c3_contrast.get('n_up_display_group_a')), n_down_display_group_a=_fmt_story_number(c2c3_contrast.get('n_down_display_group_a'))),
+        tm("pt4_c2c3_background"),
         "",
-        "### 合理推测",
-        "- `extension`：如果 Cluster 2 侧同时出现翻译、线粒体、黏附或骨架模块升高，它可能代表更活跃或更易响应的对照状态；这仍需后续功能实验确认。",
-        "- `extension`：Cluster 3 若在结构、RNA/核孔或局部骨架蛋白上更高，可解释为另一种非迁移状态，而不是简单的低迁移版本。",
+        tm("sub_reasoned"),
+        tm("pt4_extension_c2"),
+        tm("pt4_extension_c3"),
         "",
-        "### 后续验证建议",
-        "- 在不混合 Cluster 2/3 的前提下，分别比较其形态、黏附斑、迁移前沿定位或划痕边缘距离。",
-        "- 若有时间序列或扰动数据，优先检验 C2/C3 是否会向 Cluster 1 迁移状态转换，或只是平行的对照亚状态。",
+        tm("sub_followup"),
+        tm("pt4_followup_morphology"),
+        tm("pt4_followup_timeseries"),
     ])
     return lines
 
@@ -2479,44 +2470,44 @@ def _build_pispa_claude_style_report(report_body: str, run_folder: str) -> str:
             module_bits.append(f"{_module_display_name(row.get('module'))} Δ={delta}")
         if len(module_bits) >= 5:
             break
-    group_summary = "; ".join(_group_qc_lines(group_rows, limit=4)) or "group_composition_qc.csv 未提供可读摘要"
-    figure_summary = " ".join(visualization_lines[:3]) or "图册索引见 visualize_results/figure_index.md。"
+    group_summary = "; ".join(_group_qc_lines(group_rows, limit=4)) or tm("pispa_group_summary_fallback")
+    figure_summary = " ".join(visualization_lines[:3]) or tm("pispa_figure_summary_fallback")
 
     lines: List[str] = [
         f"## {story_report_headings()[0]}",
-        "- Cluster 1 是本数据集中最明确的迁移相关状态；Cluster × Type 结构和 C1 相对 C2/C3 的核心对比共同支持这一点，证据层级为 `current_matrix`，置信度为中等。",
-        "- 迁移机制不是单个蛋白的故事，而是“分泌/ECM 重塑 + 局部骨架快速周转 + 黏附复合体调节”的组合轴；Rho GTPase 调控、ERM 膜-皮质连接、肌球蛋白收缩和 talin-vinculin 黏附斑提供同向证据。",
-        "- Cluster 2 与 Cluster 3 不能合并成一个均一对照；C2/C3 的差异提示对照群体内部已有翻译、黏附或细胞状态分层，需要在解释迁移轴时单独标出。",
-        "- EZR、CDC42、RAC1、RHOA、TLN1、VCL 等是当前矩阵中优先级较高的骨架/黏附候选；MSN、MYL9 等若显著性较弱，应作为同模块方向线索而不是独立驱动因子。",
-        "- 本报告可以提出后续验证假设，但不直接证明细胞形态、迁移方向性或力学拉伸；这些结论需要显微成像或扰动实验继续验证。",
+        tm("pispa_summary_c1"),
+        tm("pispa_summary_mechanism"),
+        tm("pispa_summary_c2c3"),
+        tm("pispa_summary_candidates"),
+        tm("pispa_summary_boundary"),
     ]
 
     lines.extend([
         "",
         f"## {story_report_headings()[1]}",
-        "本轮使用包内 `ProteinQuant.csv` 与 `SampleInfo.csv` 生成当前矩阵证据；分组、缺失和样本结构先由 `group_composition_qc.csv`、PCA/UMAP 与图册索引确认，再进入差异和模块解释。",
-        f"- 分组与 QC 摘要：{group_summary}。",
-        f"- 结构图证据：{figure_summary}",
+        tm("pispa_data_intro"),
+        tm("pispa_group_qc_line", group_summary=group_summary),
+        tm("pispa_figure_line", figure_summary=figure_summary),
         "",
         f"## {story_report_headings()[2]}",
-        "结论先行：Cluster 1 是迁移相关状态的主要候选，Cluster 2/3 则是带有内部差异的对照背景。下表只保留最能回答任务的问题、方向和代表证据，完整差异表见资产清单。",
+        tm("pispa_task1_intro"),
         "",
     ])
-    lines.extend(_story_contrast_table_lines(run_folder) or ["核心对比表未生成。"])
+    lines.extend(_story_contrast_table_lines(run_folder) or [tm("pispa_task1_no_table")])
     lines.extend([
         "",
-        "`Migrated_vs_Control` 在本报告中作为 Cluster × Type 组成和表型标签证据使用；主差异统计以 Cluster 两两对比展开，因为这些对比更直接分解迁移细胞富集的 Cluster 1 与两个对照背景。若需要迁移表型整体差异表，应在后续 run 中显式加入该 contrast。",
+        tm("pispa_task1_contrast_note"),
         "",
-        f"简要解读：{_contrast_sentence(main_contrast)} 这一结果说明 Cluster 1 与迁移状态相关，但它仍是抽样矩阵中的统计对应，不等同于因果验证。",
+        tm("pispa_task1_reading", a0=_contrast_sentence(main_contrast)),
         "",
         f"## {story_report_headings()[3]}",
-        "结论先行：迁移 Cluster 的功能解释应以机制链为中心，而不是把所有通路名铺开。当前最有价值的链条是 Rho GTPase 调控 -> ERM 膜-皮质连接 -> 肌球蛋白收缩 -> talin/vinculin 黏附 -> 肌动蛋白骨架重排。",
+        tm("pispa_task2_intro"),
         "",
     ])
-    lines.extend(_story_module_table_lines(run_folder) or ["模块证据表未生成。"])
+    lines.extend(_story_module_table_lines(run_folder) or [tm("pispa_task2_no_table")])
     if module_bits:
         lines.append("")
-        lines.append("模块主线摘要：" + "；".join(module_bits[:5]) + "。这些分数用于整合机制链，不能替代正式富集显著性。")
+        lines.append(tm("pispa_task2_summary_prefix") + tm("sep_semicolon").join(module_bits[:5]) + tm("pispa_task2_summary_tail"))
     enrichment_table = _pispa_enrichment_table_lines(enrichment_bits, contrast_rows)
     if enrichment_table:
         lines.append("")
@@ -2524,55 +2515,55 @@ def _build_pispa_claude_style_report(report_body: str, run_folder: str) -> str:
     lines.extend([
         "",
         f"## {story_report_headings()[4]}",
-        "结论先行：EZR/MSN/MYL9/CDC42/RAC1/RHOA/TLN1/VCL/FLNA/ACTN1/ITGB1 等候选应按检出、方向、logFC 与 FDR 分层呈现；不可检出或未显著项目必须作为边界写清。",
+        tm("pispa_task3_intro"),
         "",
     ])
-    lines.extend(_story_candidate_table_lines(run_folder) or ["代表蛋白表未生成。"])
+    lines.extend(_story_candidate_table_lines(run_folder) or [tm("pispa_task3_no_table")])
     if candidate_bits:
         lines.append("")
-        lines.append("候选优先级摘要：" + "；".join(candidate_bits[:6]) + "。这些数值支持方向和优先级，不把未显著候选写成已验证机制。")
+        lines.append(tm("pispa_task3_summary_prefix") + tm("sep_semicolon").join(candidate_bits[:6]) + tm("pispa_task3_summary_tail"))
     lines.extend([
         "",
-        "解释：这些候选蛋白共同指向迁移细胞的膜-皮质连接、收缩力、黏附复合体和肌动蛋白骨架重排。当前报告只把它们写成矩阵支持的候选链条，不能替代实时迁移成像或扰动实验。",
+        tm("pispa_task3_interpretation"),
         "",
     ])
     lines.extend(_pispa_task_four_lines(c2c3_contrast, candidate_rows, module_rows))
     lines.extend([
         "",
         f"## {story_report_headings()[6]}",
-        "### 当前矩阵支持",
-        "- Cluster 1 与迁移表型的对应关系可以由 Cluster-Type 结构、核心对比、候选蛋白和模块分数共同支持。",
-        "- C2/C3 内部差异是 current_matrix 中真实需要解释的结构，不能被迁移主线完全覆盖。",
+        tm("sub_current_matrix"),
+        tm("pispa_synth_c1"),
+        tm("pispa_synth_c2c3"),
         "",
-        "### 合理推测",
-        "- 若后续扰动验证优先级有限，Rho GTPase/ERM/myosin/talin-vinculin 轴比单个候选蛋白更适合作为迁移机制验证框架。",
-        "- 若候选蛋白未达到 FDR 阈值，可把它们作为同模块的方向线索，而不是单独宣称为显著驱动因子。",
+        tm("sub_reasoned"),
+        tm("pispa_synth_axis"),
+        tm("pispa_synth_fdr"),
         "",
-        "### 后续验证建议",
-        "- 用免疫染色或靶向蛋白质组验证 EZR/MSN/MYL9/TLN1/VCL 等候选在迁移前沿或黏附结构中的定位。",
-        "- 将 PiSPA 迁移 readout 与细胞形态、速度或扰动实验联动，验证模块分数是否对应真实迁移能力。",
+        tm("sub_followup"),
+        tm("pispa_followup_staining"),
+        tm("pispa_followup_live"),
         "",
         f"## {story_report_headings()[7]}",
-        "本 run 同时生成纯文本资产清单与嵌图版 Markdown，便于合作者快速查看图表而不必翻完整日志。",
+        tm("pispa_assets_intro"),
         "",
-        "| 资产 | 证据层级 | 用途 |",
+        tm("assets_header"),
         "|---|---|---|",
-        "| `report.md` | final_report | 结论优先的中文主报告 |",
-        "| `assets.txt` | asset_index | 纯文本列出关键报告、图表和证据表 |",
-        "| `figures.md` | figure_view | 直接内嵌关键 PNG 图和中文图注 |",
-        "| `evaluation_evidence/core_story_evidence.csv` | current_matrix | 核心对比、候选蛋白、模块方向的故事骨架 |",
-        "| `evaluation_evidence/candidate_protein_evidence.csv` | current_matrix | 候选蛋白检出、logFC、P.Value、adj.P.Val/FDR |",
-        "| `evaluation_evidence/curated_module_group_summary.csv` | current_matrix | 迁移、Rho、ERM、myosin、talin-vinculin 等模块分数 |",
-        "| `evaluation_evidence/group_composition_qc.csv` | current_matrix | Cluster × Type、缺失率和样本组成 QC |",
-        "| `visualize_results/figure_index.md` | current_matrix | PCA/UMAP、热图、候选蛋白和模块图册索引 |",
-        "| `analysis_design.used.yaml` 与 `evidence_ledger.jsonl` | audit trail | 记录分组设计和证据来源标签 |",
+        tm("asset_report"),
+        tm("asset_assets"),
+        tm("asset_figures"),
+        tm("asset_core_story"),
+        tm("asset_candidates"),
+        tm("pispa_asset_modules"),
+        tm("pispa_asset_group_qc"),
+        tm("pispa_asset_figure_index"),
+        tm("pispa_asset_audit"),
         "",
         f"## {story_report_headings()[8]}",
-        "- `current_matrix`：本报告的差异、候选、模块、QC 和图册均来自当前评测矩阵；它们能支持方向和优先级，不能单独证明因果。",
-        "- `offline_enrichment`：只作为本地 GO/KEGG/Reactome 的通路解释；未通过 FDR 的条目只能写作探索性提示。",
-        "- `external_annotation`：PiSPA 正文不使用疾病外部注释，不把背景知识写成当前矩阵结论。",
-        "- `extension`：启发式推测和后续验证建议用于提出可检验假设，不能替代差异统计、显微验证或迁移扰动实验。",
-        "- `analysis_design.used.yaml` 记录分组和对比设计；`evidence_ledger.jsonl` 保存证据来源标签，便于追溯但不参与生物学结论本身。",
+        tm("pispa_boundary_current_matrix"),
+        tm("boundary_offline_enrichment"),
+        tm("pispa_boundary_external"),
+        tm("pispa_boundary_extension"),
+        tm("pispa_boundary_records"),
     ])
     return "\n".join(lines).strip() + "\n"
 
@@ -2599,7 +2590,7 @@ def _story_module_rows_for_claim(module_rows: List[Dict[str, Any]], claim_id: st
 
 def _story_task_heading(index: int, title: str) -> str:
     title = _short_story_value(title, 90) or tm("story_task_default_title")
-    cn_nums = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
+    cn_nums = list(_report_language.t_list("main.task_numerals"))
     label = cn_nums[index - 1] if 0 < index <= len(cn_nums) else str(index)
     return tm("story_task_heading", n=index + 1, label=label, index=index, title=title)
 
@@ -2621,7 +2612,7 @@ def _generic_story_key_summary(run_folder: str) -> List[str]:
         down = _fmt_story_number(row.get("n_down_display_group_a")) or "0"
         top_up = _brief_gene_list(row.get("top_up_display_group_a"), 2)
         top_down = _brief_gene_list(row.get("top_down_display_group_a"), 2)
-        evidence = "；".join(bit for bit in [
+        evidence = tm("sep_semicolon").join(bit for bit in [
             tm("evidence_up", group=group_a, genes=top_up) if top_up else "",
             tm("evidence_up", group=group_b, genes=top_down) if top_down else "",
         ] if bit)
@@ -2637,7 +2628,7 @@ def _generic_story_key_summary(run_folder: str) -> List[str]:
             evidence=evidence))
     if candidate_rows:
         bits = [_candidate_key_value(row) for row in candidate_rows[:3]]
-        lines.append(tm("key_summary_candidates", bits="；".join(bits)))
+        lines.append(tm("key_summary_candidates", bits=tm("sep_semicolon").join(bits)))
     informative_modules = [
         row for row in module_rows
         if _float_or_none(row.get("module_delta_group_a_minus_group_b")) is not None
@@ -2647,7 +2638,7 @@ def _generic_story_key_summary(run_folder: str) -> List[str]:
             f"{_module_display_name(row.get('module'))} Δ={_fmt_story_number(row.get('module_delta_group_a_minus_group_b'))}"
             for row in informative_modules[:3]
         ]
-        lines.append(tm("key_summary_modules", bits="；".join(bits)))
+        lines.append(tm("key_summary_modules", bits=tm("sep_semicolon").join(bits)))
     lines.append(tm("key_summary_boundary",
                     boundary=metadata.get("boundary", tm("boundary_default"))))
     return lines[:6]
@@ -2698,9 +2689,7 @@ def _generic_task_table_lines(
             )
         if inverted_display:
             lines.append(
-                f"注：本节按「{_human_contrast_label(display_contrast)}」显示（A 组 {group_a}、B 组 {group_b}）；"
-                f"底层差异表为 `{source_contrast}`，其中 logFC 符号与本表相反（本表 logFC 为显示方向），"
-                f"方向以文字与所标对比名为准。"
+                tm("gtt_display_note", a0=_human_contrast_label(display_contrast), group_a=group_a, group_b=group_b, source_contrast=source_contrast)
             )
         lines.append("")
     if modules:
@@ -2727,7 +2716,7 @@ def _generic_task_table_lines(
                 f"{_fmt_cell(interpretation, 130)} |"
             )
         lines.append("")
-        lines.append("注：模块证据的 FDR 为 NA；效应量为模块平均分差 Δ，用于组织机制背景，不能替代正式差异蛋白或富集显著性。")
+        lines.append(tm("gtt_module_note"))
     return lines
 
 
@@ -2740,16 +2729,16 @@ def _generic_enrichment_interpretation(term: str, contrast: str, direction: str)
     be applied to other datasets -- that leak produced "C2/C3" labels in a dataset without them.
     """
     _, family, _ = _pispa_enrichment_family(term)
-    family = family or "功能集合"
-    return ("%s方向条目：该条来自 %s 的%s查询集，效应量与阈值以「相关效应量」列与核心对比表为准。"
-            % (family, contrast or "当前对比", direction or "差异蛋白"))
+    family = family or tm("genr_family_set")
+    return (tm("genr_direction_entry")
+            % (family, contrast or tm("genr_current_contrast"), direction or tm("genr_differential_proteins")))
 
 def _generic_enrichment_table_lines(run_folder: str, dataset: str, contrast_rows: List[Dict[str, Any]]) -> List[str]:
     bits = _enrichment_summary_lines(run_folder, dataset, limit=10)
     if not bits:
-        return ["未找到可直接用于正文的 FDR 支持离线富集；若存在 fallback 条目，只能作为探索性提示。"]
+        return [tm("genr_no_fdr_enrichment")]
     lines = [
-        "| 来源 | 对比与方向 | 富集条目 | p.adjust/FDR | Count | 相关效应量 | 解读 |",
+        tm("genr_table_header"),
         "|---|---|---|---:|---:|---|---|",
     ]
     seen_terms: set[Tuple[str, str]] = set()
@@ -2765,14 +2754,14 @@ def _generic_enrichment_table_lines(run_folder: str, dataset: str, contrast_rows
         effect = _contrast_effect_summary_for_enrichment(row, contrast_rows)
         interpretation = _generic_enrichment_interpretation(term, contrast, direction)
         lines.append(
-            f"| {_fmt_cell(row.get('source', 'offline'))} | {_fmt_cell(f'{contrast}；{direction}', 100)} | "
+            f"| {_fmt_cell(row.get('source', 'offline'))} | {_fmt_cell(tm("genr_contrast_direction", contrast=contrast, direction=direction), 100)} | "
             f"{_fmt_cell(term, 110)} | {_fmt_cell(row.get('padjust', ''))} | {_fmt_cell(row.get('count', ''))} | "
             f"{_fmt_cell(effect, 120)} | {_fmt_cell(interpretation, 120)} |"
         )
         if len(lines) >= 8:
             break
     lines.append("")
-    lines.append("注：offline_enrichment 为本地离线富集解释，用于给差异蛋白集合命名并形成可检验假设；因果关系仍需独立实验验证。")
+    lines.append(tm("genr_table_note"))
     return lines
 
 
@@ -2893,7 +2882,7 @@ def _dimension4_focus_gene_lines(csv_path: str, genes: set) -> Tuple[List[str], 
 def _build_dimension4_integration_section(run_folder: str, heading_index: int,
                                         spec_override: Optional[Dict[str, Any]] = None) -> List[str]:
     dataset = _get_dataset_name(run_folder)
-    spec = spec_override or _DIMENSION4_SECTION_SPECS.get(dataset)
+    spec = spec_override or _dimension4_spec_for(dataset)
     if not spec:
         return []
     lines: List[str] = []
@@ -2910,16 +2899,15 @@ def _build_dimension4_integration_section(run_folder: str, heading_index: int,
             if not gene_lines and not n_sig:
                 continue
             table_blocks.append("")
-            table_blocks.append(f"**{label}｜{contrast_name}**：显著蛋白数 n_sig={n_sig}（adj.P.Val<0.05）。")
+            table_blocks.append(tm("dim4_integration_row", label=label, contrast_name=contrast_name, n_sig=n_sig))
             inverted = next((r for r in _core_story_rows(run_folder, "contrast")
                              if _short_story_value(r.get("source_contrast")) == contrast_name
                              and r.get("inverted_from_source")), None)
             if inverted is not None:
                 display_label = _human_contrast_label(_short_story_value(inverted.get("display_contrast"), 120))
-                table_blocks.append(f"注：本表数值取自源差异表 `{contrast_name}`；正文核心表按「{display_label}」显示，"
-                                    f"两者符号相反，方向以文字与所标对比名为准。")
+                table_blocks.append(tm("dim4_integration_note", contrast_name=contrast_name, display_label=display_label))
             if gene_lines:
-                table_blocks.append("| 候选蛋白 | logFC | P.Value | adj.P.Val/FDR |")
+                table_blocks.append(tm("dim4_candidate_header"))
                 table_blocks.append("|---|---|---|---|")
                 table_blocks.extend(gene_lines[:6])
     probe = spec.get("manifest_probe")
@@ -2930,11 +2918,10 @@ def _build_dimension4_integration_section(run_folder: str, heading_index: int,
             entry = next((e for e in manifest.get("figures", []) if e.get("plot_type") == probe["plot_type"]), None)
             sizes = ((entry or {}).get("caption_metadata", {}).get("thresholds", {}) or {}).get("cluster_sizes", {})
             if sizes:
-                text = "、".join(f"{k}={v}" for k, v in sizes.items())
+                text = tm("sep_comma").join(f"{k}={v}" for k, v in sizes.items())
                 total = sum(int(v) for v in sizes.values())
                 table_blocks.append("")
-                table_blocks.append(f"**聚类簇规模（本图按全部 {total} 个观测聚类，不是组内子聚类）**：{text}。"
-                                    f"本轮未执行该组内部的子聚类与标记基因分析，组内分布以模块分数分布为准。")
+                table_blocks.append(tm("dim4_cluster_size_note", total=total, text=text))
         except Exception:
             pass
     if not table_blocks and not spec.get("always_render"):
@@ -2948,7 +2935,7 @@ def _build_dimension4_integration_section(run_folder: str, heading_index: int,
     if table_blocks:
         lines.append("")
     for boundary in spec.get("boundary", []):
-        lines.append(f"边界：{boundary}")
+        lines.append(tm("dim4_prefixed_boundary", boundary=boundary))
     return lines
 
 
@@ -3083,28 +3070,23 @@ def _visualization_evidence_lines(run_folder: str) -> List[str]:
     key = root_summary.get("key_protein_overview", {}) if isinstance(root_summary, dict) else {}
     if pca:
         lines.append(
-            f"PCA 样本结构：n={pca.get('n_samples', '')}，PC1={pca.get('PC1_variance', '')}%，"
-            f"PC2={pca.get('PC2_variance', '')}%，标注列={pca.get('label_column', '')}；图见 `visualize_results/pca_plot.png`。"
+            tm("vis_pca", n_samples=pca.get('n_samples', ''), PC1_variance=pca.get('PC1_variance', ''), PC2_variance=pca.get('PC2_variance', ''), label_column=pca.get('label_column', ''))
         )
     if umap:
         lines.append(
-            f"UMAP 样本结构：n={umap.get('n_samples', '')}，clusters/groups={umap.get('n_clusters', '')}，"
-            f"标注列={umap.get('label_column', '')}；图见 `visualize_results/umap_plot.png`。"
+            tm("vis_umap", n_samples=umap.get('n_samples', ''), n_clusters=umap.get('n_clusters', ''), label_column=umap.get('label_column', ''))
         )
     if heatmap:
         comparisons = heatmap.get("comparisons", []) or []
         comparison_preview = ", ".join(str(x) for x in comparisons[:6])
         if len(comparisons) > 6:
-            comparison_preview += f" 等 {len(comparisons)} 个对比"
+            comparison_preview += tm("vis_more_contrasts", a0=len(comparisons))
         lines.append(
-            f"热图使用 {heatmap.get('n_features', '')} 个信息量较高的特征，覆盖 {comparison_preview}；图见 `visualize_results/heatmap.png`。"
+            tm("vis_heatmap", n_features=heatmap.get('n_features', ''), comparison_preview=comparison_preview)
         )
     if key:
         lines.append(
-            "差异概览显示 %s 个显著蛋白条目，覆盖 %s 个对比。该数字的口径是"
-            "「adj.P.Val < 0.05」（未叠加效应量阈值，叠加 |logFC| > 0.25 后的合计见"
-            "《必需子分析与对比覆盖》表），并且是各对比条目的合计——同一蛋白出现在多个对比中会重复计入，"
-            "不是去重后的蛋白数。" % (key.get("n_significant", ""), key.get("n_contrasts", ""))
+            tm("vis_differential_overview") % (key.get("n_significant", ""), key.get("n_contrasts", ""))
         )
     figure_manifest = os.path.join(run_folder, "visualize_results", "figure_manifest.json")
     try:
@@ -3112,7 +3094,7 @@ def _visualization_evidence_lines(run_folder: str) -> List[str]:
             manifest = load_json(figure_manifest)
             figures = manifest.get("figures", []) if isinstance(manifest, dict) else []
             categories = sorted({f.get("category", "") for f in figures if isinstance(f, dict) and f.get("category")})
-            lines.append(f"静态图册包含 {len(figures)} 张图，类别包括：{', '.join(categories[:6])}。")
+            lines.append(tm("vis_static_figure_set", a0=len(figures), a1=', '.join(categories[:6])))
     except Exception:
         pass
     return lines
@@ -3124,15 +3106,11 @@ def _group_qc_lines(group_rows: List[Dict[str, Any]], limit: int = 8) -> List[st
     for row in rows[:limit]:
         if row.get("input_mean_detected_proteins") not in (None, ""):
             lines.append(
-                f"{row.get('group_col', '')}={row.get('group', '')}：样本数={row.get('n_samples', '')}；"
-                f"输入矩阵平均检出={row.get('input_mean_detected_proteins', '')}、平均缺失率={row.get('input_mean_missing_rate', '')}；"
-                f"分析矩阵平均检出={row.get('analysed_mean_detected_proteins', '')}、平均缺失率={row.get('analysed_mean_missing_rate', '')}"
+                tm("gqc_row_split", group_col=row.get('group_col', ''), group=row.get('group', ''), n_samples=row.get('n_samples', ''), input_mean_detected_proteins=row.get('input_mean_detected_proteins', ''), input_mean_missing_rate=row.get('input_mean_missing_rate', ''), analysed_mean_detected_proteins=row.get('analysed_mean_detected_proteins', ''), analysed_mean_missing_rate=row.get('analysed_mean_missing_rate', ''))
             )
         else:
             lines.append(
-                f"{row.get('group_col', '')}={row.get('group', '')}：样本数={row.get('n_samples', '')}，"
-                f"平均检出蛋白={row.get('mean_detected_proteins', '')}，平均缺失率={row.get('mean_missing_rate', '')}"
-                f"（该表未区分输入与分析矩阵）"
+                tm("gqc_row_flat", group_col=row.get('group_col', ''), group=row.get('group', ''), n_samples=row.get('n_samples', ''), mean_detected_proteins=row.get('mean_detected_proteins', ''), mean_missing_rate=row.get('mean_missing_rate', ''))
             )
     return lines
 
@@ -3181,8 +3159,7 @@ def _sample_score_dispersion_lines(sample_rows: List[Dict[str, Any]], dataset: s
         mean = sum(vals) / len(vals)
         var = sum((v - mean) ** 2 for v in vals) / max(1, len(vals) - 1)
         lines.append(
-            f"EB 内部 {module} 模块在 {len(vals)} 个 EB 细胞中存在分布差异：mean={mean:.3f}, "
-            f"range={min(vals):.3f} to {max(vals):.3f}, SD={var ** 0.5:.3f}；这是 current_matrix 梯度证据，不作为硬性谱系判定。"
+            tm("eis_dispersion_row", module=module, a1=len(vals), mean=mean, a3=min(vals), a4=max(vals), a5=var ** 0.5)
         )
     return lines
 
@@ -3210,12 +3187,12 @@ def _reader_counts_text(value: Any) -> str:
     """Counts cell for the reader: readable pairs; a truncated literal stays readable and labelled."""
     counts = _parse_counts_cell(value)
     if counts:
-        return "；".join("%s %s" % (key, val) for key, val in counts.items())
+        return tm("sep_semicolon").join("%s %s" % (key, val) for key, val in counts.items())
     text = str(value or "").strip()
     if not text:
         return ""
     if "..." in text or "…" in text:
-        return text.strip("{}") + "（原表该单元格过长，此处按原样保留前段）"
+        return text.strip("{}") + tm("reader_counts_truncated_note")
     return text
 
 
@@ -3263,27 +3240,27 @@ def _dataset_specific_interpretation_lines(
             limit=10,
         )
         cluster_type = _pipsa_cluster_type_summary(group_rows)
-        lines = ["### PiSPA 迁移机制链"]
+        lines = [tm("dsi_pispa_chain_title")]
         if cluster_type:
             lines.append(
-                "- current_matrix Cluster-Type 结构显示迁移细胞主要富集在 Cluster 1，而 Cluster 2/3 更偏对照或混合状态："
+                tm("dsi_pispa_cluster_type")
                 + cluster_type
-                + "。这说明后续机制解释应以 Cluster 1 vs 2/3 的迁移轴和 Cluster 2 vs 3 的非迁移异质性为主。"
+                + tm("dsi_pispa_cluster_type_tail")
             )
         if module_bits:
             lines.append(
-                "- current_matrix 模块链条从 Rho GTPase 调控、ERM 膜皮质连接、肌球蛋白收缩到 talin-vinculin/focal adhesion 逐步支持迁移表型："
+                tm("dsi_pispa_module_chain")
                 + "; ".join(module_bits[:5])
-                + "。Cluster 1 在 migration_signature、ERM 和 adhesion 相关模块上整体高于 Cluster 2/3，属于强证据；Cluster 2 vs 3 的差异用于解释对照群体内部异质性，置信度较低。"
+                + tm("dsi_pispa_module_tail")
             )
         if candidate_bits:
             lines.append(
-                "- current_matrix 候选蛋白把机制链落到可复核数值："
+                tm("dsi_pispa_candidate_chain")
                 + "; ".join(candidate_bits[:10])
-                + "。EZR/MSN/RDX 对应膜皮质，CDC42/RAC1/RHOA 对应小 GTPase，MYL9 对应收缩，TLN1/VCL/PXN/ITGB1 对应黏附复合体；每个方向均以 logFC/adj.P.Val 和对比方向为边界。"
+                + tm("dsi_pispa_candidate_tail")
             )
         lines.append(
-            "- offline_enrichment 未提供 FDR 显著富集时，报告不把通路名写成显著发现；迁移结论主要来自 current_matrix 候选蛋白、curated module score、Cluster-Type 交叉表和图册。"
+            tm("dsi_pispa_enrichment_boundary")
         )
         return lines
 
@@ -3302,27 +3279,27 @@ def _dataset_specific_interpretation_lines(
             limit=10,
         )
         dispersion_bits = _sample_score_dispersion_lines(sample_rows, dataset)
-        lines = ["### iPSC/EB 分化与异质性链"]
+        lines = [tm("dsi_ipsceb_chain_title")]
         lines.append(
-            "- current_matrix 标准化与差异模型摘要：本轮按 EB vs iPSCs 做蛋白层差异比较，并在报告中保留 ComBat fallback 边界；因此结论优先解释当前矩阵的方向和模块分数，而不复制论文全量流程中的固定 DEP 数量。"
+            tm("dsi_ipsceb_normalisation")
         )
         if candidate_bits:
             lines.append(
-                "- current_matrix 多能性到分化的候选链条为：POU5F1/SOX2/LIN28A 在 EB 相对 iPSCs 下降，GATA4/HAND1/MAP2/FN1/COL1A1/COL3A1 等分化或 ECM 相关候选在 EB 上升；关键数值为 "
+                tm("dsi_ipsceb_candidate_chain")
                 + "; ".join(candidate_bits[:10])
-                + "。NANOG 未检出只写作矩阵检测边界，不写作生物学缺失。"
+                + tm("dsi_ipsceb_nanog_tail")
             )
         if module_bits:
             lines.append(
-                "- current_matrix 模块分数把单蛋白方向整合为谱系与功能程序："
+                tm("dsi_ipsceb_module_chain")
                 + "; ".join(module_bits[:6])
-                + "。pluripotency_core 与 cell_cycle_replication 更偏 iPSCs，lineage/ECM 模块更偏 EB，支持从多能性维持到 EB 谱系分化的主线。"
+                + tm("dsi_ipsceb_module_tail")
             )
         if dispersion_bits:
             lines.append(
-                "- current_matrix EB-only 异质性不依赖平均值结论，而用 EB 细胞内部模块分布显示谱系梯度："
+                tm("dsi_ipsceb_dispersion")
                 + " ".join(dispersion_bits[:3])
-                + " 这些结果支持 EB 内部存在连续差异，但不把模块高低直接定性为硬亚群或真实发育轨迹。"
+                + tm("dsi_ipsceb_dispersion_tail")
             )
         return lines
 
@@ -3400,45 +3377,45 @@ def _brain_competitive_interpretation_lines(
     ]
 
     lines = [
-        "### Brain 评分主线解释",
-        "- current_matrix 状态/QC 边界：PCA/UMAP 图显示 2310 个细胞的矩阵具有状态结构；" + " ".join(visualization_lines[:2]),
+        tm("brain_scoring_title"),
+        tm("brain_state_qc") + " ".join(visualization_lines[:2]),
     ]
     if batch_bits:
         lines.append(
-            "- current_matrix 批次边界：主要评分状态覆盖多个 batch（" +
+            tm("brain_batch_boundary") +
             "; ".join(batch_bits) +
-            "）；未分配的 `nan` 细胞不用于发育状态结论，ComBat fallback 作为边界明示。"
+            tm("brain_batch_boundary_tail")
         )
     if batch_cross_bits or batch_metric_bits:
         lines.append(
-            "- current_matrix 批次量化补充："
+            tm("brain_batch_quant")
             + ("; ".join(batch_cross_bits[:4]) if batch_cross_bits else "")
-            + ("；" if batch_cross_bits and batch_metric_bits else "")
+            + (tm("sep_semicolon") if batch_cross_bits and batch_metric_bits else "")
             + ("; ".join(batch_metric_bits) if batch_metric_bits else "")
-            + "。这些数值用于说明状态分布与 QC，而不是把 fallback 矩阵描述为已完成 ComBat 校正。"
+            + tm("brain_batch_quant_tail")
         )
     if module_focus:
         lines.append(
-            "- current_matrix RG/oRG -> IPC-EN -> EN 轴：" +
+            tm("brain_axis") +
             "; ".join(module_focus[:5]) +
-            "。这些模块分数分别支持 progenitor、IPC transition、EN maturation、synapse/neurite、chromatin/BAF 与 cell-cycle 程序。"
+            tm("brain_axis_tail")
         )
         if len(module_focus) > 5:
-            lines.append("- current_matrix 功能模块覆盖：" + "; ".join(module_focus[5:]) + "。")
+            lines.append(tm("brain_module_coverage") + "; ".join(module_focus[5:]) + tm("sentence_stop"))
     if candidate_bits:
         lines.append(
-            "- current_matrix 候选蛋白：" +
+            tm("brain_candidates") +
             "; ".join(candidate_bits[:10]) +
-            "。优先展示 RG/oRG、IPC-EN/oRG、EN/IPC-EN、EN/RG 或 EN/oRG 等发育轴对比；涉及 Microglia/OPC/Vascular 的行只作为背景差异，不作为主轴证据。"
+            tm("brain_candidates_tail")
         )
     if detected_external:
         lines.append(
-            "- external_annotation ASD/NDD 边界：本地交叉表在当前矩阵中检出 " +
+            tm("brain_external_boundary") +
             ", ".join(detected_external[:14]) +
-            "；只有与 EN maturation 或 chromatin/BAF 模块重叠时解释力更强，但仍是注释层，不是疾病因果证明。"
+            tm("brain_external_boundary_tail")
         )
     lines.append(
-        "- offline_enrichment 解释规则：宽泛 viral/infectious Reactome 标签不作为主要脑发育结论；主要解释优先来自 FDR 支持的 RNA processing/splicing、translation/ribosome、chromatin/nuclear complex、synapse/neurite、mitochondrial/OXPHOS 和 cell-cycle 条目。"
+        tm("brain_enrichment_rule")
     )
     return lines
 
@@ -3873,6 +3850,1125 @@ MAIN_TEXT = {
     "module_weak": ("{group_a} 与 {group_b} 的模块差异较弱。", "The module difference between {group_a} and {group_b} is weak."),
     "module_a_higher": ("{group_a} 在该模块上更高。", "{group_a} is higher in this module."),
     "module_b_higher": ("{group_b} 在该模块上更高。", "{group_b} is higher in this module."),
+    "ac_analysed_matrix": (
+        "分析矩阵 %s",
+        "analysed matrix %s"),
+    "ac_applied_with": (
+        "已执行（%s）",
+        "applied (%s)"),
+    "ac_batch_block": (
+        "- 批次处理：%s（%s）；矩阵有效性状态 %s。",
+        "- Batch handling: %s (%s); matrix validity status %s."),
+    "ac_batch_col_undeclared": (
+        "元数据中未声明",
+        "not declared in the metadata"),
+    "ac_batch_corrected": (
+        "已执行新的批次校正",
+        "a new batch correction was applied"),
+    "ac_batch_not_corrected": (
+        "未执行新的批次校正",
+        "no new batch correction was applied"),
+    "ac_batch_not_recorded": (
+        "- 批次处理：本轮未记录批次校正分支；如元数据未声明批次列，则不做批次校正。",
+        "- Batch handling: this round recorded no batch-correction branch; when the metadata declares no batch column, no batch correction is performed."),
+    "ac_chain_suffix": (
+        "；%s",
+        "; %s"),
+    "ac_contrasts_see_sections": (
+        "见各任务小节",
+        "see the task sections"),
+    "ac_design_source": (
+        "- 设计来源：{design_source}；样本标识列 {sample_id_col}，蛋白组列 {protein_id_col}，分组列 {group_col}，物种 {species}。",
+        "- Design source: {design_source}; sample identifier column {sample_id_col}, protein group column {protein_id_col}, grouping column {group_col}, species {species}."),
+    "ac_design_variables_fallback": (
+        "设计变量",
+        "the design variables"),
+    "ac_design_vars": (
+        "- 设计变量：分组列 %s；协变量 %s；批次列 %s。",
+        "- Design variables: grouping column %s; covariates %s; batch column %s."),
+    "ac_filter_rule": (
+        "过滤：%s",
+        "filtering: %s"),
+    "ac_form_not_recorded": (
+        "形式未记录",
+        "form not recorded"),
+    "ac_fraction_full_matrix": (
+        "全矩阵非缺失比例 %s（%s 行）",
+        "full-matrix non-missing fraction %s (%s rows)"),
+    "ac_fraction_head_sample": (
+        "非缺失比例 %s（设计推断时按矩阵前 %s 行抽样估计，抽样口径，不等于全矩阵缺失率）",
+        "non-missing fraction %s (estimated during design inference by sampling the first %s rows of the matrix, which is a sampling convention and not the full-matrix missingness rate)"),
+    "ac_fraction_not_recorded": (
+        "非缺失比例未记录",
+        "non-missing fraction not recorded"),
+    "ac_fraction_unlabelled": (
+        "非缺失比例 %s（记录未标明是全矩阵还是抽样，引用前需核验）",
+        "non-missing fraction %s (the record does not say whether this is the full matrix or a sample, so verify it before citing)"),
+    "ac_group_col_none": (
+        "无",
+        "none"),
+    "ac_imputed_values": (
+        "，填补 %s 个取值",
+        ", %s values imputed"),
+    "ac_input_encoding_fallback": (
+        "输入矩阵的原始编码",
+        "the original encoding of the input matrix"),
+    "ac_matrix_state": (
+        "- 矩阵状态：输入为%s；%s；数值范围 %s 至 %s。",
+        "- Matrix state: input is %s; %s; numeric range %s to %s."),
+    "ac_method_not_recorded": (
+        "方法未记录",
+        "method not recorded"),
+    "ac_missing_and_scale": (
+        "- 缺失与尺度（按本轮实际执行记录）：未检出以%s记录；缺失值填补 %s；对数变换 %s%s。",
+        "- Missingness and scale (from the execution record of this round): non-detection is recorded as %s; missing-value imputation %s; log transform %s%s."),
+    "ac_missing_and_scale_not_recorded": (
+        "- 缺失与尺度：未检出以%s记录；本轮实际执行的填补与对数变换未记录（状态：未记录，不得据此推断为未执行）。",
+        "- Missingness and scale: non-detection is recorded as %s; the imputation and log transform actually executed this round are not recorded (status: not recorded, which must not be read as not executed)."),
+    "ac_no_extra_design_variables": (
+        "无额外设计变量",
+        "no additional design variables"),
+    "ac_not_applied": (
+        "未执行",
+        "not applied"),
+    "ac_not_recorded_with_rule": (
+        "未记录（记录中的规则：%s）",
+        "not recorded (rule in the record: %s)"),
+    "ac_other_design_variables": (
+        "- 其他可用设计变量：%s（本轮未按其分层比较）。",
+        "- Other available design variables: %s (not compared by stratum in this round)."),
+    "ac_proteins_retained": (
+        "保留蛋白 %s 个",
+        "%s proteins retained"),
+    "ac_several_rows": (
+        "若干",
+        "several"),
+    "ac_statistical_method": (
+        "- 统计方法：%s；多重校正 %s；通过筛选的口径为校正后 P（%s，即差异表中的 adj.P.Val）< %s 且 |logFC| > %s（未校正的 P.Value 列保留在差异表中供参考，不参与筛选）；主对比 %s。",
+        "- Statistical method: %s; multiple correction %s; the screening convention is the adjusted P (%s, that is adj.P.Val in the differential table) < %s and |logFC| > %s (the unadjusted P.Value column stays in the differential table for reference and takes no part in screening); main contrast %s."),
+    "ac_stratified_absent": (
+        "- 分层情况：本轮已计算 %d 个对比，未生成按设计变量（%s）分层的差异对比；相关背景条件只在分组 QC 交叉表与解释边界中讨论。",
+        "- Stratification: this round computed %d contrasts and generated no differential contrast stratified by the design variables (%s); the related background conditions are discussed only in the group QC cross-table and in the interpretation boundaries."),
+    "ac_stratified_present": (
+        "- 分层情况：本轮已计算 %d 个对比；证据层按 %s 生成 %d 条分层对比记录，逐层结果表列入可复核资产清单。",
+        "- Stratification: this round computed %d contrasts; by %s the evidence layer generated %d stratified contrast records, and the per-stratum result tables are listed in the reproducible asset list."),
+    "boundary_prefix": (
+        "边界：",
+        "Boundary: "),
+    "brain_axis": (
+        "- current_matrix RG/oRG -> IPC-EN -> EN 轴：",
+        "- current_matrix RG/oRG -> IPC-EN -> EN axis: "),
+    "brain_axis_tail": (
+        "。这些模块分数分别支持 progenitor、IPC transition、EN maturation、synapse/neurite、chromatin/BAF 与 cell-cycle 程序。",
+        ". These module scores support the progenitor, IPC transition, EN maturation, synapse/neurite, chromatin/BAF and cell-cycle programmes respectively."),
+    "brain_batch_boundary": (
+        "- current_matrix 批次边界：主要评分状态覆盖多个 batch（",
+        "- current_matrix batch boundary: the main scoring states cover several batches ("),
+    "brain_batch_boundary_tail": (
+        "）；未分配的 `nan` 细胞不用于发育状态结论，ComBat fallback 作为边界明示。",
+        "); unassigned `nan` cells are not used for developmental-state conclusions, and the ComBat fallback is stated explicitly as a boundary."),
+    "brain_batch_quant": (
+        "- current_matrix 批次量化补充：",
+        "- current_matrix batch quantification supplement: "),
+    "brain_batch_quant_tail": (
+        "。这些数值用于说明状态分布与 QC，而不是把 fallback 矩阵描述为已完成 ComBat 校正。",
+        ". These values describe the state distribution and QC, and do not describe the fallback matrix as a completed ComBat correction."),
+    "brain_candidates": (
+        "- current_matrix 候选蛋白：",
+        "- current_matrix candidate proteins: "),
+    "brain_candidates_tail": (
+        "。优先展示 RG/oRG、IPC-EN/oRG、EN/IPC-EN、EN/RG 或 EN/oRG 等发育轴对比；涉及 Microglia/OPC/Vascular 的行只作为背景差异，不作为主轴证据。",
+        ". Developmental-axis contrasts such as RG/oRG, IPC-EN/oRG, EN/IPC-EN, EN/RG or EN/oRG are shown first; rows involving Microglia, OPC or Vascular serve only as background differences and not as main-axis evidence."),
+    "brain_enrichment_rule": (
+        "- offline_enrichment 解释规则：宽泛 viral/infectious Reactome 标签不作为主要脑发育结论；主要解释优先来自 FDR 支持的 RNA processing/splicing、translation/ribosome、chromatin/nuclear complex、synapse/neurite、mitochondrial/OXPHOS 和 cell-cycle 条目。",
+        "- offline_enrichment interpretation rule: broad viral or infectious Reactome labels are not used as main brain-development conclusions; the main interpretation comes first from the FDR-supported RNA processing/splicing, translation/ribosome, chromatin/nuclear complex, synapse/neurite, mitochondrial/OXPHOS and cell-cycle entries."),
+    "brain_external_boundary": (
+        "- external_annotation ASD/NDD 边界：本地交叉表在当前矩阵中检出 ",
+        "- external_annotation ASD/NDD boundary: the local cross-table detects in the current matrix "),
+    "brain_external_boundary_tail": (
+        "；只有与 EN maturation 或 chromatin/BAF 模块重叠时解释力更强，但仍是注释层，不是疾病因果证明。",
+        "; the interpretation is stronger only where these overlap the EN maturation or chromatin/BAF modules, and even then it stays an annotation layer rather than proof of disease causation."),
+    "brain_module_coverage": (
+        "- current_matrix 功能模块覆盖：",
+        "- current_matrix functional module coverage: "),
+    "brain_scoring_title": (
+        "### Brain 评分主线解释",
+        "### Brain scoring main-line interpretation"),
+    "brain_state_qc": (
+        "- current_matrix 状态/QC 边界：PCA/UMAP 图显示 2310 个细胞的矩阵具有状态结构；",
+        "- current_matrix state / QC boundary: the PCA and UMAP figures show that the 2310-cell matrix has state structure; "),
+    "cand_audit_detected": (
+        "已检出",
+        "detected"),
+    "cand_audit_diff_row": (
+        "| %s | %s | %s | 已检出 | %s | %s | %s | %s | 差异表（任务点名候选） |",
+        "| %s | %s | %s | detected | %s | %s | %s | %s | differential table (task-named candidate) |"),
+    "cand_audit_exploratory_title": (
+        "**探索性候选（限量呈现）**",
+        "**Exploratory candidates (limited presentation)**"),
+    "cand_audit_footer_note": (
+        "同一基因对应多个蛋白组时按蛋白组分行呈现；对比列写的是该行统计实际所属的对比，未计算该对比时留空并注明，不用其他对比的数值替代。",
+        "When one gene maps to several protein groups the rows are per protein group; the contrast column states the contrast the row's statistics actually belong to, and when that contrast was not computed the cell is left empty and annotated rather than filled with numbers from another contrast."),
+    "cand_audit_header_full": (
+        "| 候选蛋白 | 蛋白组 | 对比 | 检出状态 | 方向 | logFC | P.Value | adj.P.Val | 来源 |",
+        "| Candidate | Protein group | Contrast | Detection status | Direction | logFC | P.Value | adj.P.Val | Source |"),
+    "cand_audit_header_short": (
+        "| 候选蛋白 | 蛋白组 | 对比 | 检出状态 | 方向 | logFC | P.Value | adj.P.Val |",
+        "| Candidate | Protein group | Contrast | Detection status | Direction | logFC | P.Value | adj.P.Val |"),
+    "cand_audit_no_named": (
+        "**说明**：本轮任务文本未点名具体候选蛋白，下表为数据集中预设候选的探索性呈现。",
+        "**Note**: this round's task text names no specific candidate proteins, so the table below is an exploratory presentation of the candidates preset in the dataset."),
+    "cand_audit_not_detected": (
+        "未检出",
+        "not detected"),
+    "cand_audit_not_evaluated": (
+        "未评估（该对比未计算）",
+        "not evaluated (this contrast was not computed)"),
+    "cand_audit_title_named": (
+        "**任务点名的候选蛋白（%d 个，全部呈现，不按数据存在性截断）**",
+        "**Candidate proteins named by the task (%d, all shown, not truncated by whether data exists)**"),
+    "cand_audit_unresolved": (
+        "未评估：未在任何矩阵、候选表或差异表中匹配到该符号（名称待解析或当前矩阵未检出）",
+        "not evaluated: the symbol did not match any matrix, candidate table or differential table (the name is unresolved, or it is not detected in the current matrix)"),
+    "cand_audit_unresolved_row": (
+        "| %s | — | — | 见右列 | — | — | — | — | %s |",
+        "| %s | - | - | see the right column | - | - | - | - | %s |"),
+    "cand_dir_matrix_detected": (
+        "当前矩阵检出",
+        "detected in the current matrix"),
+    "cand_dir_no_symbol_map": (
+        "未建立符号映射（该符号未匹配到矩阵标识，不等同于未检出）",
+        "no symbol mapping was established (the symbol did not match a matrix identifier, which does not mean it was not detected)"),
+    "cand_dir_not_detected": (
+        "在可用矩阵中未检出",
+        "not detected in the available matrix"),
+    "cand_dir_undetermined": (
+        "方向未定",
+        "direction undetermined"),
+    "checklist_computed": (
+        "已计算（adj.P<%s：%d；再叠加 |log2FC|>%s：%d；表内蛋白 %d；%s）",
+        "computed (adj.P<%s: %d; after also applying |log2FC|>%s: %d; proteins in the table %d; %s)"),
+    "checklist_contrast_prefix": (
+        "对比 ",
+        "Contrast "),
+    "checklist_header": (
+        "| 必需项目 | 状态 | 依据 |",
+        "| Required item | Status | Evidence |"),
+    "checklist_mentioned": (
+        "正文已提及（文本匹配）",
+        "mentioned in the body (text match)"),
+    "checklist_not_mentioned": (
+        "正文未提及",
+        "not mentioned in the body"),
+    "ckv_direction": (
+        "{gene}（{direction}）",
+        "{gene} ({direction})"),
+    "ckv_full": (
+        "{gene}（{direction}，logFC={logfc}，FDR={fdr}）",
+        "{gene} ({direction}, logFC={logfc}, FDR={fdr})"),
+    "ckv_logfc": (
+        "{gene}（{direction}，logFC={logfc}）",
+        "{gene} ({direction}, logFC={logfc})"),
+    "convention_groups_pair": (
+        "A 组 {group_a}、B 组 {group_b}",
+        "Group A {group_a}, Group B {group_b}"),
+    "d4_boundary_suffix": (
+        "；%s。",
+        "; %s."),
+    "d4_closing_boundary": (
+        "边界：本节的方向与分类判断来自当前矩阵的差异表与模块分数；不构成对上游实验设计或因果机制的检验%s。",
+        "Boundary: the directional and classification judgements in this section come from the differential tables and the module scores of the current matrix; they do not test the upstream experimental design or any causal mechanism%s."),
+    "d4_contrast_count": (
+        "**%s**：adj.P.Val < %s 的蛋白 %d；再叠加 |log2FC| > %s 后为 %d（表内蛋白 %d）。",
+        "**%s**: proteins with adj.P.Val < %s: %d; after also applying |log2FC| > %s: %d (proteins in the table %d)."),
+    "d4_heading": (
+        "## %d. 机制整合与解释边界",
+        "## %d. Mechanism Integration and Interpretation Boundaries"),
+    "d4_intro": (
+        "本节把各任务小节的蛋白级结果、模块证据与离线富集放在同一处收束，并给出明确的边界判断；判读规则是：只有通过筛选口径的候选进入机制解释，未通过筛选的方向线索只作为假设。",
+        "This section brings the protein-level results, the module evidence and the offline enrichment of the task sections together in one place and states the boundary judgements explicitly; the reading rule is that only candidates passing the screening convention enter the mechanism interpretation, while directional leads that do not pass it serve as hypotheses only."),
+    "d4_label_agree": (
+        "与标签一致",
+        "agrees with the label"),
+    "d4_label_disagree": (
+        "与标签不一致",
+        "disagrees with the label"),
+    "d4_label_no_expectation": (
+        "未设定预期状态",
+        "no expected state set"),
+    "d4_module_top_state": (
+        "%s 在 %s 上最高（%.3f，%s）",
+        "%s is highest in %s (%.3f, %s)"),
+    "d4_not_ordered": (
+        "非中序",
+        "not ordered"),
+    "d4_ordered": (
+        "中序",
+        "ordered"),
+    "d4_verdict_bloodcell": (
+        "判定：标注状态与蛋白程序的一致性——%s。两个模块的最高状态分别落在其预期状态上，说明注释标签与蛋白程序方向一致；这不构成对各状态之间连续过渡或供体效应的检验。",
+        "Verdict: consistency between the annotated states and the protein programmes: %s. The highest state of each module falls on its expected state, which indicates that the annotation labels and the protein programme directions agree; this does not test continuous transitions between states or donor effects."),
+    "d4_verdict_generic": (
+        "判定：本节机制解释以 %d 条通过筛选口径的候选证据为主，%d 条为未通过筛选的方向线索，%d 条候选在当前矩阵中未检出。方向线索只作假设，不进入结论句。",
+        "Verdict: the mechanism interpretation in this section rests mainly on %d candidate records that pass the screening convention, with %d directional leads that do not pass it and %d candidates not detected in the current matrix. Directional leads serve as hypotheses only and do not enter the conclusion sentences."),
+    "d4_verdict_ipsceb": (
+        "判定：EB 组内部并非同质。EB 样本内的模块分数分布为——%s。因此 EB 与 iPSC 的组间比较描述的是中心趋势，组内梯度与亚群结构需另外阅读异质性图。",
+        "Verdict: the EB group is not internally homogeneous. The module score distribution inside the EB samples is: %s. The EB-vs-iPSC comparison therefore describes a central tendency, and within-group gradients and substructure must be read from the heterogeneity figures separately."),
+    "d4_verdict_liver": (
+        "判定：在 %d 个可判读的焦点基因中，%d 个满足 Portal—Midlobular—Central 的中序关系，支持把 Midlobular 作为两侧之间的过渡带而不是独立区带；其余基因不满足该关系，说明分区不是单一线性梯度。逐基因结果：%s。",
+        "Verdict: of %d readable focal genes, %d satisfy the Portal-Midlobular-Central ordering, supporting Midlobular as a transition zone between the two sides rather than an independent zone; the remaining genes do not satisfy it, which shows the zonation is not a single linear gradient. Per-gene results: %s."),
+    "design_source_auto": (
+        "自动推断",
+        "automatically inferred"),
+    "design_source_dataset": (
+        "数据集提供",
+        "dataset-provided"),
+    "design_source_user": (
+        "用户提供",
+        "user-provided"),
+    "dim4_candidate_header": (
+        "| 候选蛋白 | logFC | P.Value | adj.P.Val/FDR |",
+        "| Candidate | logFC | P.Value | adj.P.Val/FDR |"),
+    "dim4_cluster_size_note": (
+        "**聚类簇规模（本图按全部 {total} 个观测聚类，不是组内子聚类）**：{text}。本轮未执行该组内部的子聚类与标记基因分析，组内分布以模块分数分布为准。",
+        "**Cluster size (this figure clusters all {total} observations, not sub-clusters within a group)**: {text}. No sub-clustering or marker-gene analysis inside this group was run in this round; the within-group distribution is read from the module score distribution."),
+    "dim4_integration_note": (
+        "注：本表数值取自源差异表 `{contrast_name}`；正文核心表按「{display_label}」显示，两者符号相反，方向以文字与所标对比名为准。",
+        "Note: the values in this table come from the source differential table `{contrast_name}`; the body core table displays it as \"{display_label}\", the two have opposite signs, and direction is read from the wording and from the stated contrast name."),
+    "dim4_integration_row": (
+        "**{label}｜{contrast_name}**：显著蛋白数 n_sig={n_sig}（adj.P.Val<0.05）。",
+        "**{label} | {contrast_name}**: significant proteins n_sig={n_sig} (adj.P.Val<0.05)."),
+    "dim4_prefixed_boundary": (
+        "边界：{boundary}",
+        "Boundary: {boundary}"),
+    "dsi_ipsceb_candidate_chain": (
+        "- current_matrix 多能性到分化的候选链条为：POU5F1/SOX2/LIN28A 在 EB 相对 iPSCs 下降，GATA4/HAND1/MAP2/FN1/COL1A1/COL3A1 等分化或 ECM 相关候选在 EB 上升；关键数值为 ",
+        "- The current_matrix candidate chain from pluripotency to differentiation runs as follows: POU5F1/SOX2/LIN28A are lower in EB than in iPSCs, while differentiation or ECM-related candidates such as GATA4/HAND1/MAP2/FN1/COL1A1/COL3A1 are higher in EB; the key numbers are "),
+    "dsi_ipsceb_chain_title": (
+        "### iPSC/EB 分化与异质性链",
+        "### iPSC/EB differentiation and heterogeneity chain"),
+    "dsi_ipsceb_dispersion": (
+        "- current_matrix EB-only 异质性不依赖平均值结论，而用 EB 细胞内部模块分布显示谱系梯度：",
+        "- The current_matrix EB-only heterogeneity does not rest on mean-value conclusions; it uses the module distribution inside the EB cells to show a lineage gradient: "),
+    "dsi_ipsceb_dispersion_tail": (
+        " 这些结果支持 EB 内部存在连续差异，但不把模块高低直接定性为硬亚群或真实发育轨迹。",
+        " These results support continuous differences inside EB, without labelling high and low modules directly as hard subpopulations or as a true developmental trajectory."),
+    "dsi_ipsceb_module_chain": (
+        "- current_matrix 模块分数把单蛋白方向整合为谱系与功能程序：",
+        "- The current_matrix module scores integrate the single-protein directions into lineage and functional programmes: "),
+    "dsi_ipsceb_module_tail": (
+        "。pluripotency_core 与 cell_cycle_replication 更偏 iPSCs，lineage/ECM 模块更偏 EB，支持从多能性维持到 EB 谱系分化的主线。",
+        ". pluripotency_core and cell_cycle_replication lean towards iPSCs while the lineage/ECM modules lean towards EB, supporting the main line from pluripotency maintenance to EB lineage differentiation."),
+    "dsi_ipsceb_nanog_tail": (
+        "。NANOG 未检出只写作矩阵检测边界，不写作生物学缺失。",
+        ". The non-detection of NANOG is written only as a detection boundary of the matrix, not as a biological absence."),
+    "dsi_ipsceb_normalisation": (
+        "- current_matrix 标准化与差异模型摘要：本轮按 EB vs iPSCs 做蛋白层差异比较，并在报告中保留 ComBat fallback 边界；因此结论优先解释当前矩阵的方向和模块分数，而不复制论文全量流程中的固定 DEP 数量。",
+        "- current_matrix normalisation and differential model summary: this run compares protein-level differences for EB vs iPSCs and keeps the ComBat fallback boundary on the record; the conclusions therefore read the direction and the module scores of the current matrix first, rather than copying the fixed DEP counts of the full original pipeline."),
+    "dsi_pispa_candidate_chain": (
+        "- current_matrix 候选蛋白把机制链落到可复核数值：",
+        "- The current_matrix candidate proteins put the mechanism chain on reproducible numbers: "),
+    "dsi_pispa_candidate_tail": (
+        "。EZR/MSN/RDX 对应膜皮质，CDC42/RAC1/RHOA 对应小 GTPase，MYL9 对应收缩，TLN1/VCL/PXN/ITGB1 对应黏附复合体；每个方向均以 logFC/adj.P.Val 和对比方向为边界。",
+        ". EZR/MSN/RDX correspond to the membrane cortex, CDC42/RAC1/RHOA to small GTPases, MYL9 to contractility and TLN1/VCL/PXN/ITGB1 to the adhesion complex; every direction is bounded by logFC/adj.P.Val and by the recorded contrast direction."),
+    "dsi_pispa_chain_title": (
+        "### PiSPA 迁移机制链",
+        "### PiSPA migration mechanism chain"),
+    "dsi_pispa_cluster_type": (
+        "- current_matrix Cluster-Type 结构显示迁移细胞主要富集在 Cluster 1，而 Cluster 2/3 更偏对照或混合状态：",
+        "- The current_matrix Cluster-Type structure shows migrated cells are mainly enriched in Cluster 1, while Cluster 2/3 are closer to control or mixed states: "),
+    "dsi_pispa_cluster_type_tail": (
+        "。这说明后续机制解释应以 Cluster 1 vs 2/3 的迁移轴和 Cluster 2 vs 3 的非迁移异质性为主。",
+        ". This means the mechanism interpretation that follows should centre on the Cluster 1 vs 2/3 migration axis and on the non-migratory heterogeneity of Cluster 2 vs 3."),
+    "dsi_pispa_enrichment_boundary": (
+        "- offline_enrichment 未提供 FDR 显著富集时，报告不把通路名写成显著发现；迁移结论主要来自 current_matrix 候选蛋白、curated module score、Cluster-Type 交叉表和图册。",
+        "- When offline_enrichment provides no FDR-significant enrichment, the report does not write pathway names as significant findings; the migration conclusions come mainly from the current_matrix candidate proteins, the curated module scores, the Cluster-Type cross-table and the figure set."),
+    "dsi_pispa_module_chain": (
+        "- current_matrix 模块链条从 Rho GTPase 调控、ERM 膜皮质连接、肌球蛋白收缩到 talin-vinculin/focal adhesion 逐步支持迁移表型：",
+        "- The current_matrix module chain progressively supports the migration phenotype, from Rho GTPase regulation and ERM membrane-cortex linkage through myosin contractility to talin-vinculin/focal adhesion: "),
+    "dsi_pispa_module_tail": (
+        "。Cluster 1 在 migration_signature、ERM 和 adhesion 相关模块上整体高于 Cluster 2/3，属于强证据；Cluster 2 vs 3 的差异用于解释对照群体内部异质性，置信度较低。",
+        ". Cluster 1 is overall higher than Cluster 2/3 in the migration_signature, ERM and adhesion-related modules, which is strong evidence; the Cluster 2 vs 3 difference explains heterogeneity inside the control population and carries lower confidence."),
+    "eis_dispersion_row": (
+        "EB 内部 {module} 模块在 {a1} 个 EB 细胞中存在分布差异：mean={mean:.3f}, range={a3:.3f} to {a4:.3f}, SD={a5:.3f}；这是 current_matrix 梯度证据，不作为硬性谱系判定。",
+        "Within EB, the {module} module is distributed differently across {a1} EB cells: mean={mean:.3f}, range={a3:.3f} to {a4:.3f}, SD={a5:.3f}; this is current_matrix gradient evidence and not a hard lineage call."),
+    "enrich_direction_group_a": (
+        "{group_a} 较高蛋白",
+        "{group_a} higher proteins"),
+    "enrich_direction_group_b": (
+        "{group_b} 较高蛋白",
+        "{group_b} higher proteins"),
+    "enrich_effect_group_a": (
+        "{group_a}较高={a1}",
+        "{group_a} higher={a1}"),
+    "enrich_effect_group_b": (
+        "{group_b}较高={a1}",
+        "{group_b} higher={a1}"),
+    "enrich_effect_pointer": (
+        "效应量见对应核心对比表",
+        "see the corresponding core contrast table for the effect size"),
+    "enrich_effect_representative": (
+        "代表={top}",
+        "representative={top}"),
+    "ext_batch_title": (
+        "### 处理与批次的可比性",
+        "### Comparability of handling and batches"),
+    "ext_candidate_chain_row": (
+        "- %s：%s",
+        "- %s: %s"),
+    "ext_candidate_chain_title": (
+        "### 候选进入/排除链路",
+        "### Candidate inclusion and exclusion chain"),
+    "ext_contrast_compare_header": (
+        "| 对比 A | 对比 B | 共享蛋白 | Spearman(logFC) | A/中位|logFC| | B/中位|logFC| | A 显著 | B 显著 | 显著重叠 | 共同显著符号一致 | FDR 来源 | 判定 |",
+        "| Contrast A | Contrast B | Shared proteins | Spearman(logFC) | A / median |logFC| | B / median |logFC| | Significant in A | Significant in B | Significant overlap | Concordant sign among shared significant | FDR source | Verdict |"),
+    "ext_contrast_compare_title": (
+        "### 对比之间的并列比较",
+        "### Side-by-side comparison between contrasts"),
+    "ext_fdr_from_table": (
+        "表内 adj.P.Val",
+        "adj.P.Val from the table"),
+    "ext_fdr_recomputed": (
+        "BH 重算",
+        "BH recomputed"),
+    "ext_stratified_header": (
+        "| 分层变量 | 层 | 对比（方向） | 效应尺度 | 第一臂 n | 第二臂 n | 通过筛选 | 状态 | 说明 |",
+        "| Stratifier | Stratum | Contrast (direction) | Effect scale | n arm 1 | n arm 2 | Passed screening | Status | Note |"),
+    "ext_stratified_row": (
+        "| %s | %s | %s（%s） | %s | %s | %s | %s | %s | %s |",
+        "| %s | %s | %s (%s) | %s | %s | %s | %s | %s | %s |"),
+    "ext_stratified_title": (
+        "### 分层对比",
+        "### Stratified contrasts"),
+    "fallback_boundary_enrichment": (
+        "- 离线富集属于 offline_enrichment 证据；FDR 不显著时只能作为探索性提示。",
+        "- Offline enrichment belongs to offline_enrichment evidence; terms that are not FDR-significant may only serve as exploratory notes."),
+    "fallback_boundary_external": (
+        "- 外部文献或药物数据库证据如存在，也不能解释为当前矩阵的直接证据。",
+        "- External literature or drug-database evidence, when present, cannot be read as direct evidence from the current matrix."),
+    "fallback_boundary_heading": (
+        "## 科学边界",
+        "## Scientific boundaries"),
+    "fallback_boundary_matrix": (
+        "- 矩阵统计属于 current_matrix 证据。",
+        "- Matrix statistics belong to current_matrix evidence."),
+    "fallback_h1": (
+        "# scProteomics 分析报告",
+        "# scProteomics Analysis Report"),
+    "fallback_intro": (
+        "本报告由本地 fallback reporter 生成，因为 LLM reporter 不可用。结论仅限于本轮 current_matrix 输出、offline_enrichment 和已标注来源的证据文件。",
+        "This report was produced by the local fallback reporter because the LLM reporter was unavailable. Conclusions are limited to the current_matrix output of this round, to offline_enrichment, and to the evidence files with a recorded source."),
+    "fallback_source_design": (
+        "- analysis_design：`{a0}`。",
+        "- analysis_design: `{a0}`."),
+    "fallback_source_figures": (
+        "- figure_manifest：`{a0}`。",
+        "- figure_manifest: `{a0}`."),
+    "fallback_source_ledger": (
+        "- evidence_ledger：`{a0}`。",
+        "- evidence_ledger: `{a0}`."),
+    "fallback_source_matrix": (
+        "- current_matrix：分析输出位于 `{a0}`。",
+        "- current_matrix: the analysis output is in `{a0}`."),
+    "fallback_sources_heading": (
+        "## 证据来源",
+        "## Evidence sources"),
+    "fallback_summary_heading": (
+        "## 分析摘要",
+        "## Analysis summary"),
+    "figure_index_and": (
+        " 与 ",
+        " and "),
+    "figure_index_caption_fallback": (
+        "见图册索引",
+        "see the figure index"),
+    "figure_index_captions": (
+        "；图注与阈值见 ",
+        "; captions and thresholds are in "),
+    "figure_index_full_prefix": (
+        "- 完整图册索引：",
+        "- Complete figure index: "),
+    "figure_index_row_prefix": (
+        "- 图 ",
+        "- Figure "),
+    "figure_index_row_tail": (
+        "（%s）：%s。",
+        " (%s): %s."),
+    "genr_contrast_direction": (
+        "{contrast}；{direction}",
+        "{contrast}; {direction}"),
+    "genr_current_contrast": (
+        "当前对比",
+        "Current contrast"),
+    "genr_differential_proteins": (
+        "差异蛋白",
+        "Differential proteins"),
+    "genr_direction_entry": (
+        "%s方向条目：该条来自 %s 的%s查询集，效应量与阈值以「相关效应量」列与核心对比表为准。",
+        "%s-direction entry: this entry comes from the %s query set of %s; the effect size and the thresholds follow the \"Related effect size\" column and the core contrast table."),
+    "genr_family_set": (
+        "功能集合",
+        "Functional set"),
+    "genr_no_fdr_enrichment": (
+        "未找到可直接用于正文的 FDR 支持离线富集；若存在 fallback 条目，只能作为探索性提示。",
+        "No FDR-supported offline enrichment was found that can go straight into the body text; if fallback entries exist they can only serve as exploratory notes."),
+    "genr_table_header": (
+        "| 来源 | 对比与方向 | 富集条目 | p.adjust/FDR | Count | 相关效应量 | 解读 |",
+        "| Source | Contrast and direction | Enriched term | p.adjust/FDR | Count | Related effect size | Reading |"),
+    "genr_table_note": (
+        "注：offline_enrichment 为本地离线富集解释，用于给差异蛋白集合命名并形成可检验假设；因果关系仍需独立实验验证。",
+        "Note: offline_enrichment is a local offline enrichment interpretation, used to name the differential protein sets and to state testable hypotheses; causality still requires independent experimental validation."),
+    "gqc_row_flat": (
+        "{group_col}={group}：样本数={n_samples}，平均检出蛋白={mean_detected_proteins}，平均缺失率={mean_missing_rate}（该表未区分输入与分析矩阵）",
+        "{group_col}={group}: n_samples={n_samples}, mean detected proteins={mean_detected_proteins}, mean missing rate={mean_missing_rate} (this table does not separate the input and the analysed matrix)"),
+    "gqc_row_split": (
+        "{group_col}={group}：样本数={n_samples}；输入矩阵平均检出={input_mean_detected_proteins}、平均缺失率={input_mean_missing_rate}；分析矩阵平均检出={analysed_mean_detected_proteins}、平均缺失率={analysed_mean_missing_rate}",
+        "{group_col}={group}: n_samples={n_samples}; input matrix mean detected={input_mean_detected_proteins}, mean missing rate={input_mean_missing_rate}; analysed matrix mean detected={analysed_mean_detected_proteins}, mean missing rate={analysed_mean_missing_rate}"),
+    "gtt_display_note": (
+        "注：本节按「{a0}」显示（A 组 {group_a}、B 组 {group_b}）；底层差异表为 `{source_contrast}`，其中 logFC 符号与本表相反（本表 logFC 为显示方向），方向以文字与所标对比名为准。",
+        "Note: this section is displayed as \"{a0}\" (Group A {group_a}, Group B {group_b}); the underlying differential table is `{source_contrast}`, where the logFC sign is opposite to this table (here the logFC follows the displayed direction), so read direction from the wording and from the stated contrast name."),
+    "gtt_module_note": (
+        "注：模块证据的 FDR 为 NA；效应量为模块平均分差 Δ，用于组织机制背景，不能替代正式差异蛋白或富集显著性。",
+        "Note: the FDR for the module evidence is NA; the effect measure is the module mean difference Delta, which organises the mechanism background and does not replace formal differential-protein or enrichment significance."),
+    "human_contrast_unspecified": (
+        "未指定对比（仅存在性记录）",
+        "no contrast specified (existence record only)"),
+    "human_test_two_group": (
+        "双组比较",
+        "two-group comparison"),
+    "lea_leakage_direction_note": (
+        "下方的泄漏方向与模块摘要",
+        "the leakage direction and module summaries below"),
+    "lea_per_module_note": (
+        "下方的逐模块表",
+        "the per-module table below"),
+    "missing_encoding_nan": (
+        "空值",
+        "NaN"),
+    "missing_encoding_with_form": (
+        "%s（记录形式：%s）",
+        "%s (recorded form: %s)"),
+    "missing_encoding_zero": (
+        "零值",
+        "zero"),
+    "module_dispersion_row": (
+        "%s：n=%d，中位数 %.3f，四分位距 %.3f（P25 %.3f 至 P75 %.3f，极差 %.3f）",
+        "%s: n=%d, median %.3f, interquartile range %.3f (P25 %.3f to P75 %.3f, range %.3f)"),
+    "module_name_cytoskeleton": (
+        "骨架/迁移模块",
+        "cytoskeleton/migration module"),
+    "module_name_translation": (
+        "翻译/核糖体模块",
+        "translation/ribosome module"),
+    "module_this_token": (
+        "该模块",
+        "this module"),
+    "off_direction_detail": (
+        "- %s：查询集 n=%s（该方向通过筛选的蛋白，映射之前）；其中 %s 个映射到本地资源；背景集 %s 个基因；方法=%s；资源=%s；FDR 阈值 %s。",
+        "- %s: query set n=%s (proteins passing the screening in that direction, before mapping); %s of them map to the local resources; background set %s genes; method=%s; resource=%s; FDR threshold %s."),
+    "off_entry_row": (
+        "  - %s ｜ %s（校正 P=%s；查询集命中 %s 个；该通路基因集在背景中 %s 个；背景 %s 个；查询集命中比 %s%s）",
+        "  - %s | %s (adjusted P=%s; query-set hits %s; this pathway gene set in the background %s; background %s; query-set hit ratio %s%s)"),
+    "off_main_contrast": (
+        "- 主对比（analysis design 指定的第一个对比）：%s。",
+        "- Main contrast (the first contrast named by the analysis design): %s."),
+    "off_members": (
+        "；成员 ",
+        "; members "),
+    "off_method_ora": (
+        "过度代表分析（ORA，阈值蛋白集合）",
+        "Over-representation analysis (ORA, thresholded protein set)"),
+    "off_method_ranked": (
+        "排序型富集（不应按单蛋白 FDR 判定）",
+        "Rank-based enrichment (must not be judged by single-protein FDR)"),
+    "off_min_padjust": (
+        "（最小 p.adjust=%s）",
+        "(minimum p.adjust=%s)"),
+    "off_no_direction_result": (
+        "- %s：本轮未生成该方向的富集结果（通常表示该方向没有通过筛选的蛋白集合）。",
+        "- %s: this round generated no enrichment result for that direction (usually because no protein set passed the screening in that direction)."),
+    "off_no_fdr_entries": (
+        "  - 该方向没有通过 FDR 的条目%s；本轮不引用富集作为该方向的证据。",
+        "  - that direction has no entries passing FDR%s; this round cites no enrichment as evidence for that direction."),
+    "off_resource_local_gmt": (
+        "本地 GMT",
+        "local GMT"),
+    "off_section_note": (
+        "以上条目来自本地离线富集结果，用于给差异蛋白集合命名；不构成因果或通路活性测量。",
+        "The entries above come from the local offline enrichment results and are used to name the differential protein sets; they do not constitute a causal claim or a measurement of pathway activity."),
+    "off_section_title": (
+        "### 离线富集证据（主对比）",
+        "### Offline enrichment evidence (main contrast)"),
+    "off_tested_entries": (
+        "  - 本轮对该方向检验了 %s 个基因集条目，落盘 %s 条；下面只引用通过 FDR 的前几条。",
+        "  - This round tested %s gene-set entries for that direction and wrote %s to disk; only the leading entries that pass FDR are cited below."),
+    "off_zero_citations_note": (
+        "- 说明：主对比的富集引用数为 0，机制解释只依赖蛋白级与模块级证据。",
+        "- Note: the number of enrichment citations for the main contrast is 0, so the mechanism interpretation rests on protein-level and module-level evidence only."),
+    "pct_chi2": (
+        "整体 χ² p={a0}",
+        "Overall chi-square p={a0}"),
+    "pct_composition_boundary": (
+        "这是表型组成统计，不是蛋白差异对比；效应量为迁移比例、OR 和组成检验 p 值。",
+        "This is a phenotypic composition statistic, not a protein differential contrast; the effect measures are the migration proportion, the OR and the composition test p value."),
+    "pct_composition_direction": (
+        "C1 迁移细胞 {a0}/{c1_total}（{c1_pct:.1f}%）；C2 {a3}/{c2_total}（{c2_pct:.1f}%）；C3 {a6}/{c3_total}（{c3_pct:.1f}%）；{fisher_text}；{chi_text}",
+        "C1 migrated cells {a0}/{c1_total} ({c1_pct:.1f}%); C2 {a3}/{c2_total} ({c2_pct:.1f}%); C3 {a6}/{c3_total} ({c3_pct:.1f}%); {fisher_text}; {chi_text}"),
+    "pct_composition_evidence": (
+        "Cluster × Type 组成显示迁移标签主要集中在 Cluster 1",
+        "The Cluster x Type composition shows the migration label is concentrated in Cluster 1"),
+    "pct_composition_interpretation": (
+        "该组成证据说明 Cluster 1 是迁移状态的主要承载群体，后续差异统计以 Cluster 两两对比解释蛋白质组机制。",
+        "This composition evidence indicates that Cluster 1 is the main carrier of the migration state, and the differential statistics that follow explain proteome mechanisms through pairwise Cluster contrasts."),
+    "pct_composition_row": (
+        "| 迁移标签与聚类的对应 | Migrated_vs_Control / Cluster × Type | {a0} | {a1} | {a2} | {a3} |",
+        "| Migration label to cluster correspondence | Migrated_vs_Control / Cluster x Type | {a0} | {a1} | {a2} | {a3} |"),
+    "pct_fisher": (
+        "Fisher OR={a0}，p={a1}",
+        "Fisher OR={a0}, p={a1}"),
+    "pct_fisher_na": (
+        "Fisher OR=NA，p=NA",
+        "Fisher OR=NA, p=NA"),
+    "pispa_asset_audit": (
+        "| `analysis_design.used.yaml` 与 `evidence_ledger.jsonl` | audit trail | 记录分组设计和证据来源标签 |",
+        "| `analysis_design.used.yaml` and `evidence_ledger.jsonl` | audit trail | Records the grouping design and the evidence-source labels |"),
+    "pispa_asset_figure_index": (
+        "| `visualize_results/figure_index.md` | current_matrix | PCA/UMAP、热图、候选蛋白和模块图册索引 |",
+        "| `visualize_results/figure_index.md` | current_matrix | Figure index for the PCA/UMAP, heatmap, candidate protein and module figures |"),
+    "pispa_asset_group_qc": (
+        "| `evaluation_evidence/group_composition_qc.csv` | current_matrix | Cluster × Type、缺失率和样本组成 QC |",
+        "| `evaluation_evidence/group_composition_qc.csv` | current_matrix | Cluster x Type composition, missingness rates and sample composition QC |"),
+    "pispa_asset_modules": (
+        "| `evaluation_evidence/curated_module_group_summary.csv` | current_matrix | 迁移、Rho、ERM、myosin、talin-vinculin 等模块分数 |",
+        "| `evaluation_evidence/curated_module_group_summary.csv` | current_matrix | Module scores for migration, Rho, ERM, myosin, talin-vinculin and related modules |"),
+    "pispa_assets_intro": (
+        "本 run 同时生成纯文本资产清单与嵌图版 Markdown，便于合作者快速查看图表而不必翻完整日志。",
+        "This run produces both a plain-text asset list and a figure-embedded Markdown view, so a collaborator can look at the figures quickly without reading the full log."),
+    "pispa_boundary_current_matrix": (
+        "- `current_matrix`：本报告的差异、候选、模块、QC 和图册均来自当前评测矩阵；它们能支持方向和优先级，不能单独证明因果。",
+        "- `current_matrix`: the differential results, candidates, modules, QC and figures in this report all come from the current evaluation matrix; they support direction and priority but cannot on their own establish causation."),
+    "pispa_boundary_extension": (
+        "- `extension`：启发式推测和后续验证建议用于提出可检验假设，不能替代差异统计、显微验证或迁移扰动实验。",
+        "- `extension`: heuristic inference and follow-up suggestions exist to state testable hypotheses and do not replace differential statistics, microscopy validation or migration perturbation experiments."),
+    "pispa_boundary_external": (
+        "- `external_annotation`：PiSPA 正文不使用疾病外部注释，不把背景知识写成当前矩阵结论。",
+        "- `external_annotation`: the PiSPA body text does not use disease external annotation and does not write background knowledge as a current-matrix conclusion."),
+    "pispa_boundary_records": (
+        "- `analysis_design.used.yaml` 记录分组和对比设计；`evidence_ledger.jsonl` 保存证据来源标签，便于追溯但不参与生物学结论本身。",
+        "- `analysis_design.used.yaml` records the grouping and contrast design, and `evidence_ledger.jsonl` stores the evidence-source labels for traceability; neither takes part in the biological conclusions themselves."),
+    "pispa_data_intro": (
+        "本轮使用包内 `ProteinQuant.csv` 与 `SampleInfo.csv` 生成当前矩阵证据；分组、缺失和样本结构先由 `group_composition_qc.csv`、PCA/UMAP 与图册索引确认，再进入差异和模块解释。",
+        "This round used the in-package `ProteinQuant.csv` and `SampleInfo.csv` to generate the current matrix evidence; grouping, missingness and sample structure are confirmed first from `group_composition_qc.csv`, the PCA/UMAP figures and the figure index, before the differential and module interpretation begins."),
+    "pispa_enrich_contrast_direction": (
+        "{contrast}；{a1}",
+        "{contrast}; {a1}"),
+    "pispa_enrich_header": (
+        "| 语义家族 | 代表条目 | 对比与方向 | p.adjust/FDR | Count | 相关效应量 | 解读 |",
+        "| Semantic family | Representative term | Contrast and direction | p.adjust/FDR | Count | Related effect size | Reading |"),
+    "pispa_enrich_title": (
+        "### 离线富集补充表",
+        "### Offline enrichment supplement table"),
+    "pispa_family_adhesion": (
+        "黏附/细胞连接/骨架",
+        "Adhesion / cell junction / cytoskeleton"),
+    "pispa_family_adhesion_note": (
+        "提示细胞连接、黏附或骨架预激活差异，可作为迁移状态的背景层。",
+        "Suggests differences in cell junctions, adhesion or cytoskeleton pre-activation that can serve as a background layer for the migration state."),
+    "pispa_family_ecm": (
+        "ECM/分泌重塑",
+        "ECM / secretory remodelling"),
+    "pispa_family_ecm_note": (
+        "提示分泌型基质和微环境重塑，是迁移相关解释中更接近表型的一层。",
+        "Suggests secreted matrix and microenvironment remodelling, one of the layers closest to the phenotype in a migration-related interpretation."),
+    "pispa_family_mito": (
+        "线粒体/能量代谢",
+        "Mitochondrial / energy metabolism"),
+    "pispa_family_mito_note": (
+        "提示对照亚群的能量代谢活跃度不同，尤其适合解释 C2/C3 背景状态差异。",
+        "Suggests that the control subpopulations differ in energy-metabolism activity, which is particularly useful for explaining the C2/C3 background state difference."),
+    "pispa_family_other": (
+        "其它功能线索",
+        "Other functional leads"),
+    "pispa_family_other_note": (
+        "补充说明差异蛋白集合的功能背景，需结合对应核心对比和代表蛋白解读。",
+        "Supplements the functional background of the differential protein set and must be read together with the corresponding core contrast and representative proteins."),
+    "pispa_family_rna": (
+        "核质运输/RNA定位",
+        "Nucleocytoplasmic transport / RNA localisation"),
+    "pispa_family_rna_note": (
+        "提示核质转运或 RNA 定位变化，可能连接应激、增殖或蛋白合成状态。",
+        "Suggests changes in nucleocytoplasmic transport or RNA localisation that may link stress, proliferation or protein-synthesis states."),
+    "pispa_family_stress": (
+        "宽泛应激/疾病交叉",
+        "Broad stress / disease overlap"),
+    "pispa_family_stress_note": (
+        "属于通用应激或疾病基因集重叠，只有与线粒体、翻译或骨架条目一致时才作为背景线索。",
+        "A generic stress or disease gene-set overlap; used as a background lead only when it agrees with the mitochondrial, translation or cytoskeleton entries."),
+    "pispa_family_translation": (
+        "翻译/核糖体",
+        "Translation / ribosome"),
+    "pispa_family_translation_note": (
+        "提示蛋白合成程序更活跃，是 Cluster 内部状态分层的重要功能轴。",
+        "Suggests a more active protein-synthesis programme, an important functional axis of the state structure inside the clusters."),
+    "pispa_family_transport": (
+        "蛋白转运/定位",
+        "Protein transport / localisation"),
+    "pispa_family_transport_note": (
+        "提示膜系统、囊泡或蛋白定位程序变化，可能连接分泌和膜重塑状态。",
+        "Suggests changes in the membrane system, vesicles or protein-localisation programmes that may link secretion and membrane-remodelling states."),
+    "pispa_figure_line": (
+        "- 结构图证据：{figure_summary}",
+        "- Structure figure evidence: {figure_summary}"),
+    "pispa_figure_summary_fallback": (
+        "图册索引见 visualize_results/figure_index.md。",
+        "See visualize_results/figure_index.md for the figure index."),
+    "pispa_followup_live": (
+        "- 将 PiSPA 迁移 readout 与细胞形态、速度或扰动实验联动，验证模块分数是否对应真实迁移能力。",
+        "- Combine the PiSPA migration readout with cell morphology, speed or perturbation experiments to test whether the module scores correspond to real migration capacity."),
+    "pispa_followup_staining": (
+        "- 用免疫染色或靶向蛋白质组验证 EZR/MSN/MYL9/TLN1/VCL 等候选在迁移前沿或黏附结构中的定位。",
+        "- Use immunostaining or targeted proteomics to validate the localisation of candidates such as EZR/MSN/MYL9/TLN1/VCL at the leading edge or in adhesion structures."),
+    "pispa_group_qc_line": (
+        "- 分组与 QC 摘要：{group_summary}。",
+        "- Group and QC summary: {group_summary}."),
+    "pispa_group_summary_fallback": (
+        "group_composition_qc.csv 未提供可读摘要",
+        "group_composition_qc.csv provided no readable summary"),
+    "pispa_summary_boundary": (
+        "- 本报告可以提出后续验证假设，但不直接证明细胞形态、迁移方向性或力学拉伸；这些结论需要显微成像或扰动实验继续验证。",
+        "- This report can state follow-up hypotheses, but it does not directly prove cell morphology, migration directionality or mechanical stretching; those conclusions need imaging or perturbation experiments to be established."),
+    "pispa_summary_c1": (
+        "- Cluster 1 是本数据集中最明确的迁移相关状态；Cluster × Type 结构和 C1 相对 C2/C3 的核心对比共同支持这一点，证据层级为 `current_matrix`，置信度为中等。",
+        "- Cluster 1 is the clearest migration-related state in this dataset; the Cluster x Type structure and the core contrasts of C1 against C2/C3 support this together, with `current_matrix` as the evidence layer and moderate confidence."),
+    "pispa_summary_c2c3": (
+        "- Cluster 2 与 Cluster 3 不能合并成一个均一对照；C2/C3 的差异提示对照群体内部已有翻译、黏附或细胞状态分层，需要在解释迁移轴时单独标出。",
+        "- Cluster 2 and Cluster 3 cannot be merged into one uniform control; the C2/C3 difference indicates that the control population already carries translation, adhesion or cell-state structure, which must be marked separately when reading the migration axis."),
+    "pispa_summary_candidates": (
+        "- EZR、CDC42、RAC1、RHOA、TLN1、VCL 等是当前矩阵中优先级较高的骨架/黏附候选；MSN、MYL9 等若显著性较弱，应作为同模块方向线索而不是独立驱动因子。",
+        "- EZR, CDC42, RAC1, RHOA, TLN1 and VCL are the higher-priority cytoskeleton/adhesion candidates in the current matrix; where MSN or MYL9 are less significant they should serve as directional leads in the same module rather than as independent drivers."),
+    "pispa_summary_mechanism": (
+        "- 迁移机制不是单个蛋白的故事，而是“分泌/ECM 重塑 + 局部骨架快速周转 + 黏附复合体调节”的组合轴；Rho GTPase 调控、ERM 膜-皮质连接、肌球蛋白收缩和 talin-vinculin 黏附斑提供同向证据。",
+        "- The migration mechanism is not the story of a single protein but a combined axis of secretion/ECM remodelling, rapid local cytoskeleton turnover and adhesion-complex regulation; Rho GTPase regulation, ERM membrane-cortex linkage, myosin contractility and talin-vinculin focal adhesions provide concordant evidence."),
+    "pispa_synth_axis": (
+        "- 若后续扰动验证优先级有限，Rho GTPase/ERM/myosin/talin-vinculin 轴比单个候选蛋白更适合作为迁移机制验证框架。",
+        "- If only limited follow-up perturbation work is possible, the Rho GTPase/ERM/myosin/talin-vinculin axis is a better frame for validating the migration mechanism than any single candidate protein."),
+    "pispa_synth_c1": (
+        "- Cluster 1 与迁移表型的对应关系可以由 Cluster-Type 结构、核心对比、候选蛋白和模块分数共同支持。",
+        "- The correspondence between Cluster 1 and the migration phenotype is supported jointly by the Cluster-Type structure, the core contrasts, the candidate proteins and the module scores."),
+    "pispa_synth_c2c3": (
+        "- C2/C3 内部差异是 current_matrix 中真实需要解释的结构，不能被迁移主线完全覆盖。",
+        "- The internal C2/C3 difference is a structure in the current_matrix that genuinely needs explaining and cannot be fully covered by the migration main line."),
+    "pispa_synth_fdr": (
+        "- 若候选蛋白未达到 FDR 阈值，可把它们作为同模块的方向线索，而不是单独宣称为显著驱动因子。",
+        "- Where candidate proteins do not reach the FDR threshold, treat them as directional leads in the same module rather than claiming them individually as significant drivers."),
+    "pispa_task1_contrast_note": (
+        "`Migrated_vs_Control` 在本报告中作为 Cluster × Type 组成和表型标签证据使用；主差异统计以 Cluster 两两对比展开，因为这些对比更直接分解迁移细胞富集的 Cluster 1 与两个对照背景。若需要迁移表型整体差异表，应在后续 run 中显式加入该 contrast。",
+        "`Migrated_vs_Control` is used in this report as Cluster x Type composition and phenotypic label evidence; the main differential statistics are run as pairwise Cluster contrasts, because those separate the Cluster 1 enrichment of migrated cells from the two control backgrounds more directly. If an overall differential table for the migration phenotype is needed, that contrast must be added explicitly in a later run."),
+    "pispa_task1_intro": (
+        "结论先行：Cluster 1 是迁移相关状态的主要候选，Cluster 2/3 则是带有内部差异的对照背景。下表只保留最能回答任务的问题、方向和代表证据，完整差异表见资产清单。",
+        "Conclusion first: Cluster 1 is the main candidate for the migration-related state, while Cluster 2/3 form a control background that carries internal differences. The table below keeps only the question, the direction and the representative evidence that best answer the task; the complete differential tables are in the asset list."),
+    "pispa_task1_no_table": (
+        "核心对比表未生成。",
+        "No core contrast table was generated."),
+    "pispa_task1_reading": (
+        "简要解读：{a0} 这一结果说明 Cluster 1 与迁移状态相关，但它仍是抽样矩阵中的统计对应，不等同于因果验证。",
+        "Brief reading: {a0} This result indicates that Cluster 1 is associated with the migration state, but it remains a statistical correspondence in a sampled matrix and is not equivalent to causal validation."),
+    "pispa_task2_intro": (
+        "结论先行：迁移 Cluster 的功能解释应以机制链为中心，而不是把所有通路名铺开。当前最有价值的链条是 Rho GTPase 调控 -> ERM 膜-皮质连接 -> 肌球蛋白收缩 -> talin/vinculin 黏附 -> 肌动蛋白骨架重排。",
+        "Conclusion first: the functional interpretation of the migration clusters should centre on a mechanism chain rather than spreading out every pathway name. The most valuable chain here is Rho GTPase regulation -> ERM membrane-cortex linkage -> myosin contractility -> talin/vinculin adhesion -> actin cytoskeleton rearrangement."),
+    "pispa_task2_no_table": (
+        "模块证据表未生成。",
+        "No module evidence table was generated."),
+    "pispa_task2_summary_prefix": (
+        "模块主线摘要：",
+        "Module main-line summary: "),
+    "pispa_task2_summary_tail": (
+        "。这些分数用于整合机制链，不能替代正式富集显著性。",
+        ". These scores integrate the mechanism chain and do not replace formal enrichment significance."),
+    "pispa_task3_interpretation": (
+        "解释：这些候选蛋白共同指向迁移细胞的膜-皮质连接、收缩力、黏附复合体和肌动蛋白骨架重排。当前报告只把它们写成矩阵支持的候选链条，不能替代实时迁移成像或扰动实验。",
+        "Interpretation: together these candidate proteins point to membrane-cortex linkage, contractility, the adhesion complex and actin cytoskeleton rearrangement in migrated cells. This report writes them only as a matrix-supported candidate chain, which does not replace live migration imaging or perturbation experiments."),
+    "pispa_task3_intro": (
+        "结论先行：EZR/MSN/MYL9/CDC42/RAC1/RHOA/TLN1/VCL/FLNA/ACTN1/ITGB1 等候选应按检出、方向、logFC 与 FDR 分层呈现；不可检出或未显著项目必须作为边界写清。",
+        "Conclusion first: candidates such as EZR/MSN/MYL9/CDC42/RAC1/RHOA/TLN1/VCL/FLNA/ACTN1/ITGB1 should be presented in layers by detection, direction, logFC and FDR; entries that were not detectable or not significant must be written out as boundaries."),
+    "pispa_task3_no_table": (
+        "代表蛋白表未生成。",
+        "No representative protein table was generated."),
+    "pispa_task3_summary_prefix": (
+        "候选优先级摘要：",
+        "Candidate priority summary: "),
+    "pispa_task3_summary_tail": (
+        "。这些数值支持方向和优先级，不把未显著候选写成已验证机制。",
+        ". These numbers support direction and priority and do not write non-significant candidates as established mechanisms."),
+    "pispa_term_note": (
+        "术语说明：本节把 single-cell proteomic 矩阵中的 cell motility、actin cytoskeleton、focal adhesion、ERM 膜-皮质连接和 Rho GTPase 调控视为同一迁移机制链的不同层级；这些术语用于组织证据，不额外扩大当前矩阵能够直接证明的范围。",
+        "Terminology note: this section treats cell motility, the actin cytoskeleton, focal adhesion, ERM membrane-cortex linkage and Rho GTPase regulation in a single-cell proteomic matrix as different levels of one migration mechanism chain. These terms organise the evidence and do not extend what the current matrix can directly establish."),
+    "probe_compat": (
+        "兼容",
+        "compatible"),
+    "probe_confidence": (
+        "置信度",
+        "confidence"),
+    "pt4_c2c3_background": (
+        "- C2/C3 差异可以作为解释迁移轴的背景层：Cluster 1 的迁移相关信号需要与这种对照内部梯度区分开，避免把所有非迁移细胞看作同一种状态。",
+        "- The C2/C3 difference serves as a background layer for reading the migration axis: migration-related signal in Cluster 1 must be kept apart from this internal control gradient, so that not every non-migratory cell is treated as one and the same state."),
+    "pt4_c2c3_current_matrix": (
+        "- `current_matrix` 支持 {group_a} 与 {group_b} 的差异来自 C2/C3 对比本身：{group_a}较高={n_up_display_group_a}，{group_b}较高={n_down_display_group_a}，代表蛋白见上表。",
+        "- `current_matrix` supports that the difference between {group_a} and {group_b} comes from the C2/C3 contrast itself: {group_a} higher={n_up_display_group_a}, {group_b} higher={n_down_display_group_a}; representative proteins are in the table above."),
+    "pt4_c2c3_cytoskeleton_row": (
+        "| 骨架/黏附候选 | {a0} | 见 logFC 方向 | P.Value/adj.P.Val 见括号 FDR | logFC 见括号 | 用于判断对照内部是否已有局部骨架或黏附预激活线索。 |",
+        "| Cytoskeleton / adhesion candidates | {a0} | See the logFC direction | P.Value/adj.P.Val from the bracketed FDR | logFC in brackets | Used to judge whether the controls already carry local cytoskeleton or adhesion pre-activation leads. |"),
+    "pt4_c2c3_diff_row": (
+        "| 差异蛋白 | {top_up_display_group_a} | {top_down_display_group_a} | adj.P.Val/FDR 见差异表 | n_sig={n_sig}；{group_a}较高={n_up_display_group_a}；{group_b}较高={n_down_display_group_a} | Cluster 2 侧若集中于翻译、线粒体或黏附相关候选，说明其代表较活跃的对照状态；Cluster 3 侧候选则提示另一类非迁移背景。 |",
+        "| Differential proteins | {top_up_display_group_a} | {top_down_display_group_a} | adj.P.Val/FDR in the differential table | n_sig={n_sig}; {group_a} higher={n_up_display_group_a}; {group_b} higher={n_down_display_group_a} | If the Cluster 2 side concentrates on translation, mitochondrial or adhesion candidates it points to a more active control state, while Cluster 3 candidates suggest a different non-migratory background. |"),
+    "pt4_c2c3_header": (
+        "| 证据层级 | Cluster 2 侧 | Cluster 3 侧 | FDR/统计口径 | 效应量 | 解读 |",
+        "| Evidence level | Cluster 2 side | Cluster 3 side | FDR / statistical convention | Effect size | Reading |"),
+    "pt4_c2c3_module_row": (
+        "| 模块分数 | {a0} | 相对较低或未覆盖 | 未计算 FDR；模块平均分差 | Δ 见左列 | 模块差异提示对照内部存在迁移相关程序的梯度，而不是二元开关。 |",
+        "| Module scores | {a0} | Relatively lower or not covered | FDR not computed; module mean difference | Delta in the left column | The module difference indicates a gradient of migration-related programmes inside the controls rather than a binary switch. |"),
+    "pt4_c2c3_table_title": (
+        "### C2/C3 代表蛋白与模块证据表",
+        "### C2/C3 representative protein and module evidence"),
+    "pt4_control_not_equivalent": (
+        "结论先行：{group_a} 与 {group_b} 不是完全等价的对照背景。{a2} 这说明对照群体内部仍有可解释的蛋白组状态分层。",
+        "Conclusion first: {group_a} and {group_b} are not fully equivalent control backgrounds. {a2} This indicates that the control population still carries an interpretable proteome state structure."),
+    "pt4_extension_c2": (
+        "- `extension`：如果 Cluster 2 侧同时出现翻译、线粒体、黏附或骨架模块升高，它可能代表更活跃或更易响应的对照状态；这仍需后续功能实验确认。",
+        "- `extension`: if translation, mitochondrial, adhesion or cytoskeleton modules are simultaneously higher on the Cluster 2 side, that may represent a more active or more responsive control state; it still needs confirmation from follow-up functional experiments."),
+    "pt4_extension_c3": (
+        "- `extension`：Cluster 3 若在结构、RNA/核孔或局部骨架蛋白上更高，可解释为另一种非迁移状态，而不是简单的低迁移版本。",
+        "- `extension`: if Cluster 3 is higher in structural, RNA or nuclear-pore, or local cytoskeleton proteins, it can be read as another non-migratory state rather than simply a low-migration version."),
+    "pt4_followup_morphology": (
+        "- 在不混合 Cluster 2/3 的前提下，分别比较其形态、黏附斑、迁移前沿定位或划痕边缘距离。",
+        "- Without mixing Cluster 2 and Cluster 3, compare their morphology, focal adhesions, leading-edge localisation or distance to the scratch edge separately."),
+    "pt4_followup_timeseries": (
+        "- 若有时间序列或扰动数据，优先检验 C2/C3 是否会向 Cluster 1 迁移状态转换，或只是平行的对照亚状态。",
+        "- With time-series or perturbation data, test first whether C2/C3 shift towards the Cluster 1 migration state, or are simply parallel control substates."),
+    "qc_analysed_matrix": (
+        "本轮分析矩阵（过滤与填补之后）：各分组的平均缺失率 %s，该值为 0 只表示这个矩阵没有缺口，不表示全部蛋白在所有样本中都被检出，检出深度以平均检出蛋白数为准",
+        "Analysed matrix of this round (after filtering and imputation): mean missingness rate per group %s; a value of 0 only means this matrix has no gaps, not that every protein was detected in every sample, and detection depth is read from the mean number of detected proteins"),
+    "qc_design_fraction": (
+        "设计推断记录的非缺失比例 %s（%s），与上面的分组缺失率口径不同，引用时须写明指哪一个",
+        "the non-missing fraction recorded by the design inference %s (%s), which uses a different convention from the per-group missingness rate above, so any citation must say which one is meant"),
+    "qc_detection_encoding": (
+        "未检出编码的记录形式：%s",
+        "recorded form of the non-detection encoding: %s"),
+    "qc_full_matrix_rows": (
+        "全矩阵（%s 行）",
+        "full matrix (%s rows)"),
+    "qc_head_sample": (
+        "设计推断时按矩阵前 %s 行抽样估计，是抽样口径，不能当作全矩阵缺失率",
+        "estimated during design inference by sampling the first %s rows of the matrix; this is a sampling convention and must not be taken as the full-matrix missingness rate"),
+    "qc_note_fallback": (
+        "缺失率口径：运行记录中没有分阶段的缺失统计；分析矩阵缺失率为 0 只表示该矩阵没有缺口，不表示全部蛋白被检出。",
+        "Missingness-rate convention: the run record carries no staged missingness statistics; a missingness rate of 0 in the analysed matrix only means that matrix has no gaps, not that every protein was detected."),
+    "qc_note_prefix": (
+        "缺失率口径：",
+        "Missingness-rate convention: "),
+    "qc_original_matrix": (
+        "原始交付矩阵（过滤与填补之前、全部蛋白行）：各分组的平均缺失率 %s，未检出按该矩阵的缺失编码统计",
+        "Original delivered matrix (before filtering and imputation, all protein rows): mean missingness rate per group %s, with non-detections counted through the missingness encoding of that matrix"),
+    "qc_unlabelled": (
+        "记录未标明是全矩阵还是抽样",
+        "the record does not say whether this is the full matrix or a sample"),
+    "range_between": (
+        "%.4f 至 %.4f",
+        "%.4f to %.4f"),
+    "reader_contrast_not_tested": (
+        "未进入统计检验",
+        "not entered into a statistical test"),
+    "reader_counts_truncated_note": (
+        "（原表该单元格过长，此处按原样保留前段）",
+        " (the original table cell is too long; the leading part is kept as it stands)"),
+    "req_candidate_pointer": (
+        "完整候选核查表见后文「候选蛋白逐条核查（完整表）」；该表只呈现证据，不改变任务要求本身。",
+        "The complete candidate audit table appears later as \"Candidate protein audit (complete table)\"; that table presents evidence only and does not change the task requirements themselves."),
+    "req_section_note": (
+        "上表逐条给出本轮已计算的对比、通过筛选的蛋白数，以及该对比是否在本报告中以文本形式被提及；正文未提及的对比属于本报告的覆盖缺口，应在下一轮补齐，而不是视为已评估。",
+        "The table above lists, item by item, the contrasts computed in this round, the number of proteins passing the screening, and whether that contrast is mentioned in the text of this report; a contrast that the body does not mention is a coverage gap of this report, to be closed in the next round rather than treated as already evaluated."),
+    "req_section_title": (
+        "### 必需子分析与对比覆盖",
+        "### Required sub-analyses and contrast coverage"),
+    "sct_candidate_header": (
+        "| 对比 | 候选蛋白 | 当前矩阵方向 | logFC | P.Value | adj.P.Val/FDR | 置信度 | 功能解释 |",
+        "| Contrast | Candidate | Direction in the current matrix | logFC | P.Value | adj.P.Val/FDR | Confidence | Functional reading |"),
+    "sct_default_reading": (
+        "同模块候选，需结合效应量和 FDR 判断优先级",
+        "A candidate from the same module; judge priority from effect size together with FDR"),
+    "sct_display_note": (
+        "注：本表按「{a0}」显示（{groups}）；底层差异表为 `{source}`，其 logFC 符号与本表相反，方向以文字与差异表对比名为准。",
+        "Note: this table is displayed as \"{a0}\" ({groups}); the underlying differential table is `{source}`, whose logFC sign is opposite to this table, so read direction from the wording and from the contrast name in the differential table."),
+    "sct_effect_summary": (
+        "n_sig={n_sig}（{convention}）；{group_a}较高={up}；{group_b}较高={down}",
+        "n_sig={n_sig} ({convention}); {group_a} higher={up}; {group_b} higher={down}"),
+    "sct_group_a_higher": (
+        "{group_a} 较高：{top_up}",
+        "{group_a} higher: {top_up}"),
+    "sct_group_b_higher": (
+        "{group_b} 较高：{top_down}",
+        "{group_b} higher: {top_down}"),
+    "sct_header": (
+        "| 科学问题 | 对比 | 方向强度 | 代表蛋白与效应量 | 解释 | 边界 |",
+        "| Scientific question | Contrast | Direction strength | Representative proteins and effect size | Interpretation | Boundary |"),
+    "sct_low_confidence_note": (
+        "注：低置信候选表示检出或方向可用但 FDR/效应量不足，不单独作为机制驱动结论。",
+        "Note: a low-confidence candidate means the protein was detected, or has a usable direction, but the FDR or effect size is insufficient; it does not on its own drive a mechanism conclusion."),
+    "sea_candidate_summary_header": (
+        "| 候选 | 是否检出 | 对比 | 方向 | logFC | P.Value | adj.P.Val | 置信度 |",
+        "| Candidate | Detected | Contrast | Direction | logFC | P.Value | adj.P.Val | Confidence |"),
+    "sea_candidate_summary_title": (
+        "#### 候选蛋白证据摘要",
+        "#### Candidate protein evidence summary"),
+    "sea_core_story_candidate_source": (
+        "current_matrix 候选蛋白；P.Value/adj.P.Val 来自对应差异表",
+        "current_matrix candidate proteins; P.Value/adj.P.Val come from the corresponding differential table"),
+    "sea_core_story_counts": (
+        "通过筛选的蛋白数={n_sig}；A 组较高={n_up_display_group_a}；B 组较高={n_down_display_group_a}",
+        "proteins passing the screening convention={n_sig}; Group A higher={n_up_display_group_a}; Group B higher={n_down_display_group_a}"),
+    "sea_core_story_diff_source": (
+        "current_matrix 差异统计；效应量见代表蛋白 logFC",
+        "current_matrix differential statistics; the effect size is the logFC of the representative proteins"),
+    "sea_core_story_header": (
+        "| 类型 | 科学问题 | 对比 | 核心数值 | 置信度 | {story_source_header} |",
+        "| Type | Scientific question | Contrast | Core values | Confidence | {story_source_header} |"),
+    "sea_core_story_module_source": (
+        "模块平均分差；未计算 FDR",
+        "Module mean difference; FDR not computed"),
+    "sea_core_story_title": (
+        "#### 核心故事证据表",
+        "#### Core story evidence table"),
+    "sea_curated_module_header": (
+        "| 模块 | 组别 | 匹配基因数 | 平均分数 | 统计口径 | 置信度 |",
+        "| Module | Group | Matched genes | Mean score | Statistical convention | Confidence |"),
+    "sea_curated_module_row": (
+        "| {module} | {group} | {n_matched_genes} | {mean_score} | 未计算 FDR；样本级模块均值 | {confidence} |",
+        "| {module} | {group} | {n_matched_genes} | {mean_score} | FDR not computed; sample-level module mean | {confidence} |"),
+    "sea_curated_module_title": (
+        "#### Curated 模块分数补充表",
+        "#### Curated module score supplement"),
+    "sea_external_annotation": (
+        "外部知识注释（ASD/NDD）",
+        "External knowledge annotation (ASD/NDD)"),
+    "sea_external_annotation_note": (
+        "「结论边界与方法局限」的外部注释说明",
+        "the external annotation note in \"Conclusion Boundaries and Method Limitations\""),
+    "sea_external_cross_header": (
+        "| 基因 | 类别 | 是否检出 | 匹配行数 | 证据来源 | 边界 |",
+        "| Gene | Category | Detected | Matched rows | Evidence source | Boundary |"),
+    "sea_external_cross_title": (
+        "#### 离线外部注释交叉表",
+        "#### Offline external annotation cross-table"),
+    "sea_group_qc_header": (
+        "| 表 | 分组 | 组别 | 二级列 | 样本数 | 平均检出蛋白 | 平均缺失率 | 计数 |",
+        "| Table | Grouping | Group | Sub-column | n_samples | Mean detected proteins | Mean missing rate | Count |"),
+    "sea_group_qc_title": (
+        "#### 分组组成与 QC 表",
+        "#### Group composition and QC tables"),
+    "sea_leakage_appendix": (
+        "「蛋白泄漏证据附录」",
+        "the \"Protein Leakage Evidence Appendix\""),
+    "sea_leakage_correlation_header": (
+        "| 对比 | 状态列 | 分层 | logFC 矩阵 | 高相关对数 | 结论 |",
+        "| Contrast | State column | Stratum | logFC matrix | Highly correlated pairs | Conclusion |"),
+    "sea_leakage_correlation_title": (
+        "#### 泄漏相关性摘要",
+        "#### Leakage correlation summary"),
+    "sea_leakage_module_summary": (
+        "蛋白泄漏模块汇总",
+        "Protein leakage module summary"),
+    "sea_leakage_summary": (
+        "蛋白泄漏汇总",
+        "Protein leakage summary"),
+    "sea_module_effect_header": (
+        "| 对比 | 状态列 | 模块 | 匹配基因数 | groupA-groupB 平均 logFC | 方向 | A 组样本数 | B 组样本数 | 置信度 |",
+        "| Contrast | State column | Module | Matched genes | groupA-groupB mean logFC | Direction | n samples group A | n samples group B | Confidence |"),
+    "sea_req_candidate_stats": (
+        "候选蛋白逐对比统计",
+        "Per-contrast candidate protein statistics"),
+    "sea_req_candidate_table": (
+        "「候选蛋白逐对比统计」表",
+        "the \"Per-contrast candidate protein statistics\" table"),
+    "sea_req_contrast_table": (
+        "「对比级证据摘要」表",
+        "the \"Contrast-level evidence summary\" table"),
+    "sea_req_diff_analysis": (
+        "差异分析要求与口径",
+        "Differential analysis requirements and convention"),
+    "sea_req_diff_summary": (
+        "差异检验摘要",
+        "Differential test summary"),
+    "sea_req_diff_threshold": (
+        "「数据与预处理」的差异分析阈值",
+        "Differential analysis thresholds in \"Data and Preprocessing\""),
+    "sea_req_group_qc": (
+        "分组组成与质控",
+        "Group composition and QC"),
+    "sea_req_group_sizes": (
+        "「数据与预处理」的分组规模与缺失率",
+        "Group sizes and missingness rates in \"Data and Preprocessing\""),
+    "sea_req_module_group": (
+        "模块分组分数",
+        "Module group scores"),
+    "sea_req_module_group_table": (
+        "「模块分组分数」表",
+        "the \"Module group scores\" table"),
+    "sea_req_module_sample": (
+        "模块样本级分数",
+        "Module sample-level scores"),
+    "sea_req_module_sample_source": (
+        "「模块分组分数」表的均值来源",
+        "the mean source of the \"Module group scores\" table"),
+    "sea_req_task_evidence": (
+        "任务要求与证据落点",
+        "Task requirements and where the evidence lands"),
+    "sea_req_task_evidence_table": (
+        "下方「数据集任务要求与证据落点」表",
+        "the \"Dataset task requirements and evidence landing points\" table below"),
+    "sea_rows_truncated": (
+        "| …（共 %d 行，本表显示前 %d 行；完整表见证据表） |  |  |  |  |  |",
+        "| ... (%d rows in total, the first %d shown here; see the evidence tables for the complete table) |  |  |  |  |  |"),
+    "sea_source_header_default": (
+        "边界",
+        "Boundary"),
+    "sea_source_header_pispa": (
+        "证据口径",
+        "Evidence convention"),
+    "sea_task_landing_header": (
+        "| 任务要求 | 要求覆盖的证据项 | 证据来源 | 置信度 | 边界 |",
+        "| Task requirement | Evidence item it must cover | Evidence source | Confidence | Boundary |"),
+    "sea_task_landing_intro": (
+        "本表是任务要求清单（不是结果）；每项对应的数值见正文任务小节与上表，未计算项在覆盖表中标注。",
+        "This table is a checklist of task requirements, not a result set; the numbers for each item are in the task sections of the body and in the tables above, and items that were not computed are marked in the coverage table."),
+    "sea_task_landing_title": (
+        "#### 数据集任务要求与证据落点",
+        "#### Dataset task requirements and evidence landing points"),
+    "sentence_stop": (
+        "。",
+        "."),
+    "sep_comma": (
+        "、",
+        ", "),
+    "sep_semicolon": (
+        "；",
+        "; "),
+    "smt_a_higher_context": (
+        "{group_a} 在该模块上更高，支持与“{claim_title}”相关的方向性解释。",
+        "{group_a} is higher in this module, supporting a directional interpretation related to \"{claim_title}\"."),
+    "smt_b_higher_context": (
+        "{group_b} 在该模块上更高，提示该任务存在反向或背景状态差异。",
+        "{group_b} is higher in this module, indicating a reversed or background state difference for this task."),
+    "smt_header": (
+        "| 任务/对比 | 模块 | A组均值 | B组均值 | Δ(A-B) | 代表蛋白数 | 统计口径 | 解读 |",
+        "| Task/contrast | Module | Mean in A | Mean in B | Delta (A-B) | Representative proteins | Statistical convention | Reading |"),
+    "smt_method": (
+        "未计算 FDR；效应量=模块平均分差 Δ",
+        "FDR not computed; effect measure = module mean difference Delta"),
+    "smt_no_delta": (
+        "该模块在本对比中未能计算均值差，通常是分组不存在或模块匹配蛋白不足。",
+        "The module mean difference could not be computed for this contrast, usually because a group is missing or too few module proteins matched."),
+    "smt_title": (
+        "### 模块证据表",
+        "### Module evidence table"),
+    "smt_weak": (
+        "{group_a} 与 {group_b} 的模块差异较弱，适合作为背景线索。",
+        "The module difference between {group_a} and {group_b} is weak and serves as background information."),
+    "src_label_analysis_design": (
+        "分析设计",
+        "Analysis design"),
+    "src_label_audit_record": (
+        "审计记录",
+        "Audit record"),
+    "src_label_drug_database": (
+        "药物数据库",
+        "Drug database"),
+    "src_label_external_literature": (
+        "外部文献",
+        "External literature"),
+    "story_direction_undetermined": (
+        "方向未判定",
+        "direction undetermined"),
+    "story_exec_boundary": (
+        "- 证据边界：{boundary}",
+        "- Evidence boundary: {boundary}"),
+    "story_exec_change_phrase": (
+        "显著上调 {n_up_display_group_a}、显著下调 {n_down_display_group_a}；代表上调为 {top_up_display_group_a}",
+        "{n_up_display_group_a} significantly higher and {n_down_display_group_a} significantly lower; the representative higher proteins are {top_up_display_group_a}"),
+    "story_exec_change_phrase_none": (
+        "在当前阈值下没有显著差异蛋白；按效应量排序的上调候选为 {top_up_display_group_a}",
+        "no significantly different proteins at the current thresholds; the effect-size-ranked higher candidates are {top_up_display_group_a}"),
+    "story_exec_core_contrast": (
+        "- current_matrix 核心对比：{display_contrast}，{main_change_phrase}。",
+        "- current_matrix core contrast: {display_contrast}, {main_change_phrase}."),
+    "story_exec_modules": (
+        "- current_matrix 模块证据：{a0}；模块分数用于整合方向，正式显著性仍以差异表/富集表为边界。",
+        "- current_matrix module evidence: {a0}; module scores integrate direction, and formal significance is still bounded by the differential and enrichment tables."),
+    "story_exec_question": (
+        "- `{dataset}` 的核心问题是：{story_title}；本报告先给结论和核心表格，再把完整证据放入附录。",
+        "- The central question for `{dataset}` is: {story_title}; this report gives the conclusions and the core tables first and puts the complete evidence in the appendix."),
+    "story_exec_representatives": (
+        "- current_matrix 代表蛋白：{top_candidates}；这些数值用于支撑主线，不把候选存在性写成显著差异。",
+        "- current_matrix representative proteins: {top_candidates}; these numbers support the main line and do not turn the existence of a candidate into a significant difference."),
+    "story_findings_change_phrase": (
+        "当前矩阵中上调 {n_up_display_group_a}、下调 {n_down_display_group_a}。代表上调：{top_up_display_group_a}；代表下调：{top_down_display_group_a}。",
+        "In the current matrix {n_up_display_group_a} proteins are higher and {n_down_display_group_a} lower. Representative higher: {top_up_display_group_a}; representative lower: {top_down_display_group_a}."),
+    "story_findings_change_phrase_none": (
+        "当前阈值下没有显著差异蛋白；因此本段只把按效应量排序的候选变化作为低置信度线索。A组较高候选：{top_up_display_group_a}；B组较高候选：{top_down_display_group_a}。",
+        "No significantly different proteins at the current thresholds, so this paragraph treats only the effect-size-ranked candidate changes as low-confidence leads. Candidates higher in group A: {top_up_display_group_a}; higher in group B: {top_down_display_group_a}."),
+    "story_findings_direction": (
+        "`{display_contrast}` 是本段标准方向；{change_phrase}",
+        "`{display_contrast}` is the standard direction for this paragraph; {change_phrase}"),
+    "story_findings_enrichment_rule": (
+        "offline_enrichment 用于补充机制名词，但只有带 FDR/q-value 支持的条目才写成显著富集；探索性 fallback 只作为提示。",
+        "offline_enrichment supplies mechanism vocabulary, but only entries with FDR or q-value support are written as significant enrichment; exploratory fallback entries serve as hints only."),
+    "story_findings_interpretation": (
+        "解释：{interpretation} 边界：{boundary}",
+        "Interpretation: {interpretation} Boundary: {boundary}"),
+    "story_findings_intro": (
+        "本节按数据集核心问题组织结果，而不是按工具调用顺序罗列证据。",
+        "This section organises the results around the central question of the dataset rather than listing evidence in tool-call order."),
+    "story_findings_mainline": (
+        "### 主线判断：{story_title}",
+        "### Main-line judgement: {story_title}"),
+    "story_findings_modules_prefix": (
+        "模块层面为：",
+        "At the module level: "),
+    "story_findings_representatives_prefix": (
+        "代表蛋白数值为：",
+        "Representative protein values: "),
+    "story_group_a_higher": (
+        "{group_a} 较高",
+        "{group_a} higher"),
+    "story_group_b_higher": (
+        "{group_b} 较高",
+        "{group_b} higher"),
+    "story_scoring_intro": (
+        "本节只放用户最需要先看到的核心表格：核心对比、代表蛋白和模块证据。完整文件路径、coverage table 与日志放在证据附录。",
+        "This section carries only the core tables a reader needs first: the core contrasts, the representative proteins and the module evidence. Full file paths, the coverage table and the logs sit in the evidence appendix."),
+    "vis_differential_overview": (
+        "差异概览显示 %s 个显著蛋白条目，覆盖 %s 个对比。该数字的口径是「adj.P.Val < 0.05」（未叠加效应量阈值，叠加 |logFC| > 0.25 后的合计见《必需子分析与对比覆盖》表），并且是各对比条目的合计——同一蛋白出现在多个对比中会重复计入，不是去重后的蛋白数。",
+        "The differential overview reports %s significant protein entries across %s contrasts. That count uses the convention \"adj.P.Val < 0.05\" (no effect-size threshold is added; the combined count after also applying |logFC| > 0.25 appears in the Required Sub-analyses and Contrast Coverage table), and it is a sum over per-contrast entries: the same protein appearing in more than one contrast is counted more than once, so it is not a de-duplicated protein count."),
+    "vis_heatmap": (
+        "热图使用 {n_features} 个信息量较高的特征，覆盖 {comparison_preview}；图见 `visualize_results/heatmap.png`。",
+        "The heatmap uses {n_features} features with high information content, covering {comparison_preview}; see `visualize_results/heatmap.png`."),
+    "vis_more_contrasts": (
+        " 等 {a0} 个对比",
+        " ({a0} contrasts in total)"),
+    "vis_pca": (
+        "PCA 样本结构：n={n_samples}，PC1={PC1_variance}%，PC2={PC2_variance}%，标注列={label_column}；图见 `visualize_results/pca_plot.png`。",
+        "PCA sample structure: n={n_samples}, PC1={PC1_variance}%, PC2={PC2_variance}%, label column={label_column}; see `visualize_results/pca_plot.png`."),
+    "vis_static_figure_set": (
+        "静态图册包含 {a0} 张图，类别包括：{a1}。",
+        "The static figure set contains {a0} figures, with categories including: {a1}."),
+    "task_numerals": (
+        "一|二|三|四|五|六|七|八|九|十",
+        "1|2|3|4|5|6|7|8|9|10"),
+    "figure_volcano_suffix": (
+        " 火山图",
+        " volcano plot"),
+    "vis_umap": (
+       "UMAP 样本结构：n={n_samples}，clusters/groups={n_clusters}，标注列={label_column}；图见 `visualize_results/umap_plot.png`。",
+       "UMAP sample structure: n={n_samples}, clusters/groups={n_clusters}, label column={label_column}; see `visualize_results/umap_plot.png`."),
 }
 _report_language.register("main", MAIN_TEXT)
 
@@ -4297,14 +5393,14 @@ def _missing_encoding_text(run_folder: str) -> str:
     if not isinstance(info, dict) or not info:
         return ""
     parts = []
-    for key, label in (("input_nan_pct", "空值"), ("input_zero_pct", "零值")):
+    for key, label in (("input_nan_pct", tm("missing_encoding_nan")), ("input_zero_pct", tm("missing_encoding_zero"))):
         value = info.get(key)
         if value not in (None, ""):
             parts.append("%s %s%%" % (label, value))
     encoding = info.get("input_missing_encoding") or info.get("encoding")
-    text = "；".join(parts)
+    text = tm("sep_semicolon").join(parts)
     if encoding:
-        text = ("%s（记录形式：%s）" % (text, encoding)).strip("；")
+        text = (tm("missing_encoding_with_form") % (text, encoding)).strip(tm("sep_semicolon"))
     return text
 
 
@@ -4337,19 +5433,19 @@ def _build_analysis_conditions_lines(run_folder: str) -> List[str]:
     batch = (params.get("combat_calibration") or {}).get("batch_correction", {}) if isinstance(params.get("combat_calibration"), dict) else {}
     lines: List[str] = []
 
-    design_source = {"auto_inferred": "自动推断", "user_provided": "用户提供",
-                     "dataset_provided": "数据集提供"}.get(str(design.get("source", "")), str(design.get("source", "")) or "未记录")
-    lines.append(f"- 设计来源：{design_source}；样本标识列 {design.get('sample_id_col', '')}，蛋白组列 {design.get('protein_id_col', '')}，分组列 {design.get('group_col', '')}，物种 {design.get('species', '')}。")
+    design_source = {"auto_inferred": tm("design_source_auto"), "user_provided": tm("design_source_user"),
+                     "dataset_provided": tm("design_source_dataset")}.get(str(design.get("source", "")), str(design.get("source", "")) or _report_language.t("captions.not_recorded"))
+    lines.append(tm("ac_design_source", design_source=design_source, sample_id_col=design.get('sample_id_col', ''), protein_id_col=design.get('protein_id_col', ''), group_col=design.get('group_col', ''), species=design.get('species', '')))
     covariates = design.get("covariates") or []
     batch_col = design.get("batch_col")
-    lines.append("- 设计变量：分组列 %s；协变量 %s；批次列 %s。" % (
-        design.get("group_col", "无"),
-        "、".join(str(c) for c in covariates) if covariates else "未记录",
-        batch_col if batch_col else "元数据中未声明",
+    lines.append(tm("ac_design_vars") % (
+        design.get("group_col", tm("ac_group_col_none")),
+        tm("sep_comma").join(str(c) for c in covariates) if covariates else _report_language.t("captions.not_recorded"),
+        batch_col if batch_col else tm("ac_batch_col_undeclared"),
     ))
 
     state = str(matrix.get("matrix_state", "") or "")
-    state_text = _MATRIX_STATE_TEXT.get(state, state or "未记录")
+    state_text = _table_matrix_state().get(state, state or _report_language.t("captions.not_recorded"))
     # R28: the fraction kept in this record was estimated on a head sample of a detection-sorted
     # matrix, so it is labelled with the rows it covers instead of being printed as the delivered
     # matrix's missing rate. The full-matrix rate is stated from the group QC table below.
@@ -4358,28 +5454,27 @@ def _build_analysis_conditions_lines(run_folder: str) -> List[str]:
     fraction_rows = matrix.get("non_missing_fraction_rows")
     if fraction not in (None, ""):
         if "full matrix" in fraction_source:
-            fraction_label = "全矩阵非缺失比例 %s（%s 行）" % (fraction, fraction_rows or "未记录")
+            fraction_label = tm("ac_fraction_full_matrix") % (fraction, fraction_rows or _report_language.t("captions.not_recorded"))
         elif "head sample" in fraction_source or matrix.get("non_missing_fraction_sampled") is not None:
-            fraction_label = ("非缺失比例 %s（设计推断时按矩阵前 %s 行抽样估计，抽样口径，"
-                              "不等于全矩阵缺失率）"
-                              % (fraction, matrix.get("non_missing_fraction_sampled_rows") or "若干"))
+            fraction_label = (tm("ac_fraction_head_sample")
+                              % (fraction, matrix.get("non_missing_fraction_sampled_rows") or tm("ac_several_rows")))
         else:
-            fraction_label = ("非缺失比例 %s（记录未标明是全矩阵还是抽样，引用前需核验）" % fraction)
+            fraction_label = (tm("ac_fraction_unlabelled") % fraction)
     else:
-        fraction_label = "非缺失比例未记录"
-    lines.append("- 矩阵状态：输入为%s；%s；数值范围 %s 至 %s。" % (
+        fraction_label = tm("ac_fraction_not_recorded")
+    lines.append(tm("ac_matrix_state") % (
         state_text, fraction_label,
         matrix.get("numeric_min", ""),
         matrix.get("numeric_max", ""),
     ))
 
     if batch:
-        corrected = "已执行新的批次校正" if batch.get("new_batch_correction_applied") else "未执行新的批次校正"
+        corrected = tm("ac_batch_corrected") if batch.get("new_batch_correction_applied") else tm("ac_batch_not_corrected")
         reason = batch.get("fallback_reason") or batch.get("method") or ""
-        lines.append("- 批次处理：%s（%s）；矩阵有效性状态 %s。" % (
+        lines.append(tm("ac_batch_block") % (
             corrected, reason, batch.get("effective_matrix_status", "")))
     else:
-        lines.append("- 批次处理：本轮未记录批次校正分支；如元数据未声明批次列，则不做批次校正。")
+        lines.append(tm("ac_batch_not_recorded"))
 
     # R28: the earlier wording turned an absent field into the factual claim "本轮未执行填补／未执行
     # 对数变换", while the matrix the tests actually ran on had been screened, imputed (half-min) and
@@ -4390,37 +5485,36 @@ def _build_analysis_conditions_lines(run_folder: str) -> List[str]:
         logt = transform.get("log2_transform") or {}
         filt = transform.get("protein_filtering") or {}
         if imp.get("applied"):
-            imputation_text = "已执行（%s）" % (imp.get("method") or "方法未记录")
+            imputation_text = tm("ac_applied_with") % (imp.get("method") or tm("ac_method_not_recorded"))
             n_imputed = imp.get("n_values_imputed")
             if n_imputed not in (None, ""):
-                imputation_text += "，填补 %s 个取值" % n_imputed
+                imputation_text += tm("ac_imputed_values") % n_imputed
         elif imp.get("applied") is False:
-            imputation_text = "未执行"
+            imputation_text = tm("ac_not_applied")
         else:
-            imputation_text = "未记录"
+            imputation_text = _report_language.t("captions.not_recorded")
         if logt.get("applied"):
-            log_text = "已执行（%s）" % (logt.get("form") or "形式未记录")
+            log_text = tm("ac_applied_with") % (logt.get("form") or tm("ac_form_not_recorded"))
         elif logt.get("applied") is False:
-            log_text = "未执行"
+            log_text = tm("ac_not_applied")
         else:
-            log_text = "未记录（记录中的规则：%s）" % (logt.get("recorded_rule") or "未记录")
-        chain = "、".join(part for part in (
-            ("过滤：%s" % filt.get("rule")) if filt.get("rule") else "",
-            ("保留蛋白 %s 个" % filt.get("n_proteins_retained"))
+            log_text = tm("ac_not_recorded_with_rule") % (logt.get("recorded_rule") or _report_language.t("captions.not_recorded"))
+        chain = tm("sep_comma").join(part for part in (
+            (tm("ac_filter_rule") % _reader_recorded_rule(filt.get("rule"))) if filt.get("rule") else "",
+            (tm("ac_proteins_retained") % filt.get("n_proteins_retained"))
             if filt.get("n_proteins_retained") not in (None, "") else "",
-            ("分析矩阵 %s" % transform.get("analysed_matrix")) if transform.get("analysed_matrix") else "",
+            (tm("ac_analysed_matrix") % transform.get("analysed_matrix")) if transform.get("analysed_matrix") else "",
         ) if part)
-        lines.append("- 缺失与尺度（按本轮实际执行记录）：未检出以%s记录；缺失值填补 %s；对数变换 %s%s。" % (
-            _missing_encoding_text(run_folder) or "输入矩阵的原始编码",
-            imputation_text, log_text, ("；%s" % chain) if chain else ""))
+        lines.append(tm("ac_missing_and_scale") % (
+            _missing_encoding_text(run_folder) or tm("ac_input_encoding_fallback"),
+            imputation_text, log_text, (tm("ac_chain_suffix") % chain) if chain else ""))
     else:
-        lines.append("- 缺失与尺度：未检出以%s记录；本轮实际执行的填补与对数变换未记录"
-                     "（状态：未记录，不得据此推断为未执行）。" % (
-                         _missing_encoding_text(run_folder) or "输入矩阵的原始编码"))
+        lines.append(tm("ac_missing_and_scale_not_recorded") % (
+                         _missing_encoding_text(run_folder) or tm("ac_input_encoding_fallback")))
 
     backend = batch.get("statistical_backend") if isinstance(batch, dict) else ""
     contrasts = differential.get("contrasts") or []
-    contrast_text = "、".join(str(c.get("name", "")) for c in contrasts[:6]) if contrasts else "见各任务小节"
+    contrast_text = tm("sep_comma").join(str(c.get("name", "")) for c in contrasts[:6]) if contrasts else tm("ac_contrasts_see_sections")
     unused = _unused_design_variables(run_folder)
     stratified = [value for key, value in params.items()
                   if isinstance(value, dict) and "strat" in str(value.get("contrast_type", "")).lower()]
@@ -4442,23 +5536,21 @@ def _build_analysis_conditions_lines(run_folder: str) -> List[str]:
                     if idx < len(parts) and parts[idx] and parts[idx] not in strat_vars:
                         strat_vars.append(parts[idx])
     if strat_rows:
-        lines.append("- 分层情况：本轮已计算 %d 个对比；证据层按 %s 生成 %d 条分层对比记录，逐层结果表列入可复核资产清单。" % (
+        lines.append(tm("ac_stratified_present") % (
             len(differential.get("contrasts") or []),
-            "、".join(strat_vars) if strat_vars else "设计变量",
+            tm("sep_comma").join(strat_vars) if strat_vars else tm("ac_design_variables_fallback"),
             strat_rows))
     else:
-        lines.append("- 分层情况：本轮已计算 %d 个对比，未生成按设计变量（%s）分层的差异对比；"
-                     "相关背景条件只在分组 QC 交叉表与解释边界中讨论。" % (
+        lines.append(tm("ac_stratified_absent") % (
                          len(differential.get("contrasts") or []),
-                         "、".join(design_vars) if design_vars else "无额外设计变量"))
+                         tm("sep_comma").join(design_vars) if design_vars else tm("ac_no_extra_design_variables")))
     if unused:
-        lines.append("- 其他可用设计变量：%s（本轮未按其分层比较）。" % "、".join(unused))
+        lines.append(tm("ac_other_design_variables") % tm("sep_comma").join(unused))
     # R28: the screen this pipeline applies is the multiplicity-adjusted one. The unadjusted column
     # stays in the difference tables for reference but was never the cutoff, so naming it here made
     # the stated method disagree with the executed filter.
     _fdr = differential.get("fdr_method", "BH") or "BH"
-    lines.append("- 统计方法：%s；多重校正 %s；通过筛选的口径为校正后 P（%s，即差异表中的 adj.P.Val）< %s "
-                 "且 |logFC| > %s（未校正的 P.Value 列保留在差异表中供参考，不参与筛选）；主对比 %s。" % (
+    lines.append(tm("ac_statistical_method") % (
                      _human_test_method(run_folder), _fdr, _fdr,
                      differential.get("p_thresh", ""), differential.get("logfc_thresh", ""), contrast_text))
     return lines
@@ -4476,27 +5568,24 @@ def _qc_semantics_note(run_folder: str) -> str:
     input_range, analysed_range = _group_qc_missing_range(run_folder)
     parts: List[str] = []
     if input_range:
-        parts.append("原始交付矩阵（过滤与填补之前、全部蛋白行）：各分组的平均缺失率 %s，"
-                     "未检出按该矩阵的缺失编码统计" % input_range)
+        parts.append(tm("qc_original_matrix") % input_range)
     if analysed_range:
-        parts.append("本轮分析矩阵（过滤与填补之后）：各分组的平均缺失率 %s，该值为 0 只表示这个矩阵没有缺口，"
-                     "不表示全部蛋白在所有样本中都被检出，检出深度以平均检出蛋白数为准" % analysed_range)
+        parts.append(tm("qc_analysed_matrix") % analysed_range)
     if fraction not in (None, ""):
         if "full matrix" in fraction_source:
-            label = "全矩阵（%s 行）" % (matrix.get("non_missing_fraction_rows") or "未记录")
+            label = tm("qc_full_matrix_rows") % (matrix.get("non_missing_fraction_rows") or _report_language.t("captions.not_recorded"))
         elif "head sample" in fraction_source or matrix.get("non_missing_fraction_sampled") is not None:
-            label = ("设计推断时按矩阵前 %s 行抽样估计，是抽样口径，不能当作全矩阵缺失率"
-                     % (matrix.get("non_missing_fraction_sampled_rows") or "若干"))
+            label = (tm("qc_head_sample")
+                     % (matrix.get("non_missing_fraction_sampled_rows") or tm("ac_several_rows")))
         else:
-            label = "记录未标明是全矩阵还是抽样"
-        parts.append("设计推断记录的非缺失比例 %s（%s），与上面的分组缺失率口径不同，引用时须写明指哪一个"
+            label = tm("qc_unlabelled")
+        parts.append(tm("qc_design_fraction")
                      % (fraction, label))
     if isinstance(info, dict) and info:
-        parts.append("未检出编码的记录形式：%s" % _missing_encoding_text(run_folder))
+        parts.append(tm("qc_detection_encoding") % _missing_encoding_text(run_folder))
     if not parts:
-        return ("缺失率口径：运行记录中没有分阶段的缺失统计；分析矩阵缺失率为 0 只表示该矩阵没有缺口，"
-                "不表示全部蛋白被检出。")
-    return "缺失率口径：" + "；".join(parts) + "。"
+        return (tm("qc_note_fallback"))
+    return tm("qc_note_prefix") + tm("sep_semicolon").join(parts) + tm("sentence_stop")
 
 
 def _group_qc_missing_range(run_folder: str) -> Tuple[str, str]:
@@ -4524,7 +5613,7 @@ def _group_qc_missing_range(run_folder: str) -> Tuple[str, str]:
         if not values:
             return ""
         low, high = min(values), max(values)
-        return "%.4f" % low if low == high else "%.4f 至 %.4f" % (low, high)
+        return "%.4f" % low if low == high else tm("range_between") % (low, high)
 
     return _range_text(input_rates), _range_text(analysed_rates)
 
@@ -4543,10 +5632,10 @@ def _build_figure_index_lines(run_folder: str) -> List[str]:
                 title = entry.get("plot_type") or entry.get("title") or ""
                 caption = str(entry.get("caption") or "")[:70]
                 if path:
-                    lines.append("- 图 " + chr(96) + "%s" + chr(96) + "（%s）：%s。" % (
-                        os.path.basename(str(path)), str(title), caption or "见图册索引"))
+                    lines.append(tm("figure_index_row_prefix") + chr(96) + "%s" + chr(96) + tm("figure_index_row_tail") % (
+                        os.path.basename(str(path)), str(title), caption or tm("figure_index_caption_fallback")))
             if figures:
-                lines.append("- 完整图册索引：" + chr(96) + "figures.md" + chr(96) + " 与 " + chr(96) + "visualize_results/figure_index.md" + chr(96) + "；图注与阈值见 " + chr(96) + "figures_captions.md" + chr(96) + "。")
+                lines.append(tm("figure_index_full_prefix") + chr(96) + "figures.md" + chr(96) + tm("figure_index_and") + chr(96) + "visualize_results/figure_index.md" + chr(96) + tm("figure_index_captions") + chr(96) + "figures_captions.md" + chr(96) + tm("sentence_stop"))
     except Exception:
         pass
     return lines
@@ -4597,12 +5686,12 @@ def _build_deliverable_checklist_lines(run_folder: str, report_body: str) -> Lis
                              or re.search(b + r".{0,24}(?:vs|相对|与|和|对比).{0,24}" + a, report_body))
         elif groups:
             mentioned = all(g in report_body for g in groups)
-        state = "正文已提及（文本匹配）" if mentioned else "正文未提及"
-        rows.append(("对比 " + name.replace("_", " "),
-                     "已计算（adj.P<%s：%d；再叠加 |log2FC|>%s：%d；表内蛋白 %d；%s）" % (
+        state = tm("checklist_mentioned") if mentioned else tm("checklist_not_mentioned")
+        rows.append((tm("checklist_contrast_prefix") + name.replace("_", " "),
+                     tm("checklist_computed") % (
                          p_thresh, n_fdr, logfc_thresh, n_both, n_rows, state),
                      "processed_proteins/differential_%s.csv" % name))
-    lines.append("| 必需项目 | 状态 | 依据 |")
+    lines.append(tm("checklist_header"))
     lines.append("|---|---|---|")
     for item, state, source in rows[:12]:
         lines.append("| %s | %s | %s |" % (item, state, source))
@@ -4680,9 +5769,9 @@ def _build_extension_evidence_lines(run_folder: str) -> List[str]:
         rows = _read_csv_rows(trace_path, limit=500)
         verdicts = [r for r in rows if str(r.get("stage")) == "verdict"]
         if verdicts:
-            lines.append("### 候选进入/排除链路")
+            lines.append(tm("ext_candidate_chain_title"))
             for row in verdicts[:8]:
-                lines.append("- %s：%s" % (row.get("candidate", ""), row.get("reason", "")))
+                lines.append(tm("ext_candidate_chain_row") % (row.get("candidate", ""), row.get("reason", "")))
             lines.append("")
     verdict_path = _ext_path("estimability_verdict.txt")
     if verdict_path:
@@ -4691,18 +5780,18 @@ def _build_extension_evidence_lines(run_folder: str) -> List[str]:
         except Exception:
             text = ""
         if text:
-            lines.append("### 处理与批次的可比性")
+            lines.append(tm("ext_batch_title"))
             lines.append("- " + text)
             lines.append("")
     strat_path = _ext_path("stratified_contrast_summary.csv")
     if strat_path:
         rows = _read_csv_rows(strat_path, limit=200)
         if rows:
-            lines.append("### 分层对比")
-            lines.append("| 分层变量 | 层 | 对比（方向） | 效应尺度 | 第一臂 n | 第二臂 n | 通过筛选 | 状态 | 说明 |")
+            lines.append(tm("ext_stratified_title"))
+            lines.append(tm("ext_stratified_header"))
             lines.append("|---|---|---|---|---|---|---|---|---|")
             for row in rows[:10]:
-                lines.append("| %s | %s | %s（%s） | %s | %s | %s | %s | %s | %s |" % (
+                lines.append(tm("ext_stratified_row") % (
                     row.get("stratifier", ""), row.get("level", ""),
                     str(row.get("contrast", "")).replace("_", " "), row.get("direction", ""),
                     row.get("effect_scale", ""), row.get("n_a", ""), row.get("n_b", ""),
@@ -4712,8 +5801,8 @@ def _build_extension_evidence_lines(run_folder: str) -> List[str]:
     if conc_path:
         rows = _read_csv_rows(conc_path, limit=100)
         if rows:
-            lines.append("### 对比之间的并列比较")
-            lines.append("| 对比 A | 对比 B | 共享蛋白 | Spearman(logFC) | A/中位|logFC| | B/中位|logFC| | A 显著 | B 显著 | 显著重叠 | 共同显著符号一致 | FDR 来源 | 判定 |")
+            lines.append(tm("ext_contrast_compare_title"))
+            lines.append(tm("ext_contrast_compare_header"))
             lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
             for row in rows[:8]:
                 lines.append("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
@@ -4723,7 +5812,7 @@ def _build_extension_evidence_lines(run_folder: str) -> List[str]:
                     row.get("n_sig_a", ""), row.get("n_sig_b", ""),
                     row.get("overlap_sig", "") if row.get("overlap_sig") not in (None, "") else "0",
                     row.get("sign_agreement", ""),
-                    ("表内 adj.P.Val" if str(row.get("fdr_source_a", "")).startswith("table") else "BH 重算"),
+                    (tm("ext_fdr_from_table") if str(row.get("fdr_source_a", "")).startswith("table") else tm("ext_fdr_recomputed")),
                     str(row.get("verdict", ""))[:60]))
             lines.append("- " + str(rows[0].get("note", "")))
             lines.append("")
@@ -4742,12 +5831,12 @@ def _build_candidate_audit_lines(run_folder: str) -> List[str]:
 
     trace_verdicts = _candidate_trace_verdicts(run_folder)
     if required:
-        lines.append("**任务点名的候选蛋白（%d 个，全部呈现，不按数据存在性截断）**" % len(required))
+        lines.append(tm("cand_audit_title_named") % len(required))
     else:
-        lines.append("**说明**：本轮任务文本未点名具体候选蛋白，下表为数据集中预设候选的探索性呈现。")
+        lines.append(tm("cand_audit_no_named"))
     if required:
         lines.append("")
-        lines.append("| 候选蛋白 | 蛋白组 | 对比 | 检出状态 | 方向 | logFC | P.Value | adj.P.Val | 来源 |")
+        lines.append(tm("cand_audit_header_full"))
         lines.append("|---|---|---|---|---|---|---|---|---|")
         for gene in required:
             entries = [r for r in rows if str(r.get("matched_gene") or r.get("candidate") or "") == gene]
@@ -4761,40 +5850,39 @@ def _build_candidate_audit_lines(run_folder: str) -> List[str]:
                 detected = str(row.get("detected_in_matrix", "")).lower() in {"true", "1", "yes"}
                 lines.append("| %s | %s | %s | %s | %s | %s | %s | %s | candidate_protein_evidence.csv |" % (
                     gene, row.get("matched_protein", ""), _human_contrast(row.get("contrast", "")),
-                    "已检出" if detected else "未检出", _human_direction(row.get("direction", "")),
-                    row.get("logFC", "") or "未评估（该对比未计算）",
-                    row.get("P.Value", "") or "未评估（该对比未计算）",
-                    row.get("adj.P.Val", "") or "未评估（该对比未计算）"))
+                    tm("cand_audit_detected") if detected else tm("cand_audit_not_detected"), _human_direction(row.get("direction", "")),
+                    row.get("logFC", "") or tm("cand_audit_not_evaluated"),
+                    row.get("P.Value", "") or tm("cand_audit_not_evaluated"),
+                    row.get("adj.P.Val", "") or tm("cand_audit_not_evaluated")))
                 written += 1
             if written == 0:
                 diff_rows = _gene_rows_in_differential_tables(run_folder, gene)
                 if diff_rows:
                     for contrast, protein_group, logfc, p_value, adj in diff_rows[:4]:
-                        lines.append("| %s | %s | %s | 已检出 | %s | %s | %s | %s | 差异表（任务点名候选） |" % (
+                        lines.append(tm("cand_audit_diff_row") % (
                             gene, protein_group, contrast.replace("_", " "),
                             _human_direction("up_in_group_a" if float(logfc) >= 0 else "down_in_group_a"),
                             logfc, p_value, adj))
                 else:
-                    note = trace_verdicts.get(gene, "未评估：未在任何矩阵、候选表或差异表中匹配到该符号（名称待解析或当前矩阵未检出）")
-                    lines.append("| %s | — | — | 见右列 | — | — | — | — | %s |" % (gene, note))
+                    note = trace_verdicts.get(gene, tm("cand_audit_unresolved"))
+                    lines.append(tm("cand_audit_unresolved_row") % (gene, note))
         lines.append("")
 
     exploratory = [r for r in rows if str(r.get("matched_gene") or r.get("candidate") or "") not in set(required)]
     if exploratory:
-        lines.append("**探索性候选（限量呈现）**")
+        lines.append(tm("cand_audit_exploratory_title"))
         lines.append("")
-        lines.append("| 候选蛋白 | 蛋白组 | 对比 | 检出状态 | 方向 | logFC | P.Value | adj.P.Val |")
+        lines.append(tm("cand_audit_header_short"))
         lines.append("|---|---|---|---|---|---|---|---|")
         for row in exploratory[:12]:
             gene = str(row.get("matched_gene") or row.get("candidate") or "")
             detected = str(row.get("detected_in_matrix", "")).lower() in {"true", "1", "yes"}
             lines.append("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
                 gene, row.get("matched_protein", ""), _human_contrast(row.get("contrast", "")),
-                "已检出" if detected else "未检出", _human_direction(row.get("direction", "")),
+                tm("cand_audit_detected") if detected else tm("cand_audit_not_detected"), _human_direction(row.get("direction", "")),
                 row.get("logFC", ""), row.get("P.Value", ""), row.get("adj.P.Val", "")))
         lines.append("")
-    lines.append("同一基因对应多个蛋白组时按蛋白组分行呈现；对比列写的是该行统计实际所属的对比，"
-                 "未计算该对比时留空并注明，不用其他对比的数值替代。")
+    lines.append(tm("cand_audit_footer_note"))
     return lines
 
 
@@ -4842,9 +5930,9 @@ def _build_offline_enrichment_lines(run_folder: str) -> List[str]:
     if not os.path.isdir(root):
         return []
     import glob as _glob
-    lines: List[str] = ["- 主对比（analysis design 指定的第一个对比）：%s。" % contrast.replace("_", " ")]
+    lines: List[str] = [tm("off_main_contrast") % contrast.replace("_", " ")]
     any_cited = False
-    for direction, label in (("upregulated", "上调"), ("downregulated", "下调")):
+    for direction, label in (("upregulated", _report_language.t("captions.direction_upregulated")), ("downregulated", _report_language.t("captions.direction_downregulated"))):
         rows_all: List[Dict[str, Any]] = []
         for resource in ("GO", "KEGG", "Reactome"):
             pattern = os.path.join(root, "%s_%s_%s_proteins.csv" % (resource, contrast, direction))
@@ -4853,7 +5941,7 @@ def _build_offline_enrichment_lines(run_folder: str) -> List[str]:
                     row["_resource"] = resource
                     rows_all.append(row)
         if not rows_all:
-            lines.append("- %s：本轮未生成该方向的富集结果（通常表示该方向没有通过筛选的蛋白集合）。" % label)
+            lines.append(tm("off_no_direction_result") % label)
             continue
         head = rows_all[0]
         query_n = head.get("input_gene_count") or head.get("normalized_query_gene_count") or ""
@@ -4861,9 +5949,9 @@ def _build_offline_enrichment_lines(run_folder: str) -> List[str]:
         background = head.get("BgRatio") or ""
         cutoff = head.get("fdr_cutoff") or ""
         source = head.get("source") or ""
-        method = "过度代表分析（ORA，阈值蛋白集合）"
+        method = tm("off_method_ora")
         if "gsea" in str(source).lower() or "rank" in str(head.get("significance_status", "")).lower():
-            method = "排序型富集（不应按单蛋白 FDR 判定）"
+            method = tm("off_method_ranked")
         passing = [r for r in rows_all if str(r.get("passes_fdr", "")).lower() in {"true", "1", "yes"}]
         # R28: the old line printed BgRatio as "背景 13/19591" and each term as "重叠 6/19591", which
         # mixed four different quantities: the query set, the mapped query, the gene-set size in the
@@ -4878,14 +5966,13 @@ def _build_offline_enrichment_lines(run_folder: str) -> List[str]:
         background_size = ratio_text.split("/")[-1] if "/" in ratio_text else ""
         tested_count = head.get("strict_fdr_rows") or ""
         selected_count = head.get("selected_rows") or ""
-        lines.append("- %s：查询集 n=%s（该方向通过筛选的蛋白，映射之前）；其中 %s 个映射到本地资源；"
-                     "背景集 %s 个基因；方法=%s；资源=%s；FDR 阈值 %s。"
-                     % (label, query_n or "未记录", matched or "未记录",
-                        background_size or "未记录", method, source or "本地 GMT",
-                        cutoff or "未记录"))
+        lines.append(tm("off_direction_detail")
+                     % (label, query_n or _report_language.t("captions.not_recorded"), matched or _report_language.t("captions.not_recorded"),
+                        background_size or _report_language.t("captions.not_recorded"), method, source or tm("off_resource_local_gmt"),
+                        cutoff or _report_language.t("captions.not_recorded")))
         if tested_count or selected_count:
-            lines.append("  - 本轮对该方向检验了 %s 个基因集条目，落盘 %s 条；下面只引用通过 FDR 的前几条。"
-                         % (tested_count or "未记录", selected_count or "未记录"))
+            lines.append(tm("off_tested_entries")
+                         % (tested_count or _report_language.t("captions.not_recorded"), selected_count or _report_language.t("captions.not_recorded")))
         if passing:
             any_cited = True
             for row in passing[:3]:
@@ -4893,19 +5980,18 @@ def _build_offline_enrichment_lines(run_folder: str) -> List[str]:
                 term_ratio = str(row.get("BgRatio", ""))
                 term_set_size = term_ratio.split("/")[0] if "/" in term_ratio else ""
                 term_bg_size = term_ratio.split("/")[-1] if "/" in term_ratio else ""
-                lines.append("  - %s ｜ %s（校正 P=%s；查询集命中 %s 个；该通路基因集在背景中 %s 个；"
-                             "背景 %s 个；查询集命中比 %s%s）"
+                lines.append(tm("off_entry_row")
                              % (row.get("_resource"), str(row.get("Description", ""))[:60],
                                 _fmt_prob(row.get("p.adjust")), row.get("Count", ""),
-                                term_set_size or "未记录", term_bg_size or "未记录",
-                                row.get("GeneRatio", "") or "未记录",
-                                ("；成员 " + members) if members else ""))
+                                term_set_size or _report_language.t("captions.not_recorded"), term_bg_size or _report_language.t("captions.not_recorded"),
+                                row.get("GeneRatio", "") or _report_language.t("captions.not_recorded"),
+                                (tm("off_members") + members) if members else ""))
         else:
             best = min((r for r in rows_all if r.get("p.adjust")), key=lambda r: float(r["p.adjust"]), default=None)
-            lines.append("  - 该方向没有通过 FDR 的条目%s；本轮不引用富集作为该方向的证据。"
-                         % (("（最小 p.adjust=%s）" % best["p.adjust"]) if best else ""))
+            lines.append(tm("off_no_fdr_entries")
+                         % ((tm("off_min_padjust") % best["p.adjust"]) if best else ""))
     if not any_cited:
-        lines.append("- 说明：主对比的富集引用数为 0，机制解释只依赖蛋白级与模块级证据。")
+        lines.append(tm("off_zero_citations_note"))
     return lines
 
 
@@ -4913,23 +5999,22 @@ def _build_required_analysis_section(run_folder: str, report_body: str) -> List[
     lines: List[str] = []
     enrichment = _build_offline_enrichment_lines(run_folder)
     if enrichment:
-        lines.append("### 离线富集证据（主对比）")
+        lines.append(tm("off_section_title"))
         lines.extend(enrichment)
         lines.append("")
-        lines.append("以上条目来自本地离线富集结果，用于给差异蛋白集合命名；不构成因果或通路活性测量。")
+        lines.append(tm("off_section_note"))
         lines.append("")
     checklist = _build_deliverable_checklist_lines(run_folder, report_body)
     if checklist:
-        lines.append("### 必需子分析与对比覆盖")
+        lines.append(tm("req_section_title"))
         lines.extend(checklist)
         lines.append("")
-        lines.append("上表逐条给出本轮已计算的对比、通过筛选的蛋白数，以及该对比是否在本报告中以文本形式被提及；"
-                     "正文未提及的对比属于本报告的覆盖缺口，应在下一轮补齐，而不是视为已评估。")
+        lines.append(tm("req_section_note"))
         lines.append("")
     extension_lines = _build_extension_evidence_lines(run_folder)
     if extension_lines:
         lines.extend(extension_lines)
-    lines.append("完整候选核查表见后文「候选蛋白逐条核查（完整表）」；该表只呈现证据，不改变任务要求本身。")
+    lines.append(tm("req_candidate_pointer"))
     return lines
 
 def prepend_report_front_matter(report_text: str, run_folder: str) -> str:
@@ -4976,7 +6061,7 @@ def _module_dispersion_within(sample_scores_path: str, group_value: str, modules
         n = len(values)
         q1 = values[int(0.25 * (n - 1))]
         q3 = values[int(0.75 * (n - 1))]
-        out.append("%s：n=%d，中位数 %.3f，四分位距 %.3f（P25 %.3f 至 P75 %.3f，极差 %.3f）" % (
+        out.append(tm("module_dispersion_row") % (
             module, n, values[n // 2], q3 - q1, q1, q3, values[-1] - values[0]))
     return out
 
@@ -5031,16 +6116,16 @@ _TEST_METHOD_TEXT = {
 def _human_direction(value: str) -> str:
     text = str(value or "").strip()
     if not text:
-        return "未记录"
-    return _DIRECTION_TEXT.get(text, text.replace("_", " "))
+        return _report_language.t("captions.not_recorded")
+    return _table_direction().get(text, text.replace("_", " "))
 
 
 def _human_contrast(value: str) -> str:
     text = str(value or "").strip()
     if not text:
-        return "未记录"
+        return _report_language.t("captions.not_recorded")
     if text.lower().replace(" ", "").replace("_", "") == "matrixpresenceonly":
-        return "未指定对比（仅存在性记录）"
+        return tm("human_contrast_unspecified")
     return text.replace("_", " ")
 
 
@@ -5049,9 +6134,10 @@ def _human_test_method(run_folder: str) -> str:
     for key, value in params.items():
         if isinstance(value, dict) and value.get("method"):
             method = str(value["method"])
-            if method in _TEST_METHOD_TEXT or "ttest" in method or "welch" in method.lower():
-                return _TEST_METHOD_TEXT.get(method, method.replace("_", " "))
-    return "双组比较"
+            method_texts = _table_test_method()
+            if method in method_texts or "ttest" in method or "welch" in method.lower():
+                return method_texts.get(method, method.replace("_", " "))
+    return tm("human_test_two_group")
 
 
 def _unused_design_variables(run_folder: str) -> List[str]:
@@ -5102,11 +6188,9 @@ def _dimension4_verdict_lines(run_folder: str, dataset: str) -> List[str]:
             intermediate = (low_sign > 0 and high_sign > 0) or (low_sign < 0 and high_sign < 0)
             if intermediate:
                 ok += 1
-            detail.append("%s(%s)" % (gene, "中序" if intermediate else "非中序"))
+            detail.append("%s(%s)" % (gene, tm("d4_ordered") if intermediate else tm("d4_not_ordered")))
         if total:
-            lines.append("判定：在 %d 个可判读的焦点基因中，%d 个满足 Portal—Midlobular—Central 的中序关系，"
-                         "支持把 Midlobular 作为两侧之间的过渡带而不是独立区带；其余基因不满足该关系，"
-                         "说明分区不是单一线性梯度。逐基因结果：%s。" % (total, ok, "、".join(detail[:8])))
+            lines.append(tm("d4_verdict_liver") % (total, ok, tm("sep_comma").join(detail[:8])))
 
     if dataset == "Nat_Methods_iPSC_2025":
         stats = _module_dispersion_within(
@@ -5114,8 +6198,7 @@ def _dimension4_verdict_lines(run_folder: str, dataset: str) -> List[str]:
             ["pluripotency_core", "lineage_endoderm", "lineage_mesoderm", "lineage_ectoderm",
              "cell_cycle_replication", "chromatin_open_remodeling"])
         if stats:
-            lines.append("判定：EB 组内部并非同质。EB 样本内的模块分数分布为——%s。"
-                         "因此 EB 与 iPSC 的组间比较描述的是中心趋势，组内梯度与亚群结构需另外阅读异质性图。" % "；".join(stats[:4]))
+            lines.append(tm("d4_verdict_ipsceb") % tm("sep_semicolon").join(stats[:4]))
 
     if dataset == "Science_BloodCell_2025":
         rows = _read_csv_rows(os.path.join(run_folder, "evaluation_evidence",
@@ -5139,12 +6222,11 @@ def _dimension4_verdict_lines(run_folder: str, dataset: str) -> List[str]:
                 continue
             top = max(entries, key=lambda item: item[1])
             want = expected.get(module, "")
-            agreed = "与标签一致" if want and top[0] == want else ("与标签不一致" if want else "未设定预期状态")
-            bits.append("%s 在 %s 上最高（%.3f，%s）" % (module, top[0], top[1], agreed))
+            agreed = tm("d4_label_agree") if want and top[0] == want else (tm("d4_label_disagree") if want else tm("d4_label_no_expectation"))
+            bits.append(tm("d4_module_top_state") % (module, top[0], top[1], agreed))
         if bits:
-            lines.append("判定：标注状态与蛋白程序的一致性——%s。两个模块的最高状态分别落在其预期状态上，"
-                         "说明注释标签与蛋白程序方向一致；这不构成对各状态之间连续过渡或供体效应的检验。"
-                         % "；".join(bits[:4]))
+            lines.append(tm("d4_verdict_bloodcell")
+                         % tm("sep_semicolon").join(bits[:4]))
 
     if not lines:
         rows = _read_csv_rows(os.path.join(run_folder, "evaluation_evidence",
@@ -5165,8 +6247,7 @@ def _dimension4_verdict_lines(run_folder: str, dataset: str) -> List[str]:
             else:
                 direction_only += 1
         if rows:
-            lines.append("判定：本节机制解释以 %d 条通过筛选口径的候选证据为主，%d 条为未通过筛选的方向线索，"
-                         "%d 条候选在当前矩阵中未检出。方向线索只作假设，不进入结论句。"
+            lines.append(tm("d4_verdict_generic")
                          % (passed, direction_only, undetected))
     return lines
 
@@ -5182,28 +6263,26 @@ def _build_generic_dimension4_section(run_folder: str, heading_index: int) -> Li
     differential = (params.get("analysis_design") or {}).get("differential", {}) if isinstance(params.get("analysis_design"), dict) else {}
     logfc_thresh = float(differential.get("logfc_thresh", 0.25) or 0.25)
     p_thresh = float(differential.get("p_thresh", 0.05) or 0.05)
-    lines: List[str] = ["", "## %d. 机制整合与解释边界" % heading_index]
-    lines.append("本节把各任务小节的蛋白级结果、模块证据与离线富集放在同一处收束，"
-                 "并给出明确的边界判断；判读规则是：只有通过筛选口径的候选进入机制解释，未通过筛选的方向线索只作为假设。")
+    lines: List[str] = ["", tm("d4_heading") % heading_index]
+    lines.append(tm("d4_intro"))
     lines.append("")
     for path in files[:3]:
         contrast = os.path.basename(path).replace("differential_", "").replace(".csv", "")
         n_fdr, n_both, n_rows = _n_sig_for_contrast(path, logfc_thresh, p_thresh)
-        lines.append("**%s**：adj.P.Val < %s 的蛋白 %d；再叠加 |log2FC| > %s 后为 %d（表内蛋白 %d）。" % (
+        lines.append(tm("d4_contrast_count") % (
             contrast.replace("_", " "), p_thresh, n_fdr, logfc_thresh, n_both, n_rows))
     lines.append("")
     for entry in _dimension4_verdict_lines(run_folder, dataset):
         lines.append(entry)
         lines.append("")
     boundary = metadata.get("boundary")
-    lines.append("边界：本节的方向与分类判断来自当前矩阵的差异表与模块分数；"
-                 "不构成对上游实验设计或因果机制的检验%s。" % ("。" if not boundary else "；%s。" % _short_story_value(boundary, 160)))
+    lines.append(tm("d4_closing_boundary") % (tm("sentence_stop") if not boundary else tm("d4_boundary_suffix") % _short_story_value(boundary, 160)))
     return lines
 
 
 def _build_dimension4_section(run_folder: str, heading_index: int) -> List[str]:
     dataset = _get_dataset_name(run_folder)
-    spec = _DIMENSION4_SECTION_SPECS.get(dataset)
+    spec = _dimension4_spec_for(dataset)
     if spec:
         lines = _build_dimension4_integration_section(run_folder, heading_index, spec_override=spec)
         if lines:
@@ -5211,7 +6290,7 @@ def _build_dimension4_section(run_folder: str, heading_index: int) -> List[str]:
             if verdicts:
                 insert_at = len(lines)
                 for idx, line in enumerate(lines):
-                    if line.startswith("边界："):
+                    if line.startswith(tm("boundary_prefix")):
                         insert_at = idx
                         break
                 lines[insert_at:insert_at] = [""] + verdicts
@@ -5288,10 +6367,7 @@ def _polish_pispa_report_terms(report_text: str) -> str:
         return report_text
     heading = f"## {story_report_headings()[3]}"
     insertion = (
-        "\n"
-        "术语说明：本节把 single-cell proteomic 矩阵中的 cell motility、actin cytoskeleton、"
-        "focal adhesion、ERM 膜-皮质连接和 Rho GTPase 调控视为同一迁移机制链的不同层级；"
-        "这些术语用于组织证据，不额外扩大当前矩阵能够直接证明的范围。\n"
+        chr(10) + tm("pispa_term_note") + chr(10)
     )
     if heading in report_text:
         return report_text.replace(heading + "\n", heading + "\n" + insertion, 1)
@@ -5303,8 +6379,8 @@ def write_report_variants(report_content: str, run_folder: str, base_name: str) 
     appendix_markers = [
         f"\n## {canonical_report_headings()['appendix']}",
         f"\n## {story_report_headings()[7]}",
-        "\n### 可复核证据附录",
-        "\n### 技术证据附录",
+        chr(10) + "### " + tm("appendix_reproducible"),
+        chr(10) + "### " + tm("appendix_technical"),
         "\n## Evidence Appendix",
         "\n## Scoring Evidence Appendix",
         "\n## Protein Leakage Evidence Appendix",
@@ -5374,7 +6450,7 @@ def _existing_key_figures(run_folder: str) -> List[Tuple[str, str]]:
     dataset = _get_dataset_name(run_folder)
     fig_dir = os.path.join(run_folder, "visualize_results")
     found: List[Tuple[str, str]] = []
-    specs = PISPA_KEY_FIGURE_SPECS if dataset == "Nat_Commun_PiSPA_2024" else GENERIC_KEY_FIGURE_SPECS
+    specs = _key_figure_specs(dataset)
     for filename, title in specs:
         path = os.path.join(fig_dir, filename)
         if _path_exists(path):
@@ -5398,7 +6474,7 @@ def _existing_key_figures(run_folder: str) -> List[Tuple[str, str]]:
         seen = {name for name, _ in found}
         for filename in volcanoes[:4]:
             if filename not in seen:
-                title = _human_contrast_label(filename.replace("_volcano_plot.png", "")) + " 火山图"
+                title = _human_contrast_label(filename.replace("_volcano_plot.png", "")) + tm("figure_volcano_suffix")
                 found.append((filename, title))
                 seen.add(filename)
     if not found and os.path.isdir(fig_dir):
@@ -6049,18 +7125,18 @@ def _append_scoring_evidence_appendix(report_text: str, run_folder: str) -> str:
         "|---|---|",
     ]
     evidence_file_rows = [
-        ("差异分析要求与口径", requirements_path, "「数据与预处理」的差异分析阈值"),
-        ("分组组成与质控", group_qc_path, "「数据与预处理」的分组规模与缺失率"),
-        ("差异检验摘要", story_path, "「对比级证据摘要」表"),
-        ("候选蛋白逐对比统计", candidate_path, "「候选蛋白逐对比统计」表"),
-        ("模块分组分数", module_path, "「模块分组分数」表"),
-        ("模块样本级分数", module_sample_path, "「模块分组分数」表的均值来源"),
-        ("任务要求与证据落点", recipe_path, "下方「数据集任务要求与证据落点」表"),
-        ("蛋白泄漏汇总", leakage_summary_path, "「蛋白泄漏证据附录」"),
-        ("蛋白泄漏模块汇总", leakage_module_path, "「蛋白泄漏证据附录」"),
+        (tm("sea_req_diff_analysis"), requirements_path, tm("sea_req_diff_threshold")),
+        (tm("sea_req_group_qc"), group_qc_path, tm("sea_req_group_sizes")),
+        (tm("sea_req_diff_summary"), story_path, tm("sea_req_contrast_table")),
+        (tm("sea_req_candidate_stats"), candidate_path, tm("sea_req_candidate_table")),
+        (tm("sea_req_module_group"), module_path, tm("sea_req_module_group_table")),
+        (tm("sea_req_module_sample"), module_sample_path, tm("sea_req_module_sample_source")),
+        (tm("sea_req_task_evidence"), recipe_path, tm("sea_req_task_evidence_table")),
+        (tm("sea_leakage_summary"), leakage_summary_path, tm("sea_leakage_appendix")),
+        (tm("sea_leakage_module_summary"), leakage_module_path, tm("sea_leakage_appendix")),
     ]
     if external_applicable:
-        evidence_file_rows.insert(6, ("外部知识注释（ASD/NDD）", external_annotation_path, "「结论边界与方法局限」的外部注释说明"))
+        evidence_file_rows.insert(6, (tm("sea_external_annotation"), external_annotation_path, tm("sea_external_annotation_note")))
     for label, path, pointer in evidence_file_rows:
         if os.path.exists(path):
             lines.append(f"| {label} | {pointer} |")
@@ -6069,9 +7145,9 @@ def _append_scoring_evidence_appendix(report_text: str, run_folder: str) -> str:
     if recipe_rows:
         lines.extend([
             "",
-            "#### 数据集任务要求与证据落点",
-            "本表是任务要求清单（不是结果）；每项对应的数值见正文任务小节与上表，未计算项在覆盖表中标注。",
-            "| 任务要求 | 要求覆盖的证据项 | 证据来源 | 置信度 | 边界 |",
+            tm("sea_task_landing_title"),
+            tm("sea_task_landing_intro"),
+            tm("sea_task_landing_header"),
             "|---|---|---|---|---|",
         ])
         for row in recipe_rows:
@@ -6083,25 +7159,23 @@ def _append_scoring_evidence_appendix(report_text: str, run_folder: str) -> str:
 
     story_rows = _read_csv_rows(story_path, limit=80)
     if story_rows:
-        story_source_header = "证据口径" if dataset == "Nat_Commun_PiSPA_2024" else "边界"
+        story_source_header = tm("sea_source_header_pispa") if dataset == "Nat_Commun_PiSPA_2024" else tm("sea_source_header_default")
         lines.extend([
             "",
-            "#### 核心故事证据表",
-            f"| 类型 | 科学问题 | 对比 | 核心数值 | 置信度 | {story_source_header} |",
+            tm("sea_core_story_title"),
+            tm("sea_core_story_header", story_source_header=story_source_header),
             "|---|---|---|---|---|---|",
         ])
         for row in story_rows[:40]:
             if row.get("row_type") == "contrast":
-                value = (f"通过筛选的蛋白数={row.get('n_sig', '')}；"
-                         f"A 组较高={row.get('n_up_display_group_a', '')}；"
-                         f"B 组较高={row.get('n_down_display_group_a', '')}")
-                source_note = "current_matrix 差异统计；效应量见代表蛋白 logFC"
+                value = (tm("sea_core_story_counts", n_sig=row.get('n_sig', ''), n_up_display_group_a=row.get('n_up_display_group_a', ''), n_down_display_group_a=row.get('n_down_display_group_a', '')))
+                source_note = tm("sea_core_story_diff_source")
             elif row.get("row_type") == "candidate":
                 value = f"{row.get('candidate', '')} logFC={row.get('logFC_display', '')}; adj.P.Val={row.get('adj.P.Val', '')}"
-                source_note = "current_matrix 候选蛋白；P.Value/adj.P.Val 来自对应差异表"
+                source_note = tm("sea_core_story_candidate_source")
             else:
                 value = f"{row.get('module', '')} Δ={row.get('module_delta_group_a_minus_group_b', '')}"
-                source_note = "模块平均分差；未计算 FDR"
+                source_note = tm("sea_core_story_module_source")
             if dataset != "Nat_Commun_PiSPA_2024":
                 source_note = _reader_boundary_text(row.get("boundary", ""))
             lines.append(
@@ -6115,8 +7189,8 @@ def _append_scoring_evidence_appendix(report_text: str, run_folder: str) -> str:
     if candidate_rows:
         lines.extend([
             "",
-            "#### 候选蛋白证据摘要",
-            "| 候选 | 是否检出 | 对比 | 方向 | logFC | P.Value | adj.P.Val | 置信度 |",
+            tm("sea_candidate_summary_title"),
+            tm("sea_candidate_summary_header"),
             "|---|---|---|---|---:|---:|---:|---|",
         ])
         for row in candidate_rows:
@@ -6132,8 +7206,8 @@ def _append_scoring_evidence_appendix(report_text: str, run_folder: str) -> str:
     if group_rows:
         lines.extend([
             "",
-            "#### 分组组成与 QC 表",
-            "| 表 | 分组 | 组别 | 二级列 | 样本数 | 平均检出蛋白 | 平均缺失率 | 计数 |",
+            tm("sea_group_qc_title"),
+            tm("sea_group_qc_header"),
             "|---|---|---|---|---:|---:|---:|---|",
         ])
         for row in group_rows:
@@ -6154,8 +7228,8 @@ def _append_scoring_evidence_appendix(report_text: str, run_folder: str) -> str:
     if module_rows:
         lines.extend([
             "",
-            "#### Curated 模块分数补充表",
-            "| 模块 | 组别 | 匹配基因数 | 平均分数 | 统计口径 | 置信度 |",
+            tm("sea_curated_module_title"),
+            tm("sea_curated_module_header"),
             "|---|---|---:|---:|---|---|",
         ])
         shown = 0
@@ -6163,23 +7237,21 @@ def _append_scoring_evidence_appendix(report_text: str, run_folder: str) -> str:
             if not row.get("group"):
                 continue
             lines.append(
-                f"| {_fmt_cell(row.get('module', ''))} | {_fmt_cell(row.get('group', ''))} | "
-                f"{_fmt_cell(row.get('n_matched_genes', ''))} | "
-                f"{_fmt_cell(row.get('mean_score', ''))} | 未计算 FDR；样本级模块均值 | {_fmt_cell(row.get('confidence', ''))} |"
+                tm("sea_curated_module_row", module=_fmt_cell(row.get('module', '')), group=_fmt_cell(row.get('group', '')), n_matched_genes=_fmt_cell(row.get('n_matched_genes', '')), mean_score=_fmt_cell(row.get('mean_score', '')), confidence=_fmt_cell(row.get('confidence', '')))
             )
             shown += 1
             if shown >= MODULE_APPENDIX_MAX_ROWS:
                 break
         if len(module_rows) > shown:
             lines.append(
-                "| …（共 %d 行，本表显示前 %d 行；完整表见证据表） |  |  |  |  |  |" % (len(module_rows), shown))
+                tm("sea_rows_truncated") % (len(module_rows), shown))
 
     external_rows = _read_csv_rows(external_annotation_path, limit=60) if external_applicable else []
     if external_rows:
         lines.extend([
             "",
-            "#### 离线外部注释交叉表",
-            "| 基因 | 类别 | 是否检出 | 匹配行数 | 证据来源 | 边界 |",
+            tm("sea_external_cross_title"),
+            tm("sea_external_cross_header"),
             "|---|---|---|---:|---|---|",
         ])
         shown = 0
@@ -6199,8 +7271,8 @@ def _append_scoring_evidence_appendix(report_text: str, run_folder: str) -> str:
     if leakage_rows:
         lines.extend([
             "",
-            "#### 蛋白泄漏 QC 证据",
-            "| 对比 | 状态列 | 模块 | 匹配基因数 | groupA-groupB 平均 logFC | 方向 | A 组样本数 | B 组样本数 | 置信度 |",
+            tm("appendix_leakage_qc_title"),
+            tm("sea_module_effect_header"),
             "|---|---|---|---:|---:|---|---:|---:|---|",
         ])
         for row in leakage_rows:
@@ -6219,8 +7291,8 @@ def _append_scoring_evidence_appendix(report_text: str, run_folder: str) -> str:
         if isinstance(leakage, dict) and leakage:
             lines.extend([
                 "",
-                "#### 泄漏相关性摘要",
-                "| 对比 | 状态列 | 分层 | logFC 矩阵 | 高相关对数 | 结论 |",
+                tm("sea_leakage_correlation_title"),
+                tm("sea_leakage_correlation_header"),
                 "|---|---|---|---:|---:|---|",
             ])
             for comparison, payload in list(leakage.items())[:20]:
@@ -6251,8 +7323,8 @@ def _append_leakage_evidence_appendix(report_text: str, run_folder: str) -> str:
         "|---|---|",
     ]
     for label, path, pointer in [
-        ("蛋白泄漏汇总", leakage_summary_path, "下方的泄漏方向与模块摘要"),
-        ("蛋白泄漏模块汇总", leakage_module_path, "下方的逐模块表"),
+        (tm("sea_leakage_summary"), leakage_summary_path, tm("lea_leakage_direction_note")),
+        (tm("sea_leakage_module_summary"), leakage_module_path, tm("lea_per_module_note")),
     ]:
         if os.path.exists(path):
             lines.append(f"| {label} | {pointer} |")
@@ -6262,7 +7334,7 @@ def _append_leakage_evidence_appendix(report_text: str, run_folder: str) -> str:
         lines.extend([
             "",
             tm("appendix_leakage_qc_title"),
-            "| 对比 | 状态列 | 模块 | 匹配基因数 | groupA-groupB 平均 logFC | 方向 | A 组样本数 | B 组样本数 | 置信度 |",
+            tm("sea_module_effect_header"),
             "|---|---|---|---:|---:|---|---:|---:|---|",
         ])
         for row in leakage_rows:
@@ -6282,8 +7354,8 @@ def _append_leakage_evidence_appendix(report_text: str, run_folder: str) -> str:
         if isinstance(leakage, dict) and leakage:
             lines.extend([
                 "",
-                "#### 泄漏相关性摘要",
-                "| 对比 | 状态列 | 分层 | logFC 矩阵 | 高相关对数 | 结论 |",
+                tm("sea_leakage_correlation_title"),
+                tm("sea_leakage_correlation_header"),
                 "|---|---|---|---:|---:|---|",
             ])
             for comparison, payload in list(leakage.items())[:20]:
@@ -6305,28 +7377,28 @@ def build_local_fallback_report(task: str, analysis_summary: str, run_folder: st
     if not os.path.exists(figure_manifest):
         figure_manifest = os.path.join(run_folder, "figure_manifest.json")
     lines = [
-        "# scProteomics 分析报告",
+        tm("fallback_h1"),
         "",
         "confidence: moderate",
         "",
-        "本报告由本地 fallback reporter 生成，因为 LLM reporter 不可用。结论仅限于本轮 current_matrix 输出、offline_enrichment 和已标注来源的证据文件。",
+        tm("fallback_intro"),
         "",
-        "## 证据来源",
-        f"- current_matrix：分析输出位于 `{os.path.abspath(run_folder)}`。",
-        f"- analysis_design：`{os.path.abspath(design_path)}`。",
-        f"- evidence_ledger：`{os.path.abspath(ledger_path)}`。",
+        tm("fallback_sources_heading"),
+        tm("fallback_source_matrix", a0=os.path.abspath(run_folder)),
+        tm("fallback_source_design", a0=os.path.abspath(design_path)),
+        tm("fallback_source_ledger", a0=os.path.abspath(ledger_path)),
     ]
     if os.path.exists(figure_manifest):
-        lines.append(f"- figure_manifest：`{os.path.abspath(figure_manifest)}`。")
+        lines.append(tm("fallback_source_figures", a0=os.path.abspath(figure_manifest)))
     lines.extend([
         "",
-        "## 分析摘要",
+        tm("fallback_summary_heading"),
         sanitize_report_text_for_output(analysis_summary, 40000),
         "",
-        "## 科学边界",
-        "- 矩阵统计属于 current_matrix 证据。",
-        "- 离线富集属于 offline_enrichment 证据；FDR 不显著时只能作为探索性提示。",
-        "- 外部文献或药物数据库证据如存在，也不能解释为当前矩阵的直接证据。",
+        tm("fallback_boundary_heading"),
+        tm("fallback_boundary_matrix"),
+        tm("fallback_boundary_enrichment"),
+        tm("fallback_boundary_external"),
     ])
     return "\n".join(lines)
 
@@ -6346,7 +7418,7 @@ def report_evidence_footer_items(report_text: str, run_folder: str) -> List[str]
         footer_items.append(tm("footer_external", path=_report_path(external_path, run_folder)))
     if (
         "confidence:" not in report_text
-        and "置信度" not in report_text
+        and tm("probe_confidence") not in report_text
         and not re.search(r"confidence\s*[:：]\s*(high|moderate|low)", report_text, re.I)
     ):
         footer_items.append(tm("footer_confidence"))
@@ -6357,7 +7429,7 @@ def report_evidence_footer_items(report_text: str, run_folder: str) -> List[str]
             batch_info.get("combat_success") is False
             and "ProteinQuant_ComBat.csv" in report_text
             and "compatibility" not in report_text.lower()
-            and "兼容" not in report_text
+            and tm("probe_compat") not in report_text
         ):
             footer_items.append(tm("footer_combat"))
     except Exception:
@@ -7449,6 +8521,395 @@ def main(argv: Optional[List[str]] = None) -> None:
         record_event(record_file_path, "evaluation_evidence_pack_initial", "error", error=str(e))
     run_interactive_agent(config)
 
+
+
+
+# ---------------------------------------------------------------------------
+# Reader wording for the module-level tables above (bilingual release, 2026-09-21).
+#
+# Every zh value below is the frozen value of the table above, referenced at registration
+# time so those tables stay the single source of the released wording; the en value is the
+# added language. They are registered in their own namespace because they are table
+# vocabulary rather than per-function report prose, and the accessors below resolve them
+# for the language in force.
+# ---------------------------------------------------------------------------
+_TABLE_TEXT = {
+    "mx_state_raw": (
+        "原始强度矩阵",
+        "raw intensity matrix"),
+    "mx_state_normalized": (
+        "已归一化矩阵",
+        "normalised matrix"),
+    "mx_state_batch_corrected": (
+        "已完成批次校正的矩阵",
+        "batch-corrected matrix"),
+    "mx_state_logged": (
+        "已取对数的矩阵",
+        "log-transformed matrix"),
+    "direction_up_in_group_a": (
+        "第一组更高（上调）",
+        "Group 1 higher (up)"),
+    "direction_up_in_display_group_a": (
+        "第一组更高（上调）",
+        "Group 1 higher (up)"),
+    "direction_down_in_group_a": (
+        "第一组更低（下调）",
+        "Group 1 lower (down)"),
+    "direction_down_in_display_group_a": (
+        "第一组更低（下调）",
+        "Group 1 lower (down)"),
+    "direction_up_in_group_b": (
+        "第二组更高（上调）",
+        "Group 2 higher (up)"),
+    "direction_down_in_group_b": (
+        "第二组更低（下调）",
+        "Group 2 lower (down)"),
+    "direction_detected_without_selected_contrast": (
+        "仅记录存在性（未指定对比）",
+        "existence recorded only (no contrast specified)"),
+    "direction_symbol_not_matched_in_available_matrix": (
+        "未建立符号映射（不等同于未检出）",
+        "no symbol mapping established (not the same as not detected)"),
+    "direction_not_detected_in_available_matrix": (
+        "当前矩阵未检出",
+        "not detected in the current matrix"),
+    "test_method_python_welch_ttest_fallback": (
+        "Python 实现的 Welch t 检验",
+        "Welch t test implemented in Python"),
+    "test_method_python_welch_ttest": (
+        "Welch t 检验",
+        "Welch t test"),
+    "test_method_welch_ttest": (
+        "Welch t 检验",
+        "Welch t test"),
+    "module_name_migration_signature": (
+        "迁移综合特征",
+        "Migration composite signature"),
+    "module_name_rho_gtpase_migration": (
+        "Rho GTPase 调控",
+        "Rho GTPase regulation"),
+    "module_name_erm_membrane_cortex": (
+        "ERM 膜-皮质连接",
+        "ERM membrane-cortex linkage"),
+    "module_name_myosin_contractility": (
+        "肌球蛋白收缩",
+        "Myosin contractility"),
+    "module_name_talin_vinculin_focal_adhesion": (
+        "talin-vinculin 黏附斑",
+        "talin-vinculin focal adhesion"),
+    "module_name_actin_cytoskeleton": (
+        "肌动蛋白骨架",
+        "Actin cytoskeleton"),
+    "module_name_ecm_adhesion": (
+        "ECM/黏附重塑",
+        "ECM/adhesion remodelling"),
+    "module_name_vesicle_transport": (
+        "囊泡运输",
+        "Vesicle transport"),
+    "module_name_translation_ribosome": (
+        "翻译/核糖体",
+        "Translation/ribosome"),
+    "rule_all_samples": (
+        "全部样本中非缺失比例 >= {cutoff}",
+        "non-missing fraction >= {cutoff} in all samples"),
+    "rule_per_cell_type": (
+        "按细胞类型分别要求非缺失比例 >= {cutoff}",
+        "non-missing fraction >= {cutoff} per cell type"),
+}
+_report_language.register("tables", _TABLE_TEXT)
+
+_FIGURE_CAPTION_KEYS = {
+    "Cluster_1_vs_Cluster_2_volcano_plot.png": "figure_caption_01",
+    "Cluster_1_vs_Cluster_3_volcano_plot.png": "figure_caption_02",
+    "Cluster_2_vs_Cluster_3_volcano_plot.png": "figure_caption_03",
+    "differential_summary_barplot.png": "figure_caption_04",
+    "heatmap.png": "figure_caption_05",
+    "key_protein_overview.png": "figure_caption_06",
+    "mechanism_enrichment_dotplot.png": "figure_caption_07",
+    "mechanism_pathway_gene_heatmap_Clust_2c410786f2.png": "figure_caption_08",
+    "mechanism_top_protein_group_means.png": "figure_caption_09",
+    "pca_plot.png": "figure_caption_10",
+    "protein_contrast_bubble.png": "figure_caption_11",
+    "qc_sample_overview.png": "figure_caption_12",
+    "umap_Cluster.png": "figure_caption_13",
+    "umap_Group_Control Cell-Migrated Cell.png": "figure_caption_14",
+    "umap_plot.png": "figure_caption_15",
+}
+_FIGURE_CAPTION_ZH = {
+    "figure_caption_01": "Cluster 1 vs Cluster 2 火山图",
+    "figure_caption_02": "Cluster 1 vs Cluster 3 火山图",
+    "figure_caption_03": "Cluster 2 vs Cluster 3 火山图",
+    "figure_caption_04": "差异蛋白数量概览",
+    "figure_caption_05": "差异蛋白热图",
+    "figure_caption_06": "关键蛋白总览",
+    "figure_caption_07": "机制富集 dotplot",
+    "figure_caption_08": "机制蛋白热图",
+    "figure_caption_09": "核心蛋白组均值图",
+    "figure_caption_10": "PCA 样本结构",
+    "figure_caption_11": "候选蛋白对比气泡图",
+    "figure_caption_12": "样本与缺失率 QC",
+    "figure_caption_13": "UMAP Cluster 分布",
+    "figure_caption_14": "UMAP 迁移表型分布",
+    "figure_caption_15": "UMAP 样本结构",
+}
+_FIGURE_CAPTION_EN = {
+    "figure_caption_01": "Cluster 1 vs Cluster 2 volcano plot",
+    "figure_caption_02": "Cluster 1 vs Cluster 3 volcano plot",
+    "figure_caption_03": "Cluster 2 vs Cluster 3 volcano plot",
+    "figure_caption_04": "Differential protein count overview",
+    "figure_caption_05": "Differential protein heatmap",
+    "figure_caption_06": "Key protein overview",
+    "figure_caption_07": "Mechanism enrichment dotplot",
+    "figure_caption_08": "Mechanism protein heatmap",
+    "figure_caption_09": "Core protein group means",
+    "figure_caption_10": "PCA sample structure",
+    "figure_caption_11": "Candidate protein contrast bubble plot",
+    "figure_caption_12": "Sample and missingness-rate QC",
+    "figure_caption_13": "UMAP cluster distribution",
+    "figure_caption_14": "UMAP migration-phenotype distribution",
+    "figure_caption_15": "UMAP sample structure",
+}
+for _caption_key, _caption_en in _FIGURE_CAPTION_EN.items():
+    _TABLE_TEXT[_caption_key] = (_FIGURE_CAPTION_ZH[_caption_key], _caption_en)
+_report_language.register("tables", _TABLE_TEXT)
+
+
+
+# Dataset-specific mechanism-integration specs, for the language in force.
+#
+# The table above stays the single source of the released zh wording; every zh string it holds
+# that reaches the report is registered here with its added English wording, and the accessor
+# below swaps the strings for a non-zh report without touching the zh object itself.
+_DIMENSION4_SPEC_KEYS = {
+    "机制整合与解释边界（状态轴与批次注记）": "dim4_nat_biotech_brain_2026_heading",
+    "状态轴两段过渡": "dim4_nat_biotech_brain_2026_contrasts_0_0",
+    "EN 成熟段": "dim4_nat_biotech_brain_2026_contrasts_1_0",
+    "状态轴以 IPC-EN vs oRG（过渡）与 EN vs IPC-EN（成熟）两段对比组织；下表给出两段的显著蛋白数与焦点基因方向。": "dim4_nat_biotech_brain_2026_paragraphs_0",
+    "供体/批次结构与发育状态的混淆需在批内方向核对后才支持发育结论；ASD/NDD 关联仅作为 external_annotation，不进入矩阵内结论。": "dim4_nat_biotech_brain_2026_paragraphs_1",
+    "状态轴方向不替代拟时序或独立队列验证。": "dim4_nat_biotech_brain_2026_boundary_0",
+    "机制整合与解释边界（处理效应与批次结构）": "dim4_nat_commun_carr_2024_heading",
+    "LPS vs DMSO 主对比": "dim4_nat_commun_carr_2024_contrasts_0_0",
+    "LPS vs DMSO 主对比之外，批次与处理效应的相对强弱必须对照图册中的 PCA/UMAP 与批次交叉表解读；本节不重复计算，只给出核对入口。": "dim4_nat_commun_carr_2024_paragraphs_0",
+    "SampleInfo 中的 Batch 结构与处理分组存在交叉；若批次分离强于处理分离，差异方向仍以当前矩阵为准，但机制解释需降级为方向线索。": "dim4_nat_commun_carr_2024_paragraphs_1",
+    "批校正矩阵为本报告差异分析基础；批效应残留程度以图册证据为准。": "dim4_nat_commun_carr_2024_boundary_0",
+    "机制整合与解释边界（亚型×炎症）": "dim4_nat_commun_nociceptor_2026_heading",
+    "亚型内 Inflamed vs Control": "dim4_nat_commun_nociceptor_2026_contrasts_0_0",
+    "亚型内对比是本数据集的核心设计：TrkA、IB4 与 Mechano 各自的 Inflamed vs Control 回答炎症响应是否发生在特定伤害感受亚型内。": "dim4_nat_commun_nociceptor_2026_paragraphs_0",
+    "下表汇总各亚型对比的显著蛋白数（adj.P.Val<0.05）与焦点候选的方向和 FDR；n_sig 为 0 表示当前矩阵在该亚型内未检出足够显著的炎症响应，相关方向线索只能作为低置信度假设。": "dim4_nat_commun_nociceptor_2026_paragraphs_1",
+    "亚型内样本量小，显著蛋白数对插补和阈值敏感；亚型间比较不构成细胞类型组成差异的统计检验。": "dim4_nat_commun_nociceptor_2026_boundary_0",
+    "机制整合与解释边界（区室泄漏与分层混杂）": "dim4_nat_commun_proteinleakage_2025_heading",
+    "泄漏主对比（含分型）": "dim4_nat_commun_proteinleakage_2025_contrasts_0_0",
+    "主对比的区室方向（膜/线粒体 vs 胞质/核）是泄漏 signature 的核心；下表给出焦点蛋白方向。": "dim4_nat_commun_proteinleakage_2025_paragraphs_0",
+    "Fresh/Frozen 与细胞类型的分层混杂以 group_composition_qc 交叉表为准：差异解读需先核对分层的样本量不均衡，再谈生物学含义。": "dim4_nat_commun_proteinleakage_2025_paragraphs_1",
+    "泄漏足迹是样品处理 QC 特征，不直接等于生物学调控。": "dim4_nat_commun_proteinleakage_2025_boundary_0",
+    "机制整合与解释边界（KLRG1 程序与 PDAC 背景）": "dim4_nat_commun_scpro_2024_heading",
+    "KLRG1 主对比与 CD4/CD8 背景": "dim4_nat_commun_scpro_2024_contrasts_0_0",
+    "主对比层级为 Treg 内部 KLRG1+ vs KLRG1-，再以 CD4/CD8 KLRG1 背景对照；下表给出各对比的显著蛋白数与焦点候选。": "dim4_nat_commun_scpro_2024_paragraphs_0",
+    "研究背景（study context）：SCPro 面向胰腺癌（PDAC）肿瘤微环境的成像引导空间蛋白组。当前矩阵仅含 T 细胞区室，PDAC 免疫微环境解释停留在研究背景层，不能写成矩阵内发现。": "dim4_nat_commun_scpro_2024_paragraphs_1",
+    "KLRG1 程序差异不构成 PDAC 免疫状态结论；免疫微环境整合需要带区室注释的独立证据。": "dim4_nat_commun_scpro_2024_boundary_0",
+    "机制整合与解释边界（小叶分区与 Midlobular 定位）": "dim4_nat_methods_dvp_2023_heading",
+    "分区对比（Portal/Midlobular vs Central 等）": "dim4_nat_methods_dvp_2023_contrasts_0_0",
+    "Midlobular 相关对比": "dim4_nat_methods_dvp_2023_contrasts_1_0",
+    "肝小叶分区以 Portal vs Central 为主轴；Midlobular 的定位通过其与两侧的对比方向与幅度判断。": "dim4_nat_methods_dvp_2023_paragraphs_0",
+    "判读规则：若 Midlobular 相对 Portal 与 Central 的焦点基因方向相反、幅度相当，则支持过渡态；若与一侧方向一致且 n_sig 明显更小，则更像该分区的延伸。以下表方向组合为准。": "dim4_nat_methods_dvp_2023_paragraphs_1",
+    "分区方向不等于血流或代谢通量的直接测量。": "dim4_nat_methods_dvp_2023_boundary_0",
+    "机制整合与解释边界（多能性梯度与 EB 内部异质性）": "dim4_nat_methods_ipsc_2025_heading",
+    "EB vs iPSCs 主轴": "dim4_nat_methods_ipsc_2025_contrasts_0_0",
+    "EB vs iPSCs 主轴给出多能性下降与谱系/ECM 上升；EB 内部异质性由聚类配方图与簇规模刻画。": "dim4_nat_methods_ipsc_2025_paragraphs_0",
+    "EB 内部聚类簇规模": "dim4_nat_methods_ipsc_2025_manifest_probe_label",
+    "EB 内部异质性不等于谱系判定；需要时间序列或独立标注验证。": "dim4_nat_methods_ipsc_2025_boundary_0",
+}
+for _spec_zh, _spec_key in _DIMENSION4_SPEC_KEYS.items():
+    _TABLE_TEXT[_spec_key] = (_spec_zh, "")
+_TABLE_TEXT["dim4_nat_biotech_brain_2026_heading"] = (
+    "机制整合与解释边界（状态轴与批次注记）",
+    "Mechanism Integration and Interpretation Boundaries (state axis and batch note)")
+_TABLE_TEXT["dim4_nat_biotech_brain_2026_contrasts_0_0"] = (
+    "状态轴两段过渡",
+    "Two segments of the state axis")
+_TABLE_TEXT["dim4_nat_biotech_brain_2026_contrasts_1_0"] = (
+    "EN 成熟段",
+    "EN maturation segment")
+_TABLE_TEXT["dim4_nat_biotech_brain_2026_paragraphs_0"] = (
+    "状态轴以 IPC-EN vs oRG（过渡）与 EN vs IPC-EN（成熟）两段对比组织；下表给出两段的显著蛋白数与焦点基因方向。",
+    "The state axis is organised as two contrast segments, IPC-EN vs oRG (transition) and EN vs IPC-EN (maturation); the table below gives the significant protein count and the focus-gene direction of each segment.")
+_TABLE_TEXT["dim4_nat_biotech_brain_2026_paragraphs_1"] = (
+    "供体/批次结构与发育状态的混淆需在批内方向核对后才支持发育结论；ASD/NDD 关联仅作为 external_annotation，不进入矩阵内结论。",
+    "Donor or batch structure is confounded with developmental state, so a developmental conclusion is only supported once the within-batch direction has been checked; ASD/NDD associations serve only as external_annotation and do not enter conclusions drawn from the matrix.")
+_TABLE_TEXT["dim4_nat_biotech_brain_2026_boundary_0"] = (
+    "状态轴方向不替代拟时序或独立队列验证。",
+    "A state-axis direction does not replace pseudotime or validation in an independent cohort.")
+_TABLE_TEXT["dim4_nat_commun_carr_2024_heading"] = (
+    "机制整合与解释边界（处理效应与批次结构）",
+    "Mechanism Integration and Interpretation Boundaries (treatment effect and batch structure)")
+_TABLE_TEXT["dim4_nat_commun_carr_2024_contrasts_0_0"] = (
+    "LPS vs DMSO 主对比",
+    "LPS vs DMSO main contrast")
+_TABLE_TEXT["dim4_nat_commun_carr_2024_paragraphs_0"] = (
+    "LPS vs DMSO 主对比之外，批次与处理效应的相对强弱必须对照图册中的 PCA/UMAP 与批次交叉表解读；本节不重复计算，只给出核对入口。",
+    "Beyond the LPS vs DMSO main contrast, the relative strength of the batch and treatment effects must be read against the PCA/UMAP figures and the batch cross-table in the figure set; this section recomputes nothing and gives the review entry point only.")
+_TABLE_TEXT["dim4_nat_commun_carr_2024_paragraphs_1"] = (
+    "SampleInfo 中的 Batch 结构与处理分组存在交叉；若批次分离强于处理分离，差异方向仍以当前矩阵为准，但机制解释需降级为方向线索。",
+    "The Batch structure in SampleInfo intersects the treatment groups; where batch separation is stronger than treatment separation the differential direction still follows the current matrix, but the mechanism interpretation has to be downgraded to a directional lead.")
+_TABLE_TEXT["dim4_nat_commun_carr_2024_boundary_0"] = (
+    "批校正矩阵为本报告差异分析基础；批效应残留程度以图册证据为准。",
+    "The batch-corrected matrix is the basis of the differential analysis in this report; how much batch effect remains is judged from the figure-set evidence.")
+_TABLE_TEXT["dim4_nat_commun_nociceptor_2026_heading"] = (
+    "机制整合与解释边界（亚型×炎症）",
+    "Mechanism Integration and Interpretation Boundaries (subtype x inflammation)")
+_TABLE_TEXT["dim4_nat_commun_nociceptor_2026_contrasts_0_0"] = (
+    "亚型内 Inflamed vs Control",
+    "Within-subtype Inflamed vs Control")
+_TABLE_TEXT["dim4_nat_commun_nociceptor_2026_paragraphs_0"] = (
+    "亚型内对比是本数据集的核心设计：TrkA、IB4 与 Mechano 各自的 Inflamed vs Control 回答炎症响应是否发生在特定伤害感受亚型内。",
+    "The within-subtype contrasts are the core design of this dataset: the Inflamed vs Control contrast for TrkA, IB4 and Mechano respectively asks whether the inflammatory response happens inside a specific nociceptor subtype.")
+_TABLE_TEXT["dim4_nat_commun_nociceptor_2026_paragraphs_1"] = (
+    "下表汇总各亚型对比的显著蛋白数（adj.P.Val<0.05）与焦点候选的方向和 FDR；n_sig 为 0 表示当前矩阵在该亚型内未检出足够显著的炎症响应，相关方向线索只能作为低置信度假设。",
+    "The table below summarises the significant protein count (adj.P.Val<0.05) of each subtype contrast together with the direction and FDR of the focus candidates; n_sig of 0 means the current matrix detected no sufficiently significant inflammatory response inside that subtype, so the related directional leads can only serve as low-confidence hypotheses.")
+_TABLE_TEXT["dim4_nat_commun_nociceptor_2026_boundary_0"] = (
+    "亚型内样本量小，显著蛋白数对插补和阈值敏感；亚型间比较不构成细胞类型组成差异的统计检验。",
+    "The within-subtype sample size is small and the significant protein count is sensitive to imputation and thresholds; a comparison between subtypes is not a statistical test of cell-type composition differences.")
+_TABLE_TEXT["dim4_nat_commun_proteinleakage_2025_heading"] = (
+    "机制整合与解释边界（区室泄漏与分层混杂）",
+    "Mechanism Integration and Interpretation Boundaries (compartment leakage and stratified confounding)")
+_TABLE_TEXT["dim4_nat_commun_proteinleakage_2025_contrasts_0_0"] = (
+    "泄漏主对比（含分型）",
+    "Leakage main contrast (with subtyping)")
+_TABLE_TEXT["dim4_nat_commun_proteinleakage_2025_paragraphs_0"] = (
+    "主对比的区室方向（膜/线粒体 vs 胞质/核）是泄漏 signature 的核心；下表给出焦点蛋白方向。",
+    "The compartment direction of the main contrast (membrane/mitochondrial vs cytoplasmic/nuclear) is the core of the leakage signature; the table below gives the direction of the focus proteins.")
+_TABLE_TEXT["dim4_nat_commun_proteinleakage_2025_paragraphs_1"] = (
+    "Fresh/Frozen 与细胞类型的分层混杂以 group_composition_qc 交叉表为准：差异解读需先核对分层的样本量不均衡，再谈生物学含义。",
+    "Stratified confounding between Fresh/Frozen and cell type follows the group_composition_qc cross-table: a differential reading has to check the sample-size imbalance across strata before discussing biological meaning.")
+_TABLE_TEXT["dim4_nat_commun_proteinleakage_2025_boundary_0"] = (
+    "泄漏足迹是样品处理 QC 特征，不直接等于生物学调控。",
+    "The leakage footprint is a sample-handling QC feature and is not directly equivalent to biological regulation.")
+_TABLE_TEXT["dim4_nat_commun_scpro_2024_heading"] = (
+    "机制整合与解释边界（KLRG1 程序与 PDAC 背景）",
+    "Mechanism Integration and Interpretation Boundaries (KLRG1 programme and PDAC background)")
+_TABLE_TEXT["dim4_nat_commun_scpro_2024_contrasts_0_0"] = (
+    "KLRG1 主对比与 CD4/CD8 背景",
+    "KLRG1 main contrast with CD4/CD8 background")
+_TABLE_TEXT["dim4_nat_commun_scpro_2024_paragraphs_0"] = (
+    "主对比层级为 Treg 内部 KLRG1+ vs KLRG1-，再以 CD4/CD8 KLRG1 背景对照；下表给出各对比的显著蛋白数与焦点候选。",
+    "The main contrast is KLRG1+ vs KLRG1- within Treg, with a CD4/CD8 KLRG1 background comparison; the table below gives the significant protein count and the focus candidates of each contrast.")
+_TABLE_TEXT["dim4_nat_commun_scpro_2024_paragraphs_1"] = (
+    "研究背景（study context）：SCPro 面向胰腺癌（PDAC）肿瘤微环境的成像引导空间蛋白组。当前矩阵仅含 T 细胞区室，PDAC 免疫微环境解释停留在研究背景层，不能写成矩阵内发现。",
+    "Study context: SCPro targets imaging-guided spatial proteomics of the pancreatic cancer (PDAC) tumour microenvironment. The current matrix contains only the T-cell compartment, so a PDAC immune-microenvironment reading stays at the study-context level and cannot be written as a finding from the matrix.")
+_TABLE_TEXT["dim4_nat_commun_scpro_2024_boundary_0"] = (
+    "KLRG1 程序差异不构成 PDAC 免疫状态结论；免疫微环境整合需要带区室注释的独立证据。",
+    "A KLRG1 programme difference does not establish a PDAC immune-state conclusion; integrating the immune microenvironment needs independent evidence with compartment annotation.")
+_TABLE_TEXT["dim4_nat_methods_dvp_2023_heading"] = (
+    "机制整合与解释边界（小叶分区与 Midlobular 定位）",
+    "Mechanism Integration and Interpretation Boundaries (lobular zonation and Midlobular position)")
+_TABLE_TEXT["dim4_nat_methods_dvp_2023_contrasts_0_0"] = (
+    "分区对比（Portal/Midlobular vs Central 等）",
+    "Zonation contrasts (Portal/Midlobular vs Central and similar)")
+_TABLE_TEXT["dim4_nat_methods_dvp_2023_contrasts_1_0"] = (
+    "Midlobular 相关对比",
+    "Midlobular-related contrasts")
+_TABLE_TEXT["dim4_nat_methods_dvp_2023_paragraphs_0"] = (
+    "肝小叶分区以 Portal vs Central 为主轴；Midlobular 的定位通过其与两侧的对比方向与幅度判断。",
+    "Liver lobular zonation takes Portal vs Central as its main axis; the position of Midlobular is judged from the direction and magnitude of its contrasts against the two sides.")
+_TABLE_TEXT["dim4_nat_methods_dvp_2023_paragraphs_1"] = (
+    "判读规则：若 Midlobular 相对 Portal 与 Central 的焦点基因方向相反、幅度相当，则支持过渡态；若与一侧方向一致且 n_sig 明显更小，则更像该分区的延伸。以下表方向组合为准。",
+    "Reading rule: if the focus genes run in the opposite direction for Midlobular against both Portal and Central with comparable magnitude, a transition state is supported; if they agree with one side and n_sig is clearly smaller, Midlobular reads more like an extension of that zone. The direction combinations in the table below decide.")
+_TABLE_TEXT["dim4_nat_methods_dvp_2023_boundary_0"] = (
+    "分区方向不等于血流或代谢通量的直接测量。",
+    "A zonation direction is not a direct measurement of blood flow or metabolic flux.")
+_TABLE_TEXT["dim4_nat_methods_ipsc_2025_heading"] = (
+    "机制整合与解释边界（多能性梯度与 EB 内部异质性）",
+    "Mechanism Integration and Interpretation Boundaries (pluripotency gradient and heterogeneity inside EB)")
+_TABLE_TEXT["dim4_nat_methods_ipsc_2025_contrasts_0_0"] = (
+    "EB vs iPSCs 主轴",
+    "EB vs iPSCs main axis")
+_TABLE_TEXT["dim4_nat_methods_ipsc_2025_paragraphs_0"] = (
+    "EB vs iPSCs 主轴给出多能性下降与谱系/ECM 上升；EB 内部异质性由聚类配方图与簇规模刻画。",
+    "The EB vs iPSCs main axis shows pluripotency falling while lineage and ECM programmes rise; heterogeneity inside EB is described by the clustering recipe figure and the cluster sizes.")
+_TABLE_TEXT["dim4_nat_methods_ipsc_2025_manifest_probe_label"] = (
+    "EB 内部聚类簇规模",
+    "Cluster sizes inside EB")
+_TABLE_TEXT["dim4_nat_methods_ipsc_2025_boundary_0"] = (
+    "EB 内部异质性不等于谱系判定；需要时间序列或独立标注验证。",
+    "Heterogeneity inside EB is not a lineage call and needs time-series data or independent annotation to be validated.")
+_report_language.register("tables", _TABLE_TEXT)
+
+
+def _translate_spec(node):
+    """Recursively swap the registered spec strings for the active language."""
+    if isinstance(node, dict):
+        return dict((item, _translate_spec(node[item])) for item in node)
+    if isinstance(node, list):
+        return [_translate_spec(item) for item in node]
+    if isinstance(node, str):
+        key = _DIMENSION4_SPEC_KEYS.get(node)
+        return _report_language.t("tables." + key) if key else node
+    return node
+
+
+def _dimension4_spec_for(dataset: str):
+    """Dataset-specific mechanism-integration spec, for the language in force.
+
+    A zh report gets the released object untouched; another language gets a translated copy,
+    and a string with no registered wording is left exactly as the table holds it.
+    """
+    spec = _DIMENSION4_SECTION_SPECS.get(dataset)
+    if spec is None or _report_language.get_language() == "zh":
+        return spec
+    return _translate_spec(spec)
+def _table_matrix_state() -> Dict[str, str]:
+    """Recorded matrix-state code to reader wording, for the language in force."""
+    return dict((code, _report_language.t("tables.mx_state_" + code))
+                for code in _MATRIX_STATE_TEXT)
+
+
+def _table_direction() -> Dict[str, str]:
+    """Recorded direction code to reader wording, for the language in force."""
+    return dict((code, _report_language.t("tables.direction_" + code))
+                for code in _DIRECTION_TEXT)
+
+
+def _table_test_method() -> Dict[str, str]:
+    """Recorded test-method code to reader wording, for the language in force."""
+    return dict((code, _report_language.t("tables.test_method_" + code))
+                for code in _TEST_METHOD_TEXT)
+
+
+def _table_module_display_names() -> Dict[str, str]:
+    """Curated module code to display name, for the language in force."""
+    return dict((code, _report_language.t("tables.module_name_" + code))
+                for code in PISPA_MODULE_DISPLAY_NAMES)
+
+
+def _key_figure_specs(dataset: str) -> List[Tuple[str, str]]:
+    """Key-figure (file, caption) pairs, for the language in force.
+
+    A file name with no registered caption keeps the caption recorded in the table.
+    """
+    specs = PISPA_KEY_FIGURE_SPECS if dataset == "Nat_Commun_PiSPA_2024" else GENERIC_KEY_FIGURE_SPECS
+    found = []
+    for filename, caption in specs:
+        key = _FIGURE_CAPTION_KEYS.get(filename)
+        found.append((filename, _report_language.t("tables." + key) if key else caption))
+    return found
+
+
+def _reader_recorded_rule(rule: Any) -> str:
+    """Re-word a filter rule recorded by the calibration step, for the language in force.
+
+    The calibration step writes that rule as a fixed template with the numeric cutoff
+    interpolated, so its wording follows the report language while the cutoff is copied
+    through unchanged. A recognised rule is only re-worded for a non-zh report, and an
+    unrecognised rule is returned exactly as recorded.
+    """
+    text = str(rule or "")
+    if not text or _report_language.get_language() != "en":
+        return text
+    for prefix, key in (("全部样本中非缺失比例 >=", "tables.rule_all_samples"),
+                        ("按细胞类型分别要求非缺失比例 >=", "tables.rule_per_cell_type")):
+        if text.startswith(prefix):
+            return _report_language.t(key, cutoff=text[len(prefix):].strip())
+    return text
 
 if __name__ == "__main__":
     main()
