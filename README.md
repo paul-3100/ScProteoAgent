@@ -12,8 +12,8 @@ applies and compute what changed.
 
 This repository accompanies the manuscript *ScProteoAgent enables natural-language-driven
 single-cell proteomics analysis and interpretation* (Runwen Hu, Keyan Ding, Wenwen Wang, Zhihui
-Zhu, Peilin Chen, Shiqi Wang, Yu Wang), manuscript release candidate **v24_2 (2026-09-20)**. The
-software version is **1.0.0-rc.1**, recorded once in `CITATION.cff` and mirrored here. This
+Zhu, Peilin Chen, Shiqi Wang, Yu Wang). The software version is **1.0.0-rc.1**, recorded once in
+`CITATION.cff` and mirrored here. A preprint link is added here once the preprint is posted. This
 repository contains the
 current engine, the frozen scoring implementation used for the cross-system comparison, the
 reproduction scripts and frozen tables for the reported deterministic results, the scripts that
@@ -22,12 +22,13 @@ one synthetic example and the offline tests. No DOI, release tag or version badg
 because none exists yet.
 
 This repository is a **candidate** for publication, not a published release. It is hosted at
-https://github.com/paul-3100/ScProteoAgent and is currently **private**. It becomes public after the
-preprint is posted and after every contributor has confirmed the software licence in writing;
-`LICENSE_PENDING.md` records the decision, the grantor and the steps still open. No tag, release or
-archive location exists yet. The data archive that supplies the frozen inputs is a local candidate of the same
-submission and is described in `docs/DATA_MANIFEST.md`; `docs/REPRODUCTION.md` records, per
-component, what runs, which fields were checked and what is not reproduced.
+https://github.com/paul-3100/ScProteoAgent and is currently **private**. The author team has
+confirmed the software licence with every contributor, so what the public release waits for is the
+preprint and a settled access route to the data archive; `LICENSE_PENDING.md` records the decision,
+the grantor and what is still open. No tag, release or archive location exists yet. The data archive
+that supplies the frozen inputs is a local candidate of the same submission and is described in
+`docs/DATA_MANIFEST.md`; `docs/REPRODUCTION.md` records, per component, what runs, which fields were
+checked and what is not reproduced.
 
 ## Choose a workflow
 
@@ -157,9 +158,10 @@ Research, teaching, reproducing published results, and non-commercial modificati
 redistribution are free of charge. Commercial use - research and development inside a company, a
 paid analysis service, or integration into a commercial product - requires prior written
 authorisation from the grantor, the author team named in `CITATION.cff`; contacting the authors
-does not itself grant that right. This is not an OSI-approved licence, so `CITATION.cff` references
-it through an SPDX `LicenseRef` rather than an SPDX identifier, and this repository must not be
-described as open source. Copyright remains with the authors and their institutions. Software terms
+does not itself grant that right. This is not an OSI-approved licence and it is not on the SPDX
+licence list, so `CITATION.cff` gives it by URL (`license-url`, the `LICENSE` file in this
+repository) rather than as an SPDX identifier, and this repository must not be described as open
+source. Copyright remains with the authors and their institutions. Software terms
 and data terms are separate: the data archive carries its own rights table, and third-party
 components and their status are listed in `THIRD_PARTY_NOTICES.md`.
 
@@ -191,6 +193,13 @@ archive or the manuscript go to the corresponding authors.
 * This repository mixes code from different project phases. Read `COMPONENT_ROLES.md` before
   attributing any historical number to the current engine, and treat the frozen scorer as a
   separate artefact identified by content hash.
+* Two identifier-resolution limits are open, and this repository does not claim that every protein
+  identifier in a task text is resolved. The candidate-exclusion trace that the analysis extensions
+  write can still come from the older extractor, so a trace can name an ordinary word that is not a
+  protein; that path is left frozen because changing it would change the released Chinese run
+  output. The candidate audit resolves gene symbols only, so a protein-group identifier that does
+  exist in the matrix can still be reported as unresolved. Both are candidates for a later minor
+  release, and both are listed here rather than smoothed over.
 * Anything a bounded check could not settle is listed as unresolved in `docs/REPRODUCTION.md`
   together with the paths that were searched, rather than smoothed over. The same page names the
   checks that ask for artefacts the manuscript does not require.
@@ -228,5 +237,3 @@ The released Chinese behaviour is unchanged: with `zh` the report text is byte-i
 the 1.0.0-rc.1 baseline. The frozen scoring code under `reproduce/scoring/` is not modified,
 and the English mode does not re-score the paper: the frozen scorer's Chinese-language
 dimension is not applied to English output.
-
-## Reproducing the paper

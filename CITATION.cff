@@ -1,12 +1,12 @@
 # Citation metadata for the software release candidate.
-# The source repository exists and is recorded in repository-code; it is private at the time of
-# writing. No release tag, commit hash or DOI exists yet, so identifiers and version are added only
-# after the repository becomes public and a DOI is minted.
+# The repository that hosts this software is recorded in repository-code; it is private at the
+# time of writing. No release tag, archived snapshot or DOI exists yet, so the commit,
+# date-released and doi fields are added once the repository becomes public.
 cff-version: 1.2.0
 message: "If you use ScProteoAgent, please cite the manuscript listed below."
 title: "ScProteoAgent enables natural-language-driven single-cell proteomics analysis and interpretation"
 version: "1.0.0-rc.1"
-license: "LicenseRef-scProteoAgent-Research-1.0"
+license-url: "https://github.com/paul-3100/ScProteoAgent/blob/main/LICENSE"
 type: software
 repository-code: "https://github.com/paul-3100/ScProteoAgent"
 authors:
@@ -37,9 +37,9 @@ keywords:
   - large language model agent
   - reproducible analysis
   - data analysis agent
-# The software licence is the ScProteoAgent Research Licence 1.0 in LICENSE. It is not an
-# OSI-approved licence, so it is referenced through an SPDX LicenseRef rather than an SPDX
-# identifier: LicenseRef-scProteoAgent-Research-1.0 is defined by that file and by nothing else.
+# The software licence is the ScProteoAgent Research Licence 1.0, the LICENSE file in this
+# repository. It is not on the SPDX licence list, and the CFF 1.2.0 license field accepts only
+# SPDX licence identifiers, so the licence text is given by URL through license-url instead.
 # Commercial use needs prior written authorisation. The data archive keeps its own terms and is
 # not covered by this licence.
 # Runwen Hu and Keyan Ding contributed equally; Shiqi Wang (shiqwang@cityu.edu.hk) and
