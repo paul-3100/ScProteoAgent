@@ -12,6 +12,48 @@ from __future__ import annotations
 
 import re
 
+import report_language  # same directory as this file; the shared zh/en registry
+
+# --------------------------------------------------------------------------- language
+# revision_block() is injected into every report request, so it has to exist in both
+# languages. The zh value of every entry is the released literal copied byte for byte, so a zh
+# run sends exactly the released requirement text; the en value is the same requirement in
+# English. Placeholders stay in %-form (the block formats with %).
+REVISION_TEXT = {
+    "block_header": (
+        "写作要求（通用科学写作约束，逐条适用于全文）：",
+        "Writing requirements (general scientific writing constraints; every item applies to the "
+        "whole report):",
+    ),
+    "item_format": ("- %s：%s", "- %s: %s"),
+    "a_name": ("方向与坐标系一致", "Direction and coordinate frame are consistent"),
+    "a_requirement": (
+        "正文数值与方向必须使用报告显示方向；当句子引用源差异表名时，必须显式按该表自身符号叙述，"
+        "不得在同一句混用两套符号。",
+        "Numbers and directions in the text must use the display orientation of the report. When "
+        "a sentence cites a source differential table by name, it must be narrated explicitly in "
+        "that table's own sign, and the two sign conventions must never be mixed in one sentence.",
+    ),
+    "b_name": ("显著性表述绑定统计量", "Significance wording is bound to a statistic"),
+    "b_requirement": (
+        "凡使用显著/显著性表述，必须绑定源表给出的 FDR/q/adj.P 值；模块分数与样本级评分类结果"
+        "只作方向性证据，不等同于显著性检验。",
+        "Every statement of significance must be bound to the FDR/q/adj.P value given by the "
+        "source table. Module scores and sample-level score-like results are directional evidence "
+        "only and are not a significance test.",
+    ),
+    "c_name": ("任务结论与自身表格一致", "Task conclusions agree with their own tables"),
+    "c_requirement": (
+        "每个任务小节的结论必须与本节表格一致：模块归属以模块表的对应行为准，剂量方向以同一对比的"
+        "差值符号为准，不得用药物类别或剂量先验替代表内数值。",
+        "The conclusion of each task subsection must agree with that subsection's tables: module "
+        "membership follows the matching row of the module table and the dose direction follows "
+        "the sign of the difference in the same contrast; drug class or dose priors must not "
+        "stand in for the values in the table.",
+    ),
+}
+report_language.register("revisions", REVISION_TEXT)
+
 REVISIONS = [
     {
         "id": "A",
@@ -42,19 +84,40 @@ MODULE_WORDS = ("模块", "module", "评分", "score")
 DIRECTION_WORDS = ("较高", "较低", "更高", "更低", "上调", "下调", "高于", "低于")
 
 
+def _item_text(item: dict, lang: str) -> tuple:
+    """(name, requirement) of one item in the requested language.
+
+    zh returns the released fields unchanged (including the join of a list-valued requirement,
+    which no entry currently uses). en reads the registered translation; a missing entry renders
+    the registry's explicit missing-template marker instead of the Chinese text.
+    """
+    if lang == "zh":
+        req = item["requirement"]
+        if isinstance(req, (tuple, list)):
+            req = "".join(str(part) for part in req)
+        return item["name"], req
+    stem = "revisions.%s_" % str(item["id"]).lower()
+    return (report_language.t_in(lang, stem + "name"),
+            report_language.t_in(lang, stem + "requirement"))
+
+
 def revision_block() -> str:
     """The general scientific writing requirements carried by the report request.
 
     R19: rendered without rule ids and without any reference to scoring, evaluation or another
     model report: this text is part of the request the report is generated from, so an id such as
     "R1" would be echoed into the reader-facing report as an instruction log.
+
+    The block is rendered in the active report language. A zh run renders the released text byte
+    for byte; an en run renders the registered English wording, so the request a model receives
+    carries the same constraints in the language the report is written in.
     """
-    parts = ["写作要求（通用科学写作约束，逐条适用于全文）："]
+    lang = report_language.get_language()
+    parts = [report_language.t_in(lang, "revisions.block_header")]
+    item_format = report_language.t_in(lang, "revisions.item_format")
     for item in REVISIONS:
-        req = item["requirement"]
-        if isinstance(req, (tuple, list)):
-            req = "".join(str(part) for part in req)
-        parts.append("- %s：%s" % (item["name"], req))
+        name, req = _item_text(item, lang)
+        parts.append(item_format % (name, req))
     return chr(10).join(parts)
 
 

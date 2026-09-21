@@ -166,7 +166,7 @@ _STRINGS = {
     'n_significant_split': ('%s（较高 %s / 较低 %s）', '%s (%s higher / %s lower)'),
     'matrix_stage_shape': ('%s：%d 蛋白 × %d 样本', '%s: %d proteins × %d samples'),
     'fallback_contrast_item': ('%s：该对比显著集 %s 个蛋白，兜底查询集 n=%s', '%s: this contrast holds %s proteins in its significant set and a fallback query set of n=%s'),
-    'figure_line_parse_re': ('(图\\d+)\\s*([^：:]*)', '(Figure\\s*\\d+)\\s*([^:：]*)'),
+    'figure_line_parse_re': ('(图\\d+)\\s*([^：:]*)', '(Figure\\s*\\d+)\\s*([^:]*)'),
     'unit_sensitivity_completed': ('**实验单位敏感性分析**：以「%s」为分析单位（%s；估计目标：%s%s）。本对比%s；进入检验的蛋白组 %s 个%s，按 FDR 口径 %s 条通过，%s，最小校正 P 值 %s。', '**Experimental-unit sensitivity analysis**: the analysis unit is "%s" (%s; estimand: %s%s). For this contrast, %s; %s protein groups entered testing%s, %s passed under the FDR criterion, %s, smallest adjusted P %s.'),
     'unit_sensitivity_blocked': ('**实验单位敏感性分析**：本对比不做个体级检验（%s）：%s', '**Experimental-unit sensitivity analysis**: no unit-level test is run for this contrast (%s): %s'),
     'task_id_line': ('- %s：对比 %s；正值表示 %s 较高；源差异表 %s%s', '- %s: contrast %s; a positive value means %s is higher; source differential table %s%s'),
@@ -284,7 +284,7 @@ _STRINGS = {
     'scale_log2_range_only': ('仅按数值范围推断，未记录变换', 'log2 (inferred; no transform recorded)'),
     'scale_log2_range_only_long': ('仅按数值范围推断；运行记录只记录了输入的判断字段，未记录实际变换', 'inferred from the value range only; the run record holds only the input judgement fields and nothing about the transform actually applied'),
     'figure_group_means_conclusion': ('代表蛋白组的分组均值；逐条数值与差值见「模块分组分数」表，模块分数无 FDR，只作方向性证据。', 'Group means of representative protein groups; per-record values and differences are in the table "Module Group Scores", and module scores carry no FDR, so they are directional evidence only.'),
-    'unit_layer_digest': ('以%s为分析单位（来源：%s）：%d 个对比中 %d 个可做个体级检验（两臂共同单位 %s 个）；按 FDR 口径合计 %d 条通过，按联合口径（FDR 且 |效应| > %s）合计 %d 条通过；%d 个蛋白行因有效单位不足标为未检验。', 'using %s as the analysis unit (source: %s): of %d contrasts, %d support a unit-level test (%s shared units across the two arms); %d entries passed under the FDR criterion and %d passed under the joint criterion (FDR and |effect| > %s); %d protein rows are marked as not tested for lack of valid units.'),
+    'unit_layer_digest': ('以%s为分析单位（来源：%s）：%d 个对比中 %d 个可做个体级检验（两臂共同单位 %s 个）；按 FDR 口径合计 %d 条通过，按联合口径（FDR 且 |效应| > %s）合计 %d 条通过；%d 个蛋白行因有效单位不足标为未检验。', 'using %s as the analysis unit (source: %s): of %d contrasts, %d support a unit-level test (%s shared units across the two arms); %d entries passed under the FDR criterion and, under the joint criterion (FDR and |effect| > %s), %d entries passed; %d protein rows are marked as not tested for lack of valid units.'),
     'file_scoring_coverage': ('任务覆盖检查表', 'task coverage checklist'),
     'confidence_low': ('低', 'low'),
     'unit_design_paired': ('使用两臂都有观测的 %s 个独立单位做配对 t 检验；只在一个臂出现的单位不参与配对', 'paired t-test on the %s independent units observed in both arms; units appearing in only one arm do not enter the pairing'),
@@ -626,6 +626,15 @@ _STRINGS = {
     'unit_direction_suffix': ('；本段数值按「%s − %s」方向给出（正值为 %s 侧较高）', '; the values in this paragraph are given in the "%s − %s" direction (a positive value means the %s side is higher)'),
     'figure_caption_capped_suffix': ('；此处列出前 %d 条，其余 %d 条未列出', '; the first %d are listed here and the remaining %d are not listed'),
     'imputation_unknown_suffix': ('；缺失填补状态未记录，不能写成未执行', '; the imputation state is not recorded and must not be written as not executed'),
+    'list_separator_semicolon': ('；', '; '),
+    'paren_wrapper': ('（%s）', '(%s)'),
+    'sentence_stop': ('。', '.'),
+    'list_separator_comma': ('、', ', '),
+    'contrast_with_groups': ('%s（%s vs %s）', '%s (%s vs %s)'),
+    'list_separator_slash': ('／', '/'),
+    'note_suffix': ('；%s', '; %s'),
+    'figure_title_line': ('%s %s：%s', '%s %s: %s'),
+    'overlap_row': ('| %s | %s | %d | %s（%s） | %s |', '| %s | %s | %d | %s (%s) | %s |'),
 }
 register("assembly", _STRINGS)
 
@@ -812,8 +821,8 @@ def _clean_parens(text: str) -> str:
             if chunk and chunk not in parts and not all(token in PROVENANCE_TOKENS
                                                        for token in re.split(r"[/、,，\s]+", chunk) if token):
                 parts.append(chunk)
-        body = t("assembly.evidence_prefix") + "；".join(parts) if parts else ""
-        return "（%s）" % body if body else ""
+        body = t("assembly.evidence_prefix") + t("assembly.list_separator_semicolon").join(parts) if parts else ""
+        return t("assembly.paren_wrapper") % body if body else ""
     return re.sub(r"（([^（）]{0,400})）", repl, text)
 
 
@@ -830,7 +839,7 @@ def polish_for_reader(text: str) -> str:
     for pattern in DIRECTIVE_PATTERNS:
         if re.search(pattern, out):
             out = re.sub(pattern, "", out)
-            out = out.rstrip(" 。；") + "。" + t("assembly.directive_note")
+            out = out.rstrip(" 。；") + t("assembly.sentence_stop") + t("assembly.directive_note")
     out = re.sub(r"（\s*）", "", out)
     out = re.sub(r"[ 	]{2,}", " ", out)
     out = re.sub(r"\s+([，。；：])", r"", out)
@@ -881,10 +890,14 @@ INTERNAL_PREFIXES = (
     "（证据当前矩阵：",
 )
 DIRECTIVE_PATTERNS = (
-    "\u6309\s*R[123]\s*\u8981\u6c42[^\u3002\uff1b]*[\u3002\uff1b]?",
-    "\u9075\u5faa\s*R[123][^\u3002\uff1b]*[\u3002\uff1b]?",
-    "\uff08?\s*R[123][^\u3002\uff09]*\uff09?",
-    "R[123]\s*\u7ea6\u675f",
+    # These four are raw strings on purpose: every backslash in them is a regular-expression
+    # escape, not text. The released file wrote the same characters as \uXXXX escapes inside a
+    # non-raw string, which made "\s" an invalid string escape and raised a SyntaxWarning on import.
+    # Decoding the escapes here keeps the pattern value byte-for-byte what it was.
+    r"按\s*R[123]\s*要求[^。；]*[。；]?",
+    r"遵循\s*R[123][^。；]*[。；]?",
+    r"（?\s*R[123][^。）]*）?",
+    r"R[123]\s*约束",
 )
 
 
@@ -895,7 +908,7 @@ def _evidence_source_note(match) -> str:
         chunk = chunk.strip()
         if chunk and chunk not in parts:
             parts.append(chunk)
-    return t("assembly.evidence_source_note") % "、".join(parts) if parts else ""
+    return t("assembly.evidence_source_note") % t("assembly.list_separator_comma").join(parts) if parts else ""
 
 
 def rewrite_for_reader(text: str) -> str:
@@ -1318,7 +1331,7 @@ def _candidate_block(task: Dict[str, Any], index: Dict[str, Any], cond: Dict[str
             below.append(_cell(record.get("candidate")))
     if below:
         lines.append("")
-        lines.append(t("assembly.candidate_below_threshold_note") % "、".join(below))
+        lines.append(t("assembly.candidate_below_threshold_note") % t("assembly.list_separator_comma").join(below))
     return lines
 
 
@@ -1420,7 +1433,7 @@ def _unit_sensitivity_lines(run: Path, rec: Dict[str, Any], index: Dict[str, Any
     if excluded:
         lines += _note_once(
             "unit_excluded_units",
-            t("assembly.unit_excluded_note_long") % "、".join(_cell(x) for x in excluded),
+            t("assembly.unit_excluded_note_long") % t("assembly.list_separator_comma").join(_cell(x) for x in excluded),
             t("assembly.unit_excluded_note_short"))
     reason_needed = [str(item) for item in (unit.get("reasons") or [])
                      if "分布不均" in str(item) or "矩阵匹配后" in str(item)]
@@ -1431,7 +1444,7 @@ def _unit_sensitivity_lines(run: Path, rec: Dict[str, Any], index: Dict[str, Any
 
 def _data_section(run: Path, cond: Dict[str, Any],
                   run_evidence: Optional[Dict[str, Any]] = None) -> List[str]:
-    contrasts = "; ".join("%s（%s vs %s）" % (c.get("name"), c.get("group_a"), c.get("group_b"))
+    contrasts = "; ".join(t("assembly.contrast_with_groups") % (c.get("name"), c.get("group_a"), c.get("group_b"))
                           for c in (cond.get("contrasts") or [])[:8])
     state = _fmt(cond.get("matrix_state"))
     scale = cond.get("scale")
@@ -1493,7 +1506,7 @@ def _descriptive_title_core(task_text: str) -> str:
     """Verbatim noun phrase from the task's own background line; "" when it cannot be taken."""
     match = re.search(r"【背景信息】\s*(.+?)(?:\n\s*\n|\n【|$)", task_text or "", re.S)
     background = (match.group(1).strip().replace("\n", " ") if match else "")
-    sentence = background.split("。")[0]
+    sentence = background.split(t("assembly.sentence_stop"))[0]
     match = re.search(r"(?:来自|源于|取自)\s*(.+?)\s*(?:，|。|；|$)", sentence)
     if not match:
         return ""
@@ -1512,6 +1525,20 @@ def _descriptive_title_core(task_text: str) -> str:
     return core
 
 
+def _derived_title_allowed(core: str) -> bool:
+    """Whether a title taken from the dataset's own text may be used in the active language.
+
+    The Chinese path keeps the released rule unchanged. For every other language the noun phrase has
+    to be written in that language, so an English report falls back to the neutral default title
+    rather than printing a core taken from a Chinese task file. The phrase itself is never
+    translated: it is the dataset's own wording, and a translated dataset name would be a fact the
+    run never established.
+    """
+    if get_language() == "zh":
+        return True
+    return not any("\u4e00" <= ch <= "\u9fff" for ch in core)
+
+
 def derive_report_title(run: Path) -> str:
     """Descriptive, brand-free H1 built from this run's own dataset task text.
 
@@ -1521,7 +1548,7 @@ def derive_report_title(run: Path) -> str:
     line is unavailable, so no species or tissue is ever guessed.
     """
     core = _descriptive_title_core(_dataset_task_text(run))
-    if not core:
+    if not core or not _derived_title_allowed(core):
         return _title_prefix()
     return (t("assembly.title_suffix_report") % core) if core.endswith("分析") else (t("assembly.title_suffix_analysis_report") % core)
 
@@ -2017,7 +2044,7 @@ def _dose_step_text(raw):
         mapping = _ast.literal_eval(text)
     except Exception:
         return text
-    return "；".join("%s µM n=%s" % (key, value) for key, value in sorted(mapping.items()))
+    return t("assembly.list_separator_semicolon").join("%s µM n=%s" % (key, value) for key, value in sorted(mapping.items()))
 
 
 def _dose_trend_lines(run):
@@ -2050,7 +2077,7 @@ def _dose_trend_lines(run):
         for (drug, name), per_stratum in flipped.items():
             signs = {1 if value[0] > 0 else -1 for value in per_stratum.values() if value[0] != 0}
             if len(signs) > 1:
-                detail = "；".join("%s ρ=%s, p=%s, n=%s" % (stratum, _fmt(value[1].get("rho")),
+                detail = t("assembly.list_separator_semicolon").join("%s ρ=%s, p=%s, n=%s" % (stratum, _fmt(value[1].get("rho")),
                                                           _reader_prob(value[1].get("p_value")),
                                                           _fmt(value[1].get("n_samples")))
                                   for stratum, value in sorted(per_stratum.items()))
@@ -2140,7 +2167,7 @@ def _fallback_contrast_text(rows, index) -> str:
         if len(arms) == 2:
             label = t("assembly.fallback_contrast_label") % (name, arms[0], arms[1])
         parts.append(t("assembly.fallback_contrast_item") % (label, sizes, query_sizes))
-    return "；".join(parts)
+    return t("assembly.list_separator_semicolon").join(parts)
 
 
 def _ora_query_scope_lines(tested, shown, index) -> List[str]:
@@ -2165,7 +2192,7 @@ def _ora_query_scope_lines(tested, shown, index) -> List[str]:
                 label = t("assembly.arm_higher") % (arms[0] if str(row.get("direction")) == "upregulated"
                                     else arms[1])
             per_direction.setdefault(label, set()).add(str(row.get("query_size")))
-        sizes = "、".join("%s n=%s" % (label, "、".join(sorted(values)))
+        sizes = t("assembly.list_separator_comma").join("%s n=%s" % (label, t("assembly.list_separator_comma").join(sorted(values)))
                           for label, values in sorted(per_direction.items()))
         return [t("assembly.ora_scope_significant") % (rule, sizes)]
     if len(fallback_rows) == len(tested):
@@ -2624,8 +2651,8 @@ def _evidence_table_lines(run: Path, index: Dict[str, Any]) -> List[str]:
         if others:
             out += _note_once(
                 "other_contrasts_%s" % "_".join(others[:2]),
-                t("assembly.candidate_other_contrasts_long") % "、".join(others),
-                t("assembly.candidate_other_contrasts_short") % "、".join(others))
+                t("assembly.candidate_other_contrasts_long") % t("assembly.list_separator_comma").join(others),
+                t("assembly.candidate_other_contrasts_short") % t("assembly.list_separator_comma").join(others))
             out.append("")
 
     module_rows = _read_evidence_rows(folder / "curated_module_group_summary.csv")
@@ -2830,7 +2857,7 @@ def read_run_evidence(run: Path) -> Dict[str, Any]:
         shape = _csv_shape(run / rel)
         if shape:
             stages.append(t("assembly.matrix_stage_shape") % (label, shape["rows"], shape["cols"]))
-    add(t("assembly.item_matrix_stages"), "；".join(stages) or t("assembly.not_recorded"),
+    add(t("assembly.item_matrix_stages"), t("assembly.list_separator_semicolon").join(stages) or t("assembly.not_recorded"),
         t("assembly.source_matrix_shapes"),
         status=t("assembly.status_recorded") if stages else t("assembly.not_recorded"))
     if first.get("n_proteins") is not None:
@@ -2844,7 +2871,7 @@ def read_run_evidence(run: Path) -> Dict[str, Any]:
         scale_bits.append(t("assembly.field_needs_log_transform") % matrix.get("needs_log_transform"))
     if matrix.get("already_processed") is not None:
         scale_bits.append(t("assembly.field_already_processed") % matrix.get("already_processed"))
-    add(t("assembly.item_scale_and_transform"), "；".join(scale_bits) or t("assembly.not_recorded"),
+    add(t("assembly.item_scale_and_transform"), t("assembly.list_separator_semicolon").join(scale_bits) or t("assembly.not_recorded"),
         "parameters.json → analysis_design.matrix.looks_logged / needs_log_transform / already_processed",
         status=t("assembly.status_partially_recorded") if scale_bits else t("assembly.not_recorded"),
         note=t("assembly.note_scale_flags_only"))
@@ -2874,7 +2901,7 @@ def read_run_evidence(run: Path) -> Dict[str, Any]:
                 else (t("assembly.not_recorded_rule") % (logt.get("recorded_rule") or t("assembly.not_recorded"))
                       if logt.get("applied") is None else t("assembly.status_not_executed")),
                 "%s → log2_transform" % transform_source,
-                note=("；".join(part for part in (
+                note=(t("assembly.list_separator_semicolon").join(part for part in (
                     logt.get("applied_basis") or "",
                     t("assembly.note_needs_log_transform"),
                     derived_note) if part)))
@@ -2900,7 +2927,7 @@ def read_run_evidence(run: Path) -> Dict[str, Any]:
 
     add(t("assembly.field_design_source"), _evidence_source_label(design.get("source")),
         "parameters.json → analysis_design.source")
-    add(t("assembly.field_group_and_id_cols"), "；".join(
+    add(t("assembly.field_group_and_id_cols"), t("assembly.list_separator_semicolon").join(
         part for part in (t("assembly.field_group_col") % _fmt(cond.get("group_col")),
                           t("assembly.field_sample_id_col") % _fmt(cond.get("sample_id_col")),
                           t("assembly.field_batch_col") % _fmt(cond.get("batch_col")),
@@ -2909,12 +2936,12 @@ def read_run_evidence(run: Path) -> Dict[str, Any]:
     contrasts = cond.get("contrasts") or []
     contrast_names = [str(c.get("name")) for c in contrasts if c.get("name")]
     if contrasts:
-        shown = "；".join(contrast_names[:3]) + ((t("assembly.more_contrasts_suffix") % (len(contrast_names) - 3)) if len(contrast_names) > 3 else "")
+        shown = t("assembly.list_separator_semicolon").join(contrast_names[:3]) + ((t("assembly.more_contrasts_suffix") % (len(contrast_names) - 3)) if len(contrast_names) > 3 else "")
         add(t("assembly.item_contrasts_in_design") % len(contrasts), shown or t("assembly.not_recorded"),
             "parameters.json → analysis_design.differential.contrasts")
     covariates = design.get("covariates")
     if covariates is not None:
-        add(t("assembly.field_covariates"), "；".join(str(c) for c in covariates) if covariates else t("assembly.none_value"),
+        add(t("assembly.field_covariates"), t("assembly.list_separator_semicolon").join(str(c) for c in covariates) if covariates else t("assembly.none_value"),
             "parameters.json → analysis_design.covariates")
 
     add(t("assembly.item_statistical_model_raw"), first.get("method"),
@@ -2945,9 +2972,9 @@ def read_run_evidence(run: Path) -> Dict[str, Any]:
         if unit_done:
             span = ("%d–%d" % (min(unit_shared), max(unit_shared))) if unit_shared else t("assembly.not_recorded")
             unit_value = (t("assembly.unit_layer_digest")
-                          % ("／".join(unit_names) or t("assembly.not_recorded"), "、".join(unit_sources) or t("assembly.not_recorded"),
+                          % (t("assembly.list_separator_slash").join(unit_names) or t("assembly.not_recorded"), t("assembly.list_separator_comma").join(unit_sources) or t("assembly.not_recorded"),
                              len(unit_records), len(unit_done), span, unit_pass_fdr,
-                             "／".join(unit_thresholds) or t("assembly.not_recorded"), unit_pass_joint, unit_not_tested))
+                             t("assembly.list_separator_slash").join(unit_thresholds) or t("assembly.not_recorded"), unit_pass_joint, unit_not_tested))
             unit_status = t("assembly.status_recorded")
         else:
             unit_value = t("assembly.unit_all_blocked") % len(unit_records)
@@ -2956,14 +2983,14 @@ def read_run_evidence(run: Path) -> Dict[str, Any]:
         unit_notes = []
         if unit_excluded:
             unit_notes.append(t("assembly.unit_excluded_note_digest")
-                              % "、".join(_cell(x) for x in unit_excluded))
+                              % t("assembly.list_separator_comma").join(_cell(x) for x in unit_excluded))
         if unit_blocked:
             unique_reasons = []
             for record in unit_blocked:
                 text = _unit_reason_zh(record)
                 if text not in unique_reasons:
                     unique_reasons.append(text)
-            unit_notes.append(t("assembly.unit_blocked_reasons") % "；".join(unique_reasons[:2]))
+            unit_notes.append(t("assembly.unit_blocked_reasons") % t("assembly.list_separator_semicolon").join(unique_reasons[:2]))
         unit_notes.append(t("assembly.unit_reference_note_short"))
         add(t("assembly.item_unit_sensitivity"), unit_value, "limma_summary.json → unit_sensitivity",
             status=unit_status, note="".join(unit_notes))
@@ -3013,7 +3040,7 @@ def read_run_evidence(run: Path) -> Dict[str, Any]:
     if imputation or _imp.get("applied") is not None:
         # R28: the QC flag is written before the matrix is imputed; when the execution record has an
         # answer it wins, and a conflict between the two is stated instead of silently resolved.
-        qc_text = "；".join(imputation) or t("assembly.not_recorded")
+        qc_text = t("assembly.list_separator_semicolon").join(imputation) or t("assembly.not_recorded")
         if _imp.get("applied") is True:
             value = (t("assembly.imputation_conflict_note") % (_imp.get("method") or t("assembly.method_not_recorded"), qc_text))
         elif _imp.get("applied") is False:
@@ -3035,7 +3062,7 @@ def _run_method_summary_lines(run: Path, cond: Dict[str, Any], evidence_data: Di
     lines: List[str] = []
     stage_text = next((x["value"] for x in evidence_data["items"]
                        if x["item"] == t("assembly.item_matrix_stages")), "")
-    tested = next((part.strip() for part in str(stage_text).split("；") if t("assembly.stage_marker_filtered") in part),
+    tested = next((part.strip() for part in str(stage_text).split(t("assembly.list_separator_semicolon")) if t("assembly.stage_marker_filtered") in part),
                   t("assembly.not_recorded"))
     analysed = evidence_data.get("analysed_missing_rate")
     raw = evidence_data.get("input_missing_rate")
@@ -3122,7 +3149,7 @@ def _run_evidence_binding_lines(evidence_data: Dict[str, Any]) -> List[str]:
     lines = [t("assembly.evidence_binding_intro"), "",
              t("assembly.header_evidence_binding"), "|---|---|---|---|"]
     for item in evidence_data["items"]:
-        note = ("；%s" % item["note"]) if item.get("note") else ""
+        note = (t("assembly.note_suffix") % item["note"]) if item.get("note") else ""
         lines.append("| %s | %s | %s | %s%s |" % (_cell(item["item"]), _cell(item["value"]),
                                                  _cell(_reader_source_label(item["source"])),
                                                  item["status"], _cell(note)))
@@ -3397,7 +3424,7 @@ def _qc_binding_finding(evidence_data: Dict[str, Any]) -> Optional[Dict[str, Any
         return None
     return {"rule": "QC", "severity": t("assembly.severity_hint"),
             "detail": t("assembly.finding_qc_stage")
-                      % (analysed[0], "；".join(evidence_data.get("imputation") or [t("assembly.not_recorded")]),
+                      % (analysed[0], t("assembly.list_separator_semicolon").join(evidence_data.get("imputation") or [t("assembly.not_recorded")]),
                          raw[0], raw[1])}
 
 
@@ -3610,13 +3637,13 @@ def assemble(run: Path, sections: Dict[str, Any]) -> Dict[str, Any]:
                 arms = rec.get("groups") or []
                 flipped = [label for label in labels if _reversed_arms(label, display)]
                 note = (t("assembly.merged_alias_note")
-                        % (len(labels), "、".join(_cell(label) for label in labels), _cell(display)))
+                        % (len(labels), t("assembly.list_separator_comma").join(_cell(label) for label in labels), _cell(display)))
                 if len(arms) >= 2 and arms[0]:
                     note += t("assembly.positive_means") % _cell(arms[0])
-                note += "。"
+                note += t("assembly.sentence_stop")
                 if flipped:
                     note += (t("assembly.merged_flipped_note")
-                             % "、".join(_cell(label) for label in flipped))
+                             % t("assembly.list_separator_comma").join(_cell(label) for label in flipped))
                 else:
                     note += t("assembly.merged_note_aligned")
                 body.append(note)
@@ -3806,7 +3833,7 @@ def _figure_titles(run: Path, index: Dict[str, Any], limit: int = 60) -> List[st
         match = re.match(t("assembly.figure_line_parse_re"), text)
         if match:
             conclusion = text[match.end():].lstrip("：: ").strip()
-            titles.append(("%s %s：%s" % (match.group(1), match.group(2).strip(), conclusion))[:220])
+            titles.append((t("assembly.figure_title_line") % (match.group(1), match.group(2).strip(), conclusion))[:220])
     if not titles:  # figures exist on disk but the manifest could not be read
         try:
             pngs = sorted(p.name for p in (Path(run) / "visualize_results").glob("*.png"))
@@ -4143,7 +4170,7 @@ def build_request_evidence_index(run: Path) -> Dict[str, Any]:
               "model": _table_cell(first.get("method"), 80),
               "fdr": _fmt((design.get("differential") or {}).get("fdr_method")),
               "threshold": "", "samples": "", "missing_raw": "", "missing_analysed": "",
-              "imputation": "；".join(evidence.get("imputation") or []) or t("assembly.not_recorded")}
+              "imputation": t("assembly.list_separator_semicolon").join(evidence.get("imputation") or []) or t("assembly.not_recorded")}
     stage_text = next((x["value"] for x in evidence["items"] if x["item"] == t("assembly.item_matrix_stages")), "")
     params["matrix_stage"] = _table_cell(stage_text, 200)
     if thresholds:
@@ -4170,7 +4197,7 @@ def build_request_evidence_index(run: Path) -> Dict[str, Any]:
             have = [name for name in ("PC1", "PC2", "PC3") if name in head]
             if have:
                 dimred = (t("assembly.dimred_note")
-                          % ("、".join(have), rows_n))
+                          % (t("assembly.list_separator_comma").join(have), rows_n))
     except Exception:  # noqa: BLE001
         dimred = ""
     params["dimred"] = _table_cell(dimred, 200)
@@ -4469,7 +4496,7 @@ def format_request_evidence_index(data: Dict[str, Any]) -> str:
                                  for label in (item.get("excluded_units") or [])})
         if units_excluded:
             lines.append(t("assembly.units_excluded_bullet")
-                         % "、".join(_cell(x) for x in units_excluded))
+                         % t("assembly.list_separator_comma").join(_cell(x) for x in units_excluded))
         for item in unit_items:
             if item.get("blocked_reason"):
                 lines.append(t("assembly.blocked_contrast_line") % (item.get("task_id"),
@@ -4481,7 +4508,7 @@ def format_request_evidence_index(data: Dict[str, Any]) -> str:
     strat = data.get("stratified") or {}
     if strat.get("rows"):
         lines += [t("assembly.heading_stratified_computed")
-                  % (strat["rows"], "、".join(strat.get("stratifiers") or [t("assembly.not_recorded")])),
+                  % (strat["rows"], t("assembly.list_separator_comma").join(strat.get("stratifiers") or [t("assembly.not_recorded")])),
                   "", t("assembly.header_stratified_request"),
                   "|---|---|---:|---:|---:|---:|---|---|"]
         for row in strat.get("examples") or []:
@@ -4505,10 +4532,10 @@ def format_request_evidence_index(data: Dict[str, Any]) -> str:
                   t("assembly.header_overlap"),
                   "|---|---|---:|---|---|"]
         for contrast, info in overlap.items():
-            detail = "；".join(
+            detail = t("assembly.list_separator_semicolon").join(
                 "%s %s" % (db, "/".join("%s %d" % (key, value) for key, value in counts.items()))
                 for db, counts in (info.get("per_database") or {}).items())
-            lines.append("| %s | %s | %d | %s（%s） | %s |" % (
+            lines.append(t("assembly.overlap_row") % (
                 contrast, info.get("status"), info.get("terms"),
                 info.get("file_contrast") or t("assembly.not_recorded"),
                 t("assembly.arm_order_reversed") if info.get("reversed") else t("assembly.arm_order_matches"), detail))
@@ -4548,12 +4575,12 @@ def format_request_evidence_index(data: Dict[str, Any]) -> str:
                     lines.append(t("assembly.ora_class_significant_line")
                                  % (item.get("kind"), item.get("rule") or t("assembly.not_recorded"),
                                     item.get("query_sizes") or t("assembly.not_recorded"),
-                                    "、".join(item.get("contrasts") or []) or t("assembly.not_recorded")))
+                                    t("assembly.list_separator_comma").join(item.get("contrasts") or []) or t("assembly.not_recorded")))
                 else:
                     lines.append(t("assembly.ora_class_fallback_line")
                                  % (item.get("kind"), item.get("significant_set_sizes") or t("assembly.not_recorded"),
                                     item.get("query_sizes") or t("assembly.not_recorded"),
-                                    "、".join(item.get("contrasts") or []) or t("assembly.not_recorded")))
+                                    t("assembly.list_separator_comma").join(item.get("contrasts") or []) or t("assembly.not_recorded")))
             lines += ["", t("assembly.query_scope_warning"),
                       ""]
         elif ora.get("query_rule"):
@@ -4597,7 +4624,7 @@ def format_request_evidence_index(data: Dict[str, Any]) -> str:
     lines += [t("assembly.heading_concordance_and_exclusion"), "",
               t("assembly.concordance_line") % (conc.get("status"), conc.get("pairs")),
               t("assembly.exclusion_trace_line")
-              % (excl.get("status"), "、".join(excl.get("excluded") or [])
+              % (excl.get("status"), t("assembly.list_separator_comma").join(excl.get("excluded") or [])
                  or t("assembly.exclusion_none")),
               ""]
     figures = data.get("figures") or {}
@@ -4618,7 +4645,7 @@ def format_request_evidence_index(data: Dict[str, Any]) -> str:
                                                           figures["count"] - len(listed))
         lines += [t("assembly.heading_figure_index"), "",
                   t("assembly.figure_caption_count")
-                  % (figures["count"], merged, png_count, capped, "；".join(listed)),
+                  % (figures["count"], merged, png_count, capped, t("assembly.list_separator_semicolon").join(listed)),
                   t("assembly.figure_number_provenance"),
                   ""]
     else:
@@ -4641,7 +4668,7 @@ def format_request_evidence_index(data: Dict[str, Any]) -> str:
         aliases = {task: names for task, names in (data.get("task_aliases") or {}).items() if names}
         if aliases:
             lines += ["", t("assembly.task_alias_note")
-                      % "；".join("%s ≡ %s" % (task, "、".join(names))
+                      % t("assembly.list_separator_semicolon").join("%s ≡ %s" % (task, t("assembly.list_separator_comma").join(names))
                                   for task, names in aliases.items())]
         lines.append("")
     return chr(10).join(lines).rstrip() + chr(10)
@@ -4779,6 +4806,29 @@ def check_bindings(sections: Dict[str, Any], index: Dict[str, Any]) -> Dict[str,
     return report
 
 
+def _heading_terms(key: str) -> Tuple[str, ...]:
+    """Every spelling under which a heading keyword is recognised in the active language.
+
+    Section headings come from the model's own free-form report, whose language a run does not
+    control (a continued run inherits the text of the run it continues). The released Chinese path
+    recognises exactly its own keyword, so a zh report is unchanged; the added English path accepts
+    both spellings, so an English run still routes a section the model titled in Chinese.
+    """
+    if get_language() == "zh":
+        return (t_in("zh", key),)
+    english = t_in("en", key)
+    # The report prints "Conclusion Boundaries and Method Limitations", so a singular keyword has to
+    # recognise its own plural as well; the Chinese keyword is unaffected by this.
+    forms = [english, english + "s"]
+    if english.endswith("y"):
+        forms.append(english[:-1] + "ies")
+    return tuple(dict.fromkeys((t_in("zh", key),) + tuple(forms)))
+
+
+def _has_heading_keyword(heading_key: str, name: str) -> bool:
+    return any(term in heading_key for term in _heading_terms("assembly.keyword_" + name))
+
+
 def sections_from_text(text: str) -> Dict[str, Any]:
     """Convert a free-form model report into the section schema; the raw text travels with it."""
     blocks: List[Dict[str, Any]] = []
@@ -4805,13 +4855,17 @@ def sections_from_text(text: str) -> Dict[str, Any]:
         paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()]
         if not heading:
             sections["extra"].extend(paragraphs)
-        elif (t("assembly.keyword_overview") in heading_key) or (t("assembly.keyword_conclusion") in heading_key and t("assembly.keyword_boundary") not in heading_key):
+        elif _has_heading_keyword(heading_key, "overview") or (
+                _has_heading_keyword(heading_key, "conclusion")
+                and not _has_heading_keyword(heading_key, "boundary")):
             sections["key_summary"].extend(paragraphs)
-        elif t("assembly.keyword_boundary") in heading_key or t("assembly.keyword_limitation") in heading_key:
+        elif _has_heading_keyword(heading_key, "boundary") or _has_heading_keyword(heading_key, "limitation"):
             sections["boundary"].extend(paragraphs)
-        elif t("assembly.keyword_summary") in heading_key or t("assembly.keyword_inference") in heading_key or t("assembly.keyword_discussion") in heading_key:
+        elif (_has_heading_keyword(heading_key, "summary") or _has_heading_keyword(heading_key, "inference")
+              or _has_heading_keyword(heading_key, "discussion")):
             sections["summary"].extend(paragraphs)
-        elif t("assembly.keyword_asset") in heading_key or t("assembly.keyword_appendix") in heading_key or t("assembly.keyword_index") in heading_key:
+        elif (_has_heading_keyword(heading_key, "asset") or _has_heading_keyword(heading_key, "appendix")
+              or _has_heading_keyword(heading_key, "index")):
             sections["extra"].extend(paragraphs)
         else:
             sections["tasks"].append({"match": heading, "question": [], "findings": paragraphs,

@@ -116,7 +116,7 @@ _CAPTIONS = {
         "This is a standard Agent analysis figure with no directly corresponding panel in the "
         "original paper (for the mapping baseline see the original_figure_map extraction record).",
     ),
-    "paper_ref_prefix": ("对应原论文 ", "Corresponding original-paper panels: "),
+    "paper_ref_prefix": ("对应原论文 ", "see "),
 
     # ---- figure titles ----
     "title_qc_sample_overview": ("样本与缺失率 QC", "Sample and missingness QC"),
@@ -216,7 +216,7 @@ _CAPTIONS = {
         "Significance thresholds: figure_manifest records no threshold for this figure "
         "(see the documentation overview for the differential-analysis defaults).",
     ),
-    "focus_genes_prefix": ("报告 focus 基因（", "Report focus genes ("),
+    "focus_genes_prefix": ("报告 focus 基因（", " Report focus genes ("),
     "focus_genes_more": ("等", " and others"),
     "focus_genes_suffix": ("）可在图中对照追踪。", ") can be traced in the figure."),
 
@@ -271,7 +271,7 @@ _CAPTIONS = {
     "panel_omitted_prefix": ("面板省略说明：", "Omitted panels: "),
     "panel_omitted_suffix_qc": (
         " 因无匹配数据未绘制，不使用占位图。",
-        " were not drawn because no matching data were available; no placeholder panel is used.",
+        " could not be drawn because no matching data were available; no placeholder panel is used.",
     ),
     "qc_reading_a": (
         "各面板依次回答：每个样本测到多少蛋白、缺失了多少、分组是否均衡、样本间重复性如何；",
@@ -773,8 +773,8 @@ _CAPTIONS = {
         "超几何富集检验（over-representation analysis），BH 校正后报告 p.adjust。",
         "Hypergeometric over-representation analysis with p.adjust reported after BH correction.",
     ),
-    "enrich_bubble_interp_prefix": ("来自 ", "Differential protein set from "),
-    "enrich_bubble_interp_mid": (" 的 ", " for "),
+    "enrich_bubble_interp_prefix": ("来自 ", "Enrichment of the "),
+    "enrich_bubble_interp_mid": (" 的 ", " "),
     "enrich_bubble_interp_tail": ("差异蛋白集；", " differential protein set; "),
     "enrich_bubble_interp_tail2": (
         "解释机制方向时应与对应火山图的上下调方向一致阅读。",
@@ -877,8 +877,8 @@ _CAPTIONS = {
     ),
     "panel_omitted_suffix_ce": (
         " 因该对比无匹配数据未绘制，不使用灰字占位图。",
-        " were not drawn because this contrast has no matching data; no grey placeholder "
-        "panel is used.",
+        " could not be drawn because this contrast has no matching data; no grey "
+        "placeholder panel is used.",
     ),
     "ce_reading_a": (
         "把同一对比的差异证据与富集解释放进一张图，先读差异方向，再读富集条目；",
@@ -909,7 +909,7 @@ _CAPTIONS = {
         "definitions are given in the threshold rows above, and the figure should be read "
         "together with the matching task section of the main report.",
     ),
-    "manifest_caption_label": ("figure_manifest 记录：", "figure_manifest records: "),
+    "manifest_caption_label": ("figure_manifest 记录：", " figure_manifest records: "),
     "generic_panel_prefix": (
         "面板结构以图内轴标签与图例为准（figure_manifest 类别：",
         "The panel structure follows the axis labels and legends in the figure "
@@ -917,13 +917,13 @@ _CAPTIONS = {
     ),
     "generic_reading": (
         "按图内轴标签与图例读取；数值通道与显著性含义见阈值与统计口径行。",
-        "Read from the axis labels and legends in the figure; the meaning of the numeric "
-        "channels and of significance is given in the threshold and statistical rows.",
+        "The axis labels and legends in the figure are the reference; the numeric channels "
+        "and the meaning of significance are given in the threshold and statistical rows.",
     ),
     "generic_statistics": (
         "统计口径以生成该图的 plot 函数记录为准（见 figure_manifest.json 该条目）。",
-        "The statistical basis is the record of the plot function that produced the figure "
-        "(see the corresponding entry in figure_manifest.json).",
+        "The record of the plot function that produced the figure (see the corresponding "
+        "entry in figure_manifest.json).",
     ),
 
     # ---- figures_captions.md skeleton ----
@@ -940,9 +940,9 @@ _CAPTIONS = {
     "heading_caption_index": ("## 图注目录", "## Caption index"),
     "index_header": ("| 图号 | 标题 | 图片文件 |", "| Figure | Title | Image file |"),
     "label_image_file": ("- 图片文件：", "- Image file: "),
-    "label_panels": ("- 面板说明：", "- Panel description: "),
+    "label_panels": ("- 面板说明：", "- Panel description:"),
     "label_reading": ("- 如何阅读：", "- How to read: "),
-    "label_thresholds": ("- 阈值与样本量：", "- Thresholds and sample size: "),
+    "label_thresholds": ("- 阈值与样本量：", "- Thresholds and sample size:"),
     "label_statistics": ("- 统计口径：", "- Statistical basis: "),
     "label_interpretation": ("- 一句话解读：", "- One-sentence interpretation: "),
     "label_boundary": ("- 证据边界：", "- Evidence boundary: "),

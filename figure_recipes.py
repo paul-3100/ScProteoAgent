@@ -37,6 +37,10 @@ Design contract
   ``info`` follows the standard plot-function return dict (``file_path`` plus
   optional caption metadata); an empty ``file_path`` marks an omitted figure.
 
+- ``title`` and ``description`` are not literals here: they resolve from the shared
+  report-language registry (``recipes`` namespace) at access time, so a zh run
+  renders the released wording and an en run the English wording.
+
 This module is intentionally standard-library only so that ``tools.py`` can
 import it without extra dependencies.
 """
@@ -47,6 +51,8 @@ import re
 import sys
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterator, List, Tuple
+
+from report_language import has_template, register, t
 
 SCHEMA_VERSION = "figure_recipes/1"
 
@@ -115,6 +121,253 @@ def input_table_matches_convention(table: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+
+# Reader-facing recipe text (zh released verbatim, en added)
+
+# ---------------------------------------------------------------------------
+
+
+
+# Titles and descriptions are keyed by recipe id: ``<recipe_id>_title`` and
+
+# ``<recipe_id>_description``. The zh column repeats the released literals character
+
+# for character; ``FigureRecipe.title`` / ``.description`` resolve the text at access
+
+# time, so a run renders the language that is active when the manifest is written.
+
+_RECIPE_TEXT = {
+
+    "pispa_cluster_type_composition_title": (
+        "Cluster×迁移组成富集图",
+        "Cluster by migration-state composition",
+    ),
+    "pispa_cluster_type_composition_description": (
+        "按 Cluster 1/2/3 展示迁移/对照细胞组成与迁移占比，使 Cluster 1 迁移细胞富集可视化。",
+        "Composition of migrated and control cells and the migrated fraction across Clusters 1/2/3, making the enrichment of migrated cells in Cluster 1 visible.",
+    ),
+    "pispa_rho_gtpase_candidate_boxplot_title": (
+        "Rho GTPase-细胞骨架-黏附候选蛋白分组箱线图",
+        "Grouped boxplots of Rho GTPase, cytoskeleton and adhesion candidate proteins",
+    ),
+    "pispa_rho_gtpase_candidate_boxplot_description": (
+        "Cdc42/Rac1/RhoA 及 ERM/黏附候选在 Cluster 1/2/3 的丰度箱线图，标注 logFC/FDR 与迁移亚步骤。",
+        "Abundance boxplots of Cdc42/Rac1/RhoA and ERM/adhesion candidates across Clusters 1/2/3, annotated with logFC/FDR and the migration sub-step.",
+    ),
+    "pispa_migration_module_gradient_title": (
+        "迁移模块分数梯度图",
+        "Gradient of migration module scores",
+    ),
+    "pispa_migration_module_gradient_description": (
+        "迁移相关 curated 模块分数在 Cluster 1/2/3 的组均值与样本分布梯度，扩展 Cluster×迁移机制链证据。",
+        "Group means and sample distributions of migration-related curated module scores across Clusters 1/2/3, extending the Cluster x migration mechanism chain.",
+    ),
+    "brain_state_axis_module_gradient_title": (
+        "RG→oRG→IPC-EN→EN 状态轴 marker/模块梯度图",
+        "Marker and module gradients along the RG to oRG to IPC-EN to EN state axis",
+    ),
+    "brain_state_axis_module_gradient_description": (
+        "沿发育状态轴展示 stage marker 与神经成熟/突触/染色质模块分数梯度；ASD/NDD 保持 external_annotation 边界。",
+        "Stage markers and neuronal maturation, synapse and chromatin module scores along the developmental state axis; ASD/NDD annotations stay external_annotation.",
+    ),
+    "brain_marker_cluster_heatmap_title": (
+        "细胞类型典型 marker×cluster 平均丰度热图",
+        "Mean abundance of canonical cell-type markers by cluster",
+    ),
+    "brain_marker_cluster_heatmap_description": (
+        "oRG/IPC-EN/EN/OPC/小胶质/血管等典型 marker 的 cluster 均值丰度热图，补足运行缺少的 marker 导向丰度图。",
+        "Heatmap of cluster-mean abundance for canonical markers of oRG, IPC-EN, EN, OPC, microglia and vasculature, supplying the marker-oriented abundance view the run was missing.",
+    ),
+    "dvp_zonation_zone_axis_heatmap_title": (
+        "Portal-Midlobular-Central 分区 z-score 热图与 marker 曲线",
+        "Portal to Midlobular to Central zone z-score heatmap with marker curves",
+    ),
+    "dvp_zonation_zone_axis_heatmap_description": (
+        "在可用的三区序数轴上重建 zonation：top 分区蛋白 z-score 热图、urea cycle/xenobiotic marker 梯度曲线。",
+        "Zonation rebuilt on the available three-zone ordinal axis: a z-score heatmap of the top zone-specific proteins plus gradient curves for urea-cycle and xenobiotic markers.",
+    ),
+    "dvp_zonation_module_curves_title": (
+        "门静脉-中央模块方向曲线图",
+        "Directional module curves along the portal-to-central axis",
+    ),
+    "dvp_zonation_module_curves_description": (
+        "periportal urea 与 central xenobiotic 模块分数沿区轴的组均值曲线，支持 OXPHOS/代谢分区的方向判读。",
+        "Group-mean curves of periportal urea and central xenobiotic module scores along the zone axis, supporting directional reading of OXPHOS and metabolic zonation.",
+    ),
+    "bloodcell_hspc_state_hierarchy_dotplot_title": (
+        "HSPC 状态层级 marker dotplot",
+        "Marker dot plot across the HSPC state hierarchy",
+    ),
+    "bloodcell_hspc_state_hierarchy_dotplot_description": (
+        "HSC→MPP→LMPP→GMP→MEP 状态层级下的干性/代谢与粒细胞颗粒 marker 平均丰度点图，统一 HSC_vs_GMP 方向。",
+        "Mean abundance dot plot of stemness, metabolic and granulocyte-granule markers across the HSC to MPP to LMPP to GMP to MEP hierarchy, keeping the HSC_vs_GMP direction consistent.",
+    ),
+    "bloodcell_cluster_label_agreement_title": (
+        "蛋白簇×FACS 标签一致性热图",
+        "Agreement between protein clusters and FACS labels",
+    ),
+    "bloodcell_cluster_label_agreement_description": (
+        "蛋白聚类与 FACS 标签的交叉表热图，暴露 MEP/GMP/LMPP 一致与错配，支撑状态解释边界。",
+        "Cross-tabulation heatmap of protein clusters against FACS labels, exposing where MEP/GMP/LMPP agree and where they mismatch, which bounds the state interpretation.",
+    ),
+    "turnover_drug_dose_footprint_title": (
+        "双药剂量丰度足迹对比图",
+        "Abundance footprint of two drugs across doses",
+    ),
+    "turnover_drug_dose_footprint_description": (
+        "Bortezomib 与 Cycloheximide 相对 Control 的总丰度与低/高剂量 log2FC 散点；只描述 abundance footprint，不推断真实 turnover rate。",
+        "Total abundance and low/high-dose log2FC scatter for Bortezomib and Cycloheximide relative to Control; this describes the abundance footprint only and infers no true turnover rate.",
+    ),
+    "turnover_drug_module_direction_title": (
+        "双药机制模块方向合成图",
+        "Shared and opposing module directions under two drugs",
+    ),
+    "turnover_drug_module_direction_description": (
+        "Bortezomib（蛋白酶体/蛋白稳态）与 Cycloheximide（翻译/核糖体）富集与模块方向的共有/相反变化合成视图。",
+        "Combined view of shared and opposing changes in enrichment and module direction for Bortezomib (proteasome/protein homeostasis) and Cycloheximide (translation/ribosome).",
+    ),
+    "turnover_sc_lowinput_stratification_title": (
+        "单细胞 vs 低输入分层结构图",
+        "Stratification of single-cell versus low-input samples",
+    ),
+    "turnover_sc_lowinput_stratification_description": (
+        "按处理着色并叠加 single_cell/10cell_pool 分层的 PCA/UMAP 面板，回答单细胞与低输入是否需分层解读。",
+        "PCA/UMAP panels coloured by treatment with the single_cell/10cell_pool strata overlaid, addressing whether single-cell and low-input samples need separate interpretation.",
+    ),
+    "pscope_polarization_gradient_title": (
+        "极化强度梯度功能集投影图",
+        "Functional-set projection of the polarisation gradient",
+    ),
+    "pscope_polarization_gradient_description": (
+        "以 IFN/吞噬体/V-ATPase 功能集中位丰度 z-score 重新着色 Untreated→LPS_low→LPS_high 的 PCA，展示极化强度梯度。",
+        "PCA of Untreated to LPS_low to LPS_high recoloured by the median-abundance z-score of the IFN, phagosome and V-ATPase functional sets, showing a gradient of polarisation strength.",
+    ),
+    "pscope_vatpase_covariation_title": (
+        "V-ATPase/吞噬体蛋白共变散点图",
+        "Co-variation of V-ATPase and phagosome proteins",
+    ),
+    "pscope_vatpase_covariation_description": (
+        "分条件展示 V-ATPase 与溶酶体模块蛋白的蛋白-蛋白共变散点，补足单细胞内功能模块共变证据。",
+        "Protein-protein co-variation scatter of V-ATPase and lysosomal module proteins per condition, supplying within-cell evidence for functional module co-variation.",
+    ),
+    "proteinleakage_compartment_leakage_title": (
+        "区室标记泄漏对比箱线图",
+        "Compartment-marker leakage compared across conditions",
+    ),
+    "proteinleakage_compartment_leakage_description": (
+        "cytosol/nucleus 与 mito/membrane 区室标记在 Intact vs Permeable 的 log2FC 箱线对比，量化区室选择性泄漏。",
+        "log2FC boxplot comparison of cytosol/nucleus and mito/membrane markers between Intact and Permeable samples, quantifying compartment-selective leakage.",
+    ),
+    "proteinleakage_status_confounder_dotplot_title": (
+        "细胞类型×保存状态泄漏占比点图",
+        "Permeable fraction by cell type and preservation state",
+    ),
+    "proteinleakage_status_confounder_dotplot_description": (
+        "按细胞类型与 Fresh/Frozen 保存状态展示 permeable 占比，暴露保存方式与细胞类型混杂边界。",
+        "Permeable fraction shown by cell type and Fresh/Frozen preservation state, exposing where preservation method and cell type are confounded.",
+    ),
+    "proteinleakage_leakage_correlation_heatmap_title": (
+        "跨细胞类型泄漏 fold-change 相关热图",
+        "Cross-cell-type correlation of leakage fold changes",
+    ),
+    "proteinleakage_leakage_correlation_heatmap_description": (
+        "复用泄漏分析的跨细胞类型 fold-change 相关矩阵绘制热图，支持可泛化的无染色泄漏 QC 证据。",
+        "Heatmap of the cross-cell-type fold-change correlation matrix from the leakage analysis, supporting generalisable stain-free leakage QC evidence.",
+    ),
+    "scpro_klrg1_context_matrix_title": (
+        "Treg/CD4/CD8 KLRG1 背景对比矩阵图",
+        "KLRG1 contrast matrix across the Treg/CD4/CD8 contexts",
+    ),
+    "scpro_klrg1_context_matrix_description": (
+        "KLRG1+ vs KLRG1- 在 Treg/CD4/CD8 三个背景下的方向矩阵，标出共享与发散方向，避免跨背景外推。",
+        "Direction matrix for KLRG1+ versus KLRG1- across the Treg, CD4 and CD8 contexts, marking shared and divergent directions so that no context is extrapolated to another.",
+    ),
+    "scpro_treg_klrg1_enrichment_title": (
+        "Treg KLRG1 对比富集气泡图",
+        "Enrichment bubble plot for the Treg KLRG1 contrast",
+    ),
+    "scpro_treg_klrg1_enrichment_description": (
+        "为最高权重的 Treg KLRG1+/- 对比补充 GO/KEGG/Reactome 富集读出（当前运行缺失该对比富集）。",
+        "GO/KEGG/Reactome enrichment readout added for the highest-weight Treg KLRG1+/- contrast, which the run itself leaves without enrichment.",
+    ),
+    "scpro_treg_effector_group_means_title": (
+        "Treg KLRG1+ 免疫抑制程序组均值图",
+        "Group means of the immunosuppressive programme in Treg KLRG1+ cells",
+    ),
+    "scpro_treg_effector_group_means_description": (
+        "免疫抑制/效应候选与 treg_klrg1_immune 模块在 KLRG1+/KLRG1- 的组均值+检出率，附方向语境。",
+        "Group means and detection rates of immunosuppressive/effector candidates and of the treg_klrg1_immune module in KLRG1+ versus KLRG1- cells, with directional context.",
+    ),
+    "nociceptor_subtype_treatment_matrix_title": (
+        "亚型×处理效应矩阵图",
+        "Treatment effect matrix across subtypes",
+    ),
+    "nociceptor_subtype_treatment_matrix_description": (
+        "TrkA/IB4/Mechano 亚型内 Inflamed vs Control 的候选蛋白组均值+检出率矩阵，标注 logFC/FDR 与模块 delta；弱信号时只陈述方向与模块支持。",
+        "Group-mean and detection-rate matrix of candidate proteins for Inflamed versus Control within the TrkA, IB4 and Mechano subtypes, annotated with logFC/FDR and module deltas; where signal is weak it states direction and module support only.",
+    ),
+    "nociceptor_subtype_marker_heatmap_title": (
+        "三基线亚型 z-score marker 热图",
+        "Marker z-score heatmap of the three baseline subtypes",
+    ),
+    "nociceptor_subtype_marker_heatmap_description": (
+        "TrkA/IB4/Mechano 基线亚型的蛋白 z-score 层次聚类热图，突出亚型 marker 与感觉通道分离。",
+        "Hierarchically clustered z-score heatmap of proteins in the TrkA, IB4 and Mechano baseline subtypes, highlighting subtype markers and the separation of sensory channels.",
+    ),
+    "nociceptor_baseline_signature_compare_title": (
+        "基线亚型富集签名对比图",
+        "Enrichment signatures of the baseline subtypes compared",
+    ),
+    "nociceptor_baseline_signature_compare_description": (
+        "三个基线亚型对比的上调富集签名并列对比，核对 TrkA 代谢/生物合成与 IB4/机械感受 C-fiber 方向。",
+        "Side-by-side comparison of the up-regulated enrichment signatures of the three baseline subtype contrasts, cross-checking the metabolic/biosynthetic direction in TrkA and the mechanosensory C-fiber direction in IB4.",
+    ),
+    "carr_lps_reactome_signature_title": (
+        "LPS Reactome NES 签名条形图",
+        "Reactome NES signature of the LPS response",
+    ),
+    "carr_lps_reactome_signature_description": (
+        "按 signed -log10(p) 排序的 Reactome NES 水平条形图，突出干扰素/白介素/感染疾病炎症签名方向。",
+        "Horizontal Reactome NES bar chart sorted by signed -log10(p), highlighting the direction of interferon, interleukin and infectious-disease inflammatory signatures.",
+    ),
+    "carr_batch_treatment_boundary_title": (
+        "LPS 效应与批次边界图",
+        "LPS effect against the batch boundary",
+    ),
+    "carr_batch_treatment_boundary_description": (
+        "量化批次效应与处理效应的相对大小（校正前后方差/PCA），支撑 LPS 效应大于批次边界的定量结论。",
+        "Quantifies the relative size of batch and treatment effects (variance and PCA before and after correction), supporting the quantitative conclusion that the LPS effect exceeds the batch boundary.",
+    ),
+    "carr_per_cell_depth_bar_title": (
+        "单样本蛋白检出深度条形图",
+        "Per-sample protein detection depth",
+    ),
+    "carr_per_cell_depth_bar_description": (
+        "按处理组分组的单样本蛋白组检出数条形图（median+MAD+样本点），补足聚合 QC 缺少的逐样本深度视图。",
+        "Bar chart of per-sample detected-protein counts grouped by treatment (median, MAD and sample points), supplying the per-sample depth view that the aggregated QC lacks.",
+    ),
+    "ipsc_pluripotency_gradient_title": (
+        "iPSC→EB 多能性/谱系梯度图",
+        "Pluripotency and lineage gradient from iPSC to EB",
+    ),
+    "ipsc_pluripotency_gradient_description": (
+        "多能性 marker 着色的 PCA 与 OCT4/SOX2 组间箱线（t 检验 P），连接多能性下降与谱系/ECM 上升。",
+        "PCA coloured by pluripotency markers together with OCT4/SOX2 between-group boxplots (t-test P), linking the decline in pluripotency to the rise in lineage and ECM proteins.",
+    ),
+    "ipsc_eb_heterogeneity_clusters_title": (
+        "EB 内部异质性聚类与功能注释图",
+        "Within-EB heterogeneity clusters with functional annotation",
+    ),
+    "ipsc_eb_heterogeneity_clusters_description": (
+        "EB 内部显著调控蛋白的无监督聚类与逐簇功能注释，展示 EB 内异质性而非单一分化终点。",
+        "Unsupervised clustering of significantly regulated proteins within EBs with per-cluster functional annotation, showing intra-EB heterogeneity rather than a single differentiation endpoint.",
+    ),
+}
+
+register("recipes", _RECIPE_TEXT)
+
+
+# ---------------------------------------------------------------------------
 # Recipe data structure
 # ---------------------------------------------------------------------------
 
@@ -136,8 +389,19 @@ class FigureRecipe:
     paper_figure: str = ""
     params: Dict[str, Any] = field(default_factory=dict)
     caption_slug: str = ""
-    title: str = ""
-    description: str = ""
+
+    # The manifest and caption text lives in the ``recipes`` namespace of the
+    # shared report-language registry. These are properties rather than fields so
+    # that a run renders the language active when the manifest is written.
+    @property
+    def title(self) -> str:
+        """Manifest/caption title in the active report language."""
+        return t("recipes." + self.recipe_id + "_title")
+
+    @property
+    def description(self) -> str:
+        """Manifest/caption description in the active report language."""
+        return t("recipes." + self.recipe_id + "_description")
 
     def __post_init__(self) -> None:
         if not self.caption_slug:
@@ -179,9 +443,8 @@ def _r(
     figure_kind: str,
     paper_figure: str = "",
     params: Dict[str, Any] | None = None,
-    title: str = "",
-    description: str = "",
 ) -> FigureRecipe:
+    """Build one recipe; its title and description come from the registry."""
     return FigureRecipe(
         recipe_id=recipe_id,
         dataset=dataset,
@@ -190,8 +453,6 @@ def _r(
         figure_kind=figure_kind,
         paper_figure=paper_figure,
         params=params or {},
-        title=title,
-        description=description,
     )
 
 
@@ -220,8 +481,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                 "context_col": "Type",
                 "migrated_label": "Migrated",
             },
-            title="Cluster×迁移组成富集图",
-            description="按 Cluster 1/2/3 展示迁移/对照细胞组成与迁移占比，使 Cluster 1 迁移细胞富集可视化。",
         ),
         _r(
             "pispa_rho_gtpase_candidate_boxplot",
@@ -241,8 +500,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                 "genes": ["CDC42", "RAC1", "RHOA", "EZR", "MSN", "MYL9", "TLN1", "VCL", "ITGB6", "FLNA", "ACTN1"],
                 "group_order": ["Cluster 1", "Cluster 2", "Cluster 3"],
             },
-            title="Rho GTPase-细胞骨架-黏附候选蛋白分组箱线图",
-            description="Cdc42/Rac1/RhoA 及 ERM/黏附候选在 Cluster 1/2/3 的丰度箱线图，标注 logFC/FDR 与迁移亚步骤。",
         ),
         _r(
             "pispa_migration_module_gradient",
@@ -264,8 +521,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                 ],
                 "group_order": ["Cluster 1", "Cluster 2", "Cluster 3"],
             },
-            title="迁移模块分数梯度图",
-            description="迁移相关 curated 模块分数在 Cluster 1/2/3 的组均值与样本分布梯度，扩展 Cluster×迁移机制链证据。",
         ),
     ),
     # ----------------------------------------------------------------- Brain
@@ -287,8 +542,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                 "state_markers": ["HOPX", "TNC", "EOMES", "TBR1", "BCL11B", "NEUROD2", "MAP2"],
                 "modules": ["brain_ipc_en_transition", "brain_en_maturation", "brain_synapse_neurite", "brain_chromatin_baf"],
             },
-            title="RG→oRG→IPC-EN→EN 状态轴 marker/模块梯度图",
-            description="沿发育状态轴展示 stage marker 与神经成熟/突触/染色质模块分数梯度；ASD/NDD 保持 external_annotation 边界。",
         ),
         _r(
             "brain_marker_cluster_heatmap",
@@ -304,8 +557,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
             params={
                 "markers": ["HOPX", "TNC", "EOMES", "TBR1", "SCGN", "CALB2", "S100B", "SIRT2", "P2RY12", "PDGFRB", "PCNA", "MKI67"],
             },
-            title="细胞类型典型 marker×cluster 平均丰度热图",
-            description="oRG/IPC-EN/EN/OPC/小胶质/血管等典型 marker 的 cluster 均值丰度热图，补足运行缺少的 marker 导向丰度图。",
         ),
     ),
     # ------------------------------------------------------------------- DVP
@@ -326,8 +577,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                 "zone_order": ["Portal", "Midlobular", "Central"],
                 "markers": ["ARG1", "ASS1", "ASL", "CPS1", "GLUL", "CYP2E1", "CYP1A2"],
             },
-            title="Portal-Midlobular-Central 分区 z-score 热图与 marker 曲线",
-            description="在可用的三区序数轴上重建 zonation：top 分区蛋白 z-score 热图、urea cycle/xenobiotic marker 梯度曲线。",
         ),
         _r(
             "dvp_zonation_module_curves",
@@ -344,8 +593,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                 "modules": ["liver_periportal_urea", "liver_central_xenobiotic"],
                 "zone_order": ["Portal", "Midlobular", "Central"],
             },
-            title="门静脉-中央模块方向曲线图",
-            description="periportal urea 与 central xenobiotic 模块分数沿区轴的组均值曲线，支持 OXPHOS/代谢分区的方向判读。",
         ),
     ),
     # -------------------------------------------------------------- BloodCell
@@ -365,8 +612,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                 "state_order": ["HSC", "MPP", "LMPP", "GMP", "MEP"],
                 "markers": ["TALDO1", "H1F0", "MPO", "ELANE"],
             },
-            title="HSPC 状态层级 marker dotplot",
-            description="HSC→MPP→LMPP→GMP→MEP 状态层级下的干性/代谢与粒细胞颗粒 marker 平均丰度点图，统一 HSC_vs_GMP 方向。",
         ),
         _r(
             "bloodcell_cluster_label_agreement",
@@ -379,8 +624,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
             figure_kind="extension",
             paper_figure="Fig. 2d",
             params={},
-            title="蛋白簇×FACS 标签一致性热图",
-            description="蛋白聚类与 FACS 标签的交叉表热图，暴露 MEP/GMP/LMPP 一致与错配，支撑状态解释边界。",
         ),
     ),
     # -------------------------------------------------------------- Turnover
@@ -406,8 +649,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                 },
                 "control_group": "Control",
             },
-            title="双药剂量丰度足迹对比图",
-            description="Bortezomib 与 Cycloheximide 相对 Control 的总丰度与低/高剂量 log2FC 散点；只描述 abundance footprint，不推断真实 turnover rate。",
         ),
         _r(
             "turnover_drug_module_direction",
@@ -429,8 +670,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                     "Cycloheximide": ["ribosome_translation"],
                 },
             },
-            title="双药机制模块方向合成图",
-            description="Bortezomib（蛋白酶体/蛋白稳态）与 Cycloheximide（翻译/核糖体）富集与模块方向的共有/相反变化合成视图。",
         ),
         _r(
             "turnover_sc_lowinput_stratification",
@@ -444,8 +683,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
             figure_kind="extension",
             paper_figure="Supplementary Fig. S3",
             params={"tier_col": "Label"},
-            title="单细胞 vs 低输入分层结构图",
-            description="按处理着色并叠加 single_cell/10cell_pool 分层的 PCA/UMAP 面板，回答单细胞与低输入是否需分层解读。",
         ),
     ),
     # --------------------------------------------------------------- pSCoPE
@@ -467,8 +704,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                 "signature_modules": ["phagosome_vatpase_lysosome", "inflammation_interferon"],
                 "signature_genes": ["ATP6V0A1", "ATP6V1A", "ATP6V1B2", "LAMP1", "LAMP2", "CTSB", "CTSD"],
             },
-            title="极化强度梯度功能集投影图",
-            description="以 IFN/吞噬体/V-ATPase 功能集中位丰度 z-score 重新着色 Untreated→LPS_low→LPS_high 的 PCA，展示极化强度梯度。",
         ),
         _r(
             "pscope_vatpase_covariation",
@@ -488,8 +723,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                 },
                 "condition_order": ["Untreated", "LPS_low", "LPS_high"],
             },
-            title="V-ATPase/吞噬体蛋白共变散点图",
-            description="分条件展示 V-ATPase 与溶酶体模块蛋白的蛋白-蛋白共变散点，补足单细胞内功能模块共变证据。",
         ),
     ),
     # -------------------------------------------------------- ProteinLeakage
@@ -511,8 +744,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                     "mito_membrane_retained": ["VDAC1", "ATP5F1A"],
                 },
             },
-            title="区室标记泄漏对比箱线图",
-            description="cytosol/nucleus 与 mito/membrane 区室标记在 Intact vs Permeable 的 log2FC 箱线对比，量化区室选择性泄漏。",
         ),
         _r(
             "proteinleakage_status_confounder_dotplot",
@@ -525,8 +756,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
             figure_kind="extension",
             paper_figure="Fig. 1c",
             params={"cluster_col": "Cluster", "type1_col": "Type1", "type2_col": "Type2"},
-            title="细胞类型×保存状态泄漏占比点图",
-            description="按细胞类型与 Fresh/Frozen 保存状态展示 permeable 占比，暴露保存方式与细胞类型混杂边界。",
         ),
         _r(
             "proteinleakage_leakage_correlation_heatmap",
@@ -539,8 +768,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
             figure_kind="extension",
             paper_figure="Fig. 2a",
             params={},
-            title="跨细胞类型泄漏 fold-change 相关热图",
-            description="复用泄漏分析的跨细胞类型 fold-change 相关矩阵绘制热图，支持可泛化的无染色泄漏 QC 证据。",
         ),
     ),
     # ----------------------------------------------------------------- SCPro
@@ -564,8 +791,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                 ],
                 "focus_genes": ["KLRG1", "FOXP3", "IL2RA", "CTLA4", "IKZF2", "LAG3", "TIGIT"],
             },
-            title="Treg/CD4/CD8 KLRG1 背景对比矩阵图",
-            description="KLRG1+ vs KLRG1- 在 Treg/CD4/CD8 三个背景下的方向矩阵，标出共享与发散方向，避免跨背景外推。",
         ),
         _r(
             "scpro_treg_klrg1_enrichment",
@@ -581,8 +806,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
             figure_kind="extension",
             paper_figure="Fig. 6g",
             params={"contrast": "CD4_CD25pos_Klrg1pos_vs_CD4_CD25pos_Klrg1neg"},
-            title="Treg KLRG1 对比富集气泡图",
-            description="为最高权重的 Treg KLRG1+/- 对比补充 GO/KEGG/Reactome 富集读出（当前运行缺失该对比富集）。",
         ),
         _r(
             "scpro_treg_effector_group_means",
@@ -600,8 +823,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                 "module": "treg_klrg1_immune",
                 "group_order": ["CD4_CD25pos_Klrg1pos", "CD4_CD25pos_Klrg1neg"],
             },
-            title="Treg KLRG1+ 免疫抑制程序组均值图",
-            description="免疫抑制/效应候选与 treg_klrg1_immune 模块在 KLRG1+/KLRG1- 的组均值+检出率，附方向语境。",
         ),
     ),
     # ----------------------------------------------------------- Nociceptor
@@ -625,8 +846,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                 "focus_genes": ["B3GNT2", "RRAD", "NTRK1"],
                 "modules": ["nociceptor_inflammation_response", "membrane_glycosylation_traffic"],
             },
-            title="亚型×处理效应矩阵图",
-            description="TrkA/IB4/Mechano 亚型内 Inflamed vs Control 的候选蛋白组均值+检出率矩阵，标注 logFC/FDR 与模块 delta；弱信号时只陈述方向与模块支持。",
         ),
         _r(
             "nociceptor_subtype_marker_heatmap",
@@ -642,8 +861,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
             figure_kind="extension",
             paper_figure="Supplementary Fig. 1c",
             params={},
-            title="三基线亚型 z-score marker 热图",
-            description="TrkA/IB4/Mechano 基线亚型的蛋白 z-score 层次聚类热图，突出亚型 marker 与感觉通道分离。",
         ),
         _r(
             "nociceptor_baseline_signature_compare",
@@ -657,8 +874,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
             figure_kind="extension",
             paper_figure="Fig. 1k",
             params={},
-            title="基线亚型富集签名对比图",
-            description="三个基线亚型对比的上调富集签名并列对比，核对 TrkA 代谢/生物合成与 IB4/机械感受 C-fiber 方向。",
         ),
     ),
     # ----------------------------------------------------------------- Carr
@@ -675,8 +890,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
             figure_kind="original_equivalent",
             paper_figure="Fig. 3e",
             params={"contrast": "LPS_vs_DMSO", "top_n_terms": 12},
-            title="LPS Reactome NES 签名条形图",
-            description="按 signed -log10(p) 排序的 Reactome NES 水平条形图，突出干扰素/白介素/感染疾病炎症签名方向。",
         ),
         _r(
             "carr_batch_treatment_boundary",
@@ -691,8 +904,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
             figure_kind="original_equivalent",
             paper_figure="Supplementary Fig. 5",
             params={"treatment_col": "Cluster", "batch_col": "Batch"},
-            title="LPS 效应与批次边界图",
-            description="量化批次效应与处理效应的相对大小（校正前后方差/PCA），支撑 LPS 效应大于批次边界的定量结论。",
         ),
         _r(
             "carr_per_cell_depth_bar",
@@ -705,8 +916,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
             figure_kind="extension",
             paper_figure="Fig. 3b",
             params={},
-            title="单样本蛋白检出深度条形图",
-            description="按处理组分组的单样本蛋白组检出数条形图（median+MAD+样本点），补足聚合 QC 缺少的逐样本深度视图。",
         ),
     ),
     # ----------------------------------------------------------------- iPSC
@@ -728,8 +937,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
                 "lineage_markers": ["GATA4", "HAND1", "MAP2", "FN1", "COL1A1"],
                 "group_order": ["iPSCs", "EB"],
             },
-            title="iPSC→EB 多能性/谱系梯度图",
-            description="多能性 marker 着色的 PCA 与 OCT4/SOX2 组间箱线（t 检验 P），连接多能性下降与谱系/ECM 上升。",
         ),
         _r(
             "ipsc_eb_heterogeneity_clusters",
@@ -746,8 +953,6 @@ DATASET_FIGURE_RECIPES: Dict[str, Tuple[FigureRecipe, ...]] = {
             figure_kind="extension",
             paper_figure="Fig. 6d",
             params={},
-            title="EB 内部异质性聚类与功能注释图",
-            description="EB 内部显著调控蛋白的无监督聚类与逐簇功能注释，展示 EB 内异质性而非单一分化终点。",
         ),
     ),
 }
@@ -855,6 +1060,12 @@ def validate_figure_recipes() -> Dict[str, Any]:
             problems.append(f"{rid}: title is empty")
         if not str(recipe.description or "").strip():
             problems.append(f"{rid}: description is empty")
+        for suffix in ("title", "description"):
+            text_key = "recipes." + rid + "_" + suffix
+            if not has_template("zh", text_key):
+                problems.append(f"{rid}: {suffix} text is not registered for zh")
+            elif not has_template("en", text_key):
+                problems.append(f"{rid}: {suffix} text has no en template")
         recipes_report.append({
             "recipe_id": recipe.recipe_id,
             "dataset": recipe.dataset,

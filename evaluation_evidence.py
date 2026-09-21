@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from evidence_utils import append_evidence
+from report_language import register, t
 
 
 GENE_TOKEN_RE = re.compile(r"\b[A-Z][A-Z0-9-]{1,12}\b")
@@ -146,11 +147,490 @@ DATASET_RECIPE_REQUIREMENTS: Dict[str, List[Dict[str, str]]] = {
 }
 
 
+# ---------------------------------------------------------------------------
+
+# Reader-facing display text (zh released verbatim, en added)
+
+# ---------------------------------------------------------------------------
+
+
+
+# CORE_STORY_RECIPES fields and the labels that reach a report-visible evidence
+
+# table cell. The zh column repeats the released literals character for character.
+
+_EVIDENCE_TEXT = {
+
+    "nat_commun_carr_2024_story_title": (
+        "LPS 刺激是否在当前矩阵中形成可复核的炎症响应",
+        "Does LPS stimulation produce a reproducible inflammatory response in the current matrix?",
+    ),
+    "nat_commun_carr_2024_executive_claim": (
+        "当前报告必须先回答 LPS 相对 DMSO 的处理效应，再把候选蛋白、模块和富集组织成炎症/应激证据链。",
+        "The report must first answer the LPS versus DMSO treatment effect and then organise candidate proteins, modules and enrichment into an inflammation/stress evidence chain.",
+    ),
+    "nat_commun_carr_2024_boundary": (
+        "Batch 是 QC 边界；LPS/DMSO 方向以 current_matrix 差异表为准。",
+        "Batch is a QC boundary; the LPS/DMSO direction follows the current_matrix differential table.",
+    ),
+    "contrast_carr_lps_dmso_claim": (
+        "LPS 相对 DMSO 的代表差异蛋白",
+        "Representative differential proteins of LPS versus DMSO",
+    ),
+    "contrast_carr_lps_dmso_interpretation": (
+        "优先展示 LPS 上调/下调代表蛋白及 CD44、DDX21、STAT/IRF/NF-kB 同模块证据。",
+        "Prioritises the representative up- and down-regulated proteins of LPS together with module evidence for CD44, DDX21 and STAT/IRF/NF-kB.",
+    ),
+    "nat_commun_nociceptor_2026_story_title": (
+        "炎症响应是否发生在特定伤害感受神经元亚型内",
+        "Does the inflammatory response occur within specific nociceptor subtypes?",
+    ),
+    "nat_commun_nociceptor_2026_executive_claim": (
+        "核心不是亚型之间的基线差异，而是 TrkA、IB4、Mechano 各自内部 Inflamed 相对 Control 的方向和强度。",
+        "The core question is not the baseline difference between subtypes but the direction and strength of Inflamed versus Control within TrkA, IB4 and Mechano separately.",
+    ),
+    "nat_commun_nociceptor_2026_boundary": (
+        "亚型内对比来自 current_matrix；糖基化、通道致敏等只作为 extension，除非候选/模块表支持。",
+        "Within-subtype contrasts come from the current_matrix; glycosylation and channel sensitisation stay extensions unless the candidate or module tables support them.",
+    ),
+    "contrast_trka_inflamed_claim": (
+        "TrkA 亚型内炎症响应",
+        "Inflammatory response within the TrkA subtype",
+    ),
+    "contrast_trka_inflamed_interpretation": (
+        "评估肽能/TrkA+ 伤害感受神经元的炎症足迹。",
+        "Assesses the inflammatory footprint of peptidergic/TrkA+ nociceptors.",
+    ),
+    "contrast_ib4_inflamed_claim": (
+        "IB4 亚型内炎症响应",
+        "Inflammatory response within the IB4 subtype",
+    ),
+    "contrast_ib4_inflamed_interpretation": (
+        "评估非肽能 IB4+ 神经元的炎症足迹。",
+        "Assesses the inflammatory footprint of non-peptidergic IB4+ neurons.",
+    ),
+    "contrast_mechano_inflamed_claim": (
+        "Mechano 亚型内炎症响应",
+        "Inflammatory response within the Mechano subtype",
+    ),
+    "contrast_mechano_inflamed_interpretation": (
+        "评估机械感受相关细胞的炎症足迹。",
+        "Assesses the inflammatory footprint of mechanosensory cells.",
+    ),
+    "nat_commun_scpro_2024_story_title": (
+        "KLRG1 状态在 Treg 与其他 T 细胞背景中的蛋白程序差异",
+        "How the KLRG1 state differs in protein programmes between the Treg and other T-cell contexts",
+    ),
+    "nat_commun_scpro_2024_executive_claim": (
+        "报告必须优先展开 Treg KLRG1+/- 直接对比，再说明 CD4/CD8 背景下哪些方向共享或不同。",
+        "The report must open with the direct Treg KLRG1+/- contrast and then state which directions are shared and which differ in the CD4 and CD8 contexts.",
+    ),
+    "nat_commun_scpro_2024_boundary": (
+        "治疗和免疫微环境解释属于 extension，核心证据仍是 current_matrix 的 KLRG1 对比。",
+        "Therapeutic and immune-microenvironment interpretations are extensions; the core evidence remains the current_matrix KLRG1 contrast.",
+    ),
+    "contrast_treg_klrg1_claim": (
+        "Treg 内部 KLRG1+ 相对 KLRG1- 的直接差异",
+        "Direct KLRG1+ versus KLRG1- difference within Tregs",
+    ),
+    "contrast_treg_klrg1_interpretation": (
+        "这是本数据集评分最高权重的核心对比。",
+        "This is the highest-weight core contrast of the dataset.",
+    ),
+    "contrast_cd4_klrg1_claim": (
+        "CD4 背景下 KLRG1 相关程序",
+        "KLRG1-associated programme in the CD4 context",
+    ),
+    "contrast_cd4_klrg1_interpretation": (
+        "用于区分 Treg 特异与更广泛 CD4 KLRG1 程序。",
+        "Separates Treg-specific from broader CD4 KLRG1 programmes.",
+    ),
+    "contrast_cd8_klrg1_claim": (
+        "CD8 背景下 KLRG1 相关程序",
+        "KLRG1-associated programme in the CD8 context",
+    ),
+    "contrast_cd8_klrg1_interpretation": (
+        "用于判断 KLRG1 程序是否跨 T 细胞背景共享。",
+        "Tests whether the KLRG1 programme is shared across T-cell contexts.",
+    ),
+    "cell_turnoverdynamics_2025_story_title": (
+        "蛋白酶体抑制与翻译抑制是否呈现不同总丰度足迹",
+        "Do proteasome inhibition and translation inhibition show distinct total-abundance footprints?",
+    ),
+    "cell_turnoverdynamics_2025_executive_claim": (
+        "报告必须同时写清 Bortezomib 和 Cycloheximide 相对 Control 的足迹，并把 turnover-rate 边界说清楚。",
+        "The report must state the Bortezomib and Cycloheximide footprints relative to Control together and make the turnover-rate boundary explicit.",
+    ),
+    "cell_turnoverdynamics_2025_boundary": (
+        "当前矩阵支持 abundance footprint；无时间序列 L/H 信息时不能直接给出完整 turnover rate。",
+        "The current matrix supports an abundance footprint; without time-resolved heavy/light information a full turnover rate cannot be given directly.",
+    ),
+    "contrast_bort_high_claim": (
+        "高剂量 Bortezomib 足迹",
+        "High-dose Bortezomib footprint",
+    ),
+    "contrast_bort_high_interpretation": (
+        "重点看蛋白稳态、蛋白酶体和应激相关变化。",
+        "Focuses on protein homeostasis, proteasome and stress-related changes.",
+    ),
+    "contrast_bort_low_claim": (
+        "低剂量 Bortezomib 足迹",
+        "Low-dose Bortezomib footprint",
+    ),
+    "contrast_bort_low_interpretation": (
+        "用于剂量趋势和稳健性判断。",
+        "Supports the dose trend and robustness checks.",
+    ),
+    "contrast_chx_high_claim": (
+        "高剂量 Cycloheximide 足迹",
+        "High-dose Cycloheximide footprint",
+    ),
+    "contrast_chx_high_interpretation": (
+        "重点看翻译、核糖体和短寿命/应激相关变化。",
+        "Focuses on translation, ribosome and short-lived/stress-related changes.",
+    ),
+    "contrast_chx_low_claim": (
+        "低剂量 Cycloheximide 足迹",
+        "Low-dose Cycloheximide footprint",
+    ),
+    "contrast_chx_low_interpretation": (
+        "用于剂量趋势和与 Bortezomib 的共有/相反变化比较。",
+        "Supports the dose trend and the comparison of shared or opposing changes with Bortezomib.",
+    ),
+    "nat_commun_pispa_2024_story_title": (
+        "迁移细胞是否形成 Rho-ERM-收缩-黏附机制链",
+        "Do migrated cells form a Rho-ERM-contraction-adhesion mechanism chain?",
+    ),
+    "nat_commun_pispa_2024_executive_claim": (
+        "Cluster-Type 结构、迁移候选蛋白和模块分数共同组织成迁移机制链。",
+        "Cluster-Type structure, migration candidate proteins and module scores together form the migration mechanism chain.",
+    ),
+    "nat_commun_pispa_2024_boundary": (
+        "迁移机制主要来自 current_matrix 与 curated module，富集无 FDR 时只作探索。",
+        "The migration mechanism comes mainly from the current_matrix and curated modules; enrichment without FDR is exploratory only.",
+    ),
+    "contrast_cluster1_2_claim": (
+        "Cluster 1 相对 Cluster 2 的迁移轴",
+        "Migration axis of Cluster 1 versus Cluster 2",
+    ),
+    "contrast_cluster1_2_interpretation": (
+        "迁移细胞富集的 Cluster 1 是主轴。",
+        "Cluster 1, which is enriched for migrated cells, is the main axis.",
+    ),
+    "contrast_cluster1_3_claim": (
+        "Cluster 1 相对 Cluster 3 的迁移轴补充",
+        "Migration axis of Cluster 1 versus Cluster 3, as a complement",
+    ),
+    "contrast_cluster1_3_interpretation": (
+        "用于确认 Cluster 1 是否相对另一对照群体仍保持迁移机制方向。",
+        "Confirms whether Cluster 1 keeps its migration mechanism direction against a second control population.",
+    ),
+    "contrast_cluster2_3_claim": (
+        "Cluster 2/3 对照内部异质性",
+        "Heterogeneity inside the Cluster 2/3 controls",
+    ),
+    "contrast_cluster2_3_interpretation": (
+        "用于解释非迁移群体内部差异。",
+        "Explains the differences within the non-migrated population.",
+    ),
+    "contrast_migrated_control_claim": (
+        "迁移表型相对对照的总体差异",
+        "Overall difference of the migrated phenotype versus control",
+    ),
+    "contrast_migrated_control_interpretation": (
+        "用于把 cluster 结果和迁移/对照表型连接起来。",
+        "Links the cluster results to the migrated versus control phenotype.",
+    ),
+    "nat_methods_ipsc_2025_story_title": (
+        "iPSC 到 EB 的多能性下降、谱系/ECM 上升和 EB 内异质性",
+        "Falling pluripotency, rising lineage/ECM signal and intra-EB heterogeneity from iPSC to EB",
+    ),
+    "nat_methods_ipsc_2025_executive_claim": (
+        "核心故事是 EB 相对 iPSCs 的多能性边界、谱系候选和模块梯度。",
+        "The core story is the pluripotency boundary, lineage candidates and module gradients of EB relative to iPSCs.",
+    ),
+    "nat_methods_ipsc_2025_boundary": (
+        "EB 内部梯度是 current_matrix 模块分布，不等同于真实发育轨迹。",
+        "The intra-EB gradient is a current_matrix module distribution and is not equivalent to a true developmental trajectory.",
+    ),
+    "contrast_eb_ipsc_claim": (
+        "EB 相对 iPSCs 的差异主轴",
+        "Main differential axis of EB versus iPSCs",
+    ),
+    "contrast_eb_ipsc_interpretation": (
+        "连接多能性下降与谱系/ECM 相关候选上升。",
+        "Links the decline in pluripotency to rising lineage/ECM candidates.",
+    ),
+    "nat_biotech_brain_2026_story_title": (
+        "RG/oRG 到 IPC-EN/EN 的发育状态轴和本地 ASD/NDD 注释边界",
+        "The RG/oRG to IPC-EN/EN developmental state axis and the local ASD/NDD annotation boundary",
+    ),
+    "nat_biotech_brain_2026_executive_claim": (
+        "报告应围绕 RG/oRG -> IPC-EN -> EN 轨迹、候选蛋白和本地外部注释边界组织。",
+        "The report should be organised around the RG/oRG -> IPC-EN -> EN trajectory, the candidate proteins and the local external-annotation boundary.",
+    ),
+    "nat_biotech_brain_2026_boundary": (
+        "ASD/NDD 是 external_annotation，不是 current_matrix 疾病因果结论。",
+        "ASD/NDD is external_annotation, not a current_matrix causal disease conclusion.",
+    ),
+    "contrast_ipcen_org_claim": (
+        "IPC-EN 相对 oRG 的过渡轴",
+        "Transition axis of IPC-EN versus oRG",
+    ),
+    "contrast_ipcen_org_interpretation": (
+        "连接 progenitor 到 IPC/early neuron 程序。",
+        "Links progenitor to IPC/early-neuron programmes.",
+    ),
+    "contrast_en_ipcen_claim": (
+        "EN 相对 IPC-EN 的成熟轴",
+        "Maturation axis of EN versus IPC-EN",
+    ),
+    "contrast_en_ipcen_interpretation": (
+        "连接 neuronal maturation、synapse/neurite 与 chromatin/BAF。",
+        "Links neuronal maturation and synapse/neurite programmes to chromatin/BAF.",
+    ),
+    "nat_methods_dvp_2023_story_title": (
+        "肝小叶 Portal-Central 分区蛋白程序",
+        "Portal-to-Central zonation protein programmes in the liver lobule",
+    ),
+    "nat_methods_dvp_2023_executive_claim": (
+        "核心是 periportal urea cycle 与 central xenobiotic/metabolism 模块的方向性。",
+        "The core is the directionality of the periportal urea-cycle and central xenobiotic/metabolism modules.",
+    ),
+    "nat_methods_dvp_2023_boundary": (
+        "Zonation 结论来自当前矩阵标签和模块/候选蛋白，不使用隐藏阈值。",
+        "The zonation conclusion comes from the current matrix labels and the module/candidate proteins, with no hidden thresholds.",
+    ),
+    "contrast_portal_central_claim": (
+        "Portal 相对 Central 的分区轴",
+        "Zonation axis of Portal versus Central",
+    ),
+    "contrast_portal_central_interpretation": (
+        "对照 urea-cycle 与 xenobiotic metabolism 候选/模块方向。",
+        "Cross-checks the direction of urea-cycle and xenobiotic-metabolism candidates and modules.",
+    ),
+    "nat_methods_pscope_2023_story_title": (
+        "LPS 高/低极化 macrophage 的吞噬体和炎症模块",
+        "Phagosome and inflammation modules in high- and low-LPS-polarised macrophages",
+    ),
+    "nat_methods_pscope_2023_executive_claim": (
+        "核心是 LPS_high/LPS_low 相对 Untreated 的方向，并区分强弱极化。",
+        "The core is the direction of LPS_high/LPS_low relative to Untreated, separating strong from weak polarisation.",
+    ),
+    "nat_methods_pscope_2023_boundary": (
+        "Phagosome/lysosome 结论需要候选蛋白、模块或离线富集支撑。",
+        "Phagosome/lysosome conclusions need support from candidate proteins, modules or offline enrichment.",
+    ),
+    "contrast_lpshigh_base_claim": (
+        "LPS high 相对 Untreated",
+        "LPS high versus Untreated",
+    ),
+    "contrast_lpshigh_base_interpretation": (
+        "检测高极化和 phagosome maturation 程序。",
+        "Tests high polarisation and the phagosome maturation programme.",
+    ),
+    "contrast_lpslow_base_claim": (
+        "LPS low 相对 Untreated",
+        "LPS low versus Untreated",
+    ),
+    "contrast_lpslow_base_interpretation": (
+        "用于判断低极化响应是否弱于 LPS_high。",
+        "Tests whether the low-polarisation response is weaker than LPS_high.",
+    ),
+    "science_bloodcell_2025_story_title": (
+        "HSPC 状态层级中的干性、代谢和粒细胞颗粒程序",
+        "Stemness, metabolic and granulocyte-granule programmes across the HSPC state hierarchy",
+    ),
+    "science_bloodcell_2025_executive_claim": (
+        "报告要把 HSC/MPP/MEP/LMPP/GMP 的候选和模块组织成状态层级，而不是只列群体。",
+        "The report should organise the candidates and modules of HSC/MPP/MEP/LMPP/GMP into a state hierarchy rather than listing populations.",
+    ),
+    "science_bloodcell_2025_boundary": (
+        "状态解释来自当前标签和蛋白矩阵，不直接外推造血命运因果。",
+        "The state interpretation comes from the current labels and the protein matrix and does not extrapolate directly to causal haematopoietic fate.",
+    ),
+    "contrast_hsc_gmp_claim": (
+        "HSC 相对 GMP 的干性/粒细胞轴",
+        "Stemness/granulocyte axis of HSC versus GMP",
+    ),
+    "contrast_hsc_gmp_interpretation": (
+        "对照 TALDO1/H1F0 与 MPO/ELANE 方向。",
+        "Cross-checks the direction of TALDO1/H1F0 against MPO/ELANE.",
+    ),
+    "nat_commun_proteinleakage_2025_story_title": (
+        "Permeable 相对 Intact 的蛋白泄漏 QC 与细胞类型边界",
+        "Protein-leakage QC of Permeable versus Intact cells and the cell-type boundary",
+    ),
+    "nat_commun_proteinleakage_2025_executive_claim": (
+        "核心是 membrane-status 对比中的 cytosol/nucleus 与 mito/membrane 标记足迹，并报告 Fresh/Frozen/Cluster 边界。",
+        "The core is the cytosol/nucleus and mito/membrane marker footprint of the membrane-status contrast, reported together with the Fresh/Frozen/Cluster boundary.",
+    ),
+    "nat_commun_proteinleakage_2025_boundary": (
+        "Leakage 是样本状态/QC 解释，不外推为疾病机制。",
+        "Leakage is a sample-state/QC interpretation and is not extrapolated to disease mechanisms.",
+    ),
+    "contrast_permeable_intact_claim": (
+        "Permeable 相对 Intact 的泄漏足迹",
+        "Leakage footprint of Permeable versus Intact",
+    ),
+    "contrast_permeable_intact_interpretation": (
+        "检查 cytosol/nucleus 和 mito/membrane 标记是否支持膜破损/泄漏。",
+        "Checks whether the cytosol/nucleus and mito/membrane markers support membrane damage and leakage.",
+    ),
+    "story_title_default": (
+        "当前矩阵核心对比故事",
+        "the core contrast story of the current matrix",
+    ),
+    "executive_claim_default": (
+        "围绕当前矩阵核心对比组织结论。",
+        "Conclusions are organised around the core contrasts of the current matrix.",
+    ),
+    "boundary_default": (
+        "所有结论必须标注 current_matrix/offline_enrichment/external_annotation/extension 边界。",
+        "Every conclusion must carry its current_matrix/offline_enrichment/external_annotation/extension boundary.",
+    ),
+    "contrast_claim_suffix": (
+        " 核心对比",
+        " core contrast",
+    ),
+    "contrast_interpretation_generic": (
+        "通用核心对比，需保守解释。",
+        "Generic core contrast; interpret it conservatively.",
+    ),
+    "candidate_boundary": (
+        "候选蛋白只在该对比差异表中检出时用于当前矩阵结论。",
+        "Candidate proteins support current-matrix conclusions only when detected in that contrast's differential table.",
+    ),
+    "story_kind_contrast": (
+        "对比",
+        "contrast",
+    ),
+    "story_kind_candidate": (
+        "候选蛋白",
+        "candidate protein",
+    ),
+    "story_kind_module": (
+        "模块",
+        "module",
+    ),
+    "module_source_stored": (
+        "存储行",
+        "stored row",
+    ),
+    "module_source_reverse_prefix": (
+        "由 ",
+        "derived from ",
+    ),
+    "module_source_reverse_suffix": (
+        " 取负派生",
+        " by negation",
+    ),
+    "module_source_subtract": (
+        "由两行分组均值相减派生",
+        "derived by subtracting the two group means",
+    ),
+    "qc_definition_a": (
+        "未检出定义=空值或0；input=原始交付矩阵（过滤/填补之前）；analysed=本轮分析矩阵；",
+        "Not-detected definition = empty value or 0; input = the originally delivered matrix (before filtering/imputation); analysed = this run's analysis matrix; ",
+    ),
+    "qc_definition_b": (
+        "analysed 缺失率为 0 时按填补状态判读，不等于全部蛋白被检出；",
+        "a missing rate of 0 in analysed is read from the imputation state and does not mean that every protein was detected; ",
+    ),
+    "qc_definition_c": (
+        "imputation_applied 的来源=%s",
+        "source of imputation_applied = %s",
+    ),
+    "qc_definition_source_missing": (
+        "运行记录中未找到矩阵变换记录",
+        "no matrix transform record found in the run",
+    ),
+    "mapping_note_a": (
+        "该符号未在本次矩阵的基因标签、蛋白组标识、蛋白名称与 UniProt GN= 字段中匹配到，",
+        "This symbol was matched in none of the gene labels, protein-group identifiers, protein names or UniProt GN= fields of the current matrix, ",
+    ),
+    "mapping_note_b": (
+        "因此未建立映射；未建立映射不等同于该蛋白不存在。",
+        "so no mapping was established; an unmapped symbol does not mean the protein is absent.",
+    ),
+    "evidence_cell_a": (
+        "通过筛选 ",
+        "passing the filter: ",
+    ),
+    "evidence_cell_b": (
+        " 个；第一臂较高 ",
+        "; higher in the first arm: ",
+    ),
+    "evidence_cell_c": (
+        " 个；第二臂较高 ",
+        "; higher in the second arm: ",
+    ),
+    "evidence_cell_d": (
+        " 个；最强上调 ",
+        "; strongest up-regulated: ",
+    ),
+}
+
+register("evidence", _EVIDENCE_TEXT)
+
+
+
+# Keys handled by the direct ``t()`` calls below; values that are not in this
+
+# set pass through the lazy mapping unchanged (lists, ids, flags).
+
+_STORY_TEXT_KEYS = frozenset(_EVIDENCE_TEXT)
+
+
+
+
+
+def _story_text(value):
+
+    """Text of a registry key, or the value itself when it is not one."""
+
+    if isinstance(value, str) and value in _STORY_TEXT_KEYS:
+
+        return t("evidence." + value)
+
+    return value
+
+
+
+
+
+class _StoryText(dict):
+
+    """Recipe metadata whose text resolves in the active report language.
+
+
+
+    Stored values are keys of the ``evidence`` namespace; every read through
+
+    ``mapping[key]`` or ``mapping.get(key)`` returns the wording of the language that
+
+    is active when the evidence pack is written, not the language active at import.
+
+    """
+
+
+
+    def __getitem__(self, key):
+
+        return _story_text(dict.__getitem__(self, key))
+
+
+
+    def get(self, key, default=None):
+
+        return _story_text(dict.get(self, key, default))
+
+
 CORE_STORY_RECIPES: Dict[str, Dict[str, Any]] = {
     "Nat_Commun_Carr_2024": {
-        "story_title": "LPS 刺激是否在当前矩阵中形成可复核的炎症响应",
-        "executive_claim": "当前报告必须先回答 LPS 相对 DMSO 的处理效应，再把候选蛋白、模块和富集组织成炎症/应激证据链。",
-        "boundary": "Batch 是 QC 边界；LPS/DMSO 方向以 current_matrix 差异表为准。",
+        "story_title": "nat_commun_carr_2024_story_title",
+        "executive_claim": "nat_commun_carr_2024_executive_claim",
+        "boundary": "nat_commun_carr_2024_boundary",
         "primary_contrasts": [
             {
                 "id": "carr_lps_dmso",
@@ -158,106 +638,117 @@ CORE_STORY_RECIPES: Dict[str, Dict[str, Any]] = {
                 "group_a": "LPS",
                 "group_b": "DMSO",
                 "aliases": [{"name": "LPS_vs_DMSO"}, {"name": "DMSO_vs_LPS", "invert": True}],
-                "claim": "LPS 相对 DMSO 的代表差异蛋白",
-                "interpretation": "优先展示 LPS 上调/下调代表蛋白及 CD44、DDX21、STAT/IRF/NF-kB 同模块证据。",
+                "claim": "contrast_carr_lps_dmso_claim",
+                "interpretation": "contrast_carr_lps_dmso_interpretation",
                 "focus_genes": ["CD44", "DDX21", "STAT1", "IRF1", "NFKB1", "RELA"],
                 "modules": ["inflammation_interferon", "proteasome_proteostasis"],
             }
         ],
     },
     "Nat_Commun_Nociceptor_2026": {
-        "story_title": "炎症响应是否发生在特定伤害感受神经元亚型内",
-        "executive_claim": "核心不是亚型之间的基线差异，而是 TrkA、IB4、Mechano 各自内部 Inflamed 相对 Control 的方向和强度。",
-        "boundary": "亚型内对比来自 current_matrix；糖基化、通道致敏等只作为 extension，除非候选/模块表支持。",
+        "story_title": "nat_commun_nociceptor_2026_story_title",
+        "executive_claim": "nat_commun_nociceptor_2026_executive_claim",
+        "boundary": "nat_commun_nociceptor_2026_boundary",
         "primary_contrasts": [
-            {"id": "trkA_inflamed", "display": "TrkA_Inflamed_vs_TrkA_Control", "group_a": "TrkA_Inflamed", "group_b": "TrkA_Control", "aliases": [{"name": "TrkA_Inflamed_vs_TrkA_Control"}], "claim": "TrkA 亚型内炎症响应", "interpretation": "评估肽能/TrkA+ 伤害感受神经元的炎症足迹。", "focus_genes": ["NTRK1", "TRPV1", "SCN10A", "PIEZO2", "B3GNT2", "RRAD"], "modules": ["nociceptor_sensory_transduction", "nociceptor_inflammation_response", "membrane_glycosylation_traffic"]},
-            {"id": "ib4_inflamed", "display": "IB4_Inflamed_vs_IB4_Control", "group_a": "IB4_Inflamed", "group_b": "IB4_Control", "aliases": [{"name": "IB4_Inflamed_vs_IB4_Control"}], "claim": "IB4 亚型内炎症响应", "interpretation": "评估非肽能 IB4+ 神经元的炎症足迹。", "focus_genes": ["B3GNT2", "RRAD", "SCN10A", "PIEZO2"], "modules": ["nociceptor_inflammation_response", "membrane_glycosylation_traffic"]},
-            {"id": "mechano_inflamed", "display": "Mechano_Inflamed_vs_Mechano_Control", "group_a": "Mechano_Inflamed", "group_b": "Mechano_Control", "aliases": [{"name": "Mechano_Inflamed_vs_Mechano_Control"}], "claim": "Mechano 亚型内炎症响应", "interpretation": "评估机械感受相关细胞的炎症足迹。", "focus_genes": ["PIEZO2", "RRAD", "B3GNT2"], "modules": ["nociceptor_sensory_transduction", "nociceptor_inflammation_response"]},
+            {"id": "trkA_inflamed", "display": "TrkA_Inflamed_vs_TrkA_Control", "group_a": "TrkA_Inflamed", "group_b": "TrkA_Control", "aliases": [{"name": "TrkA_Inflamed_vs_TrkA_Control"}], "claim": "contrast_trka_inflamed_claim", "interpretation": "contrast_trka_inflamed_interpretation", "focus_genes": ["NTRK1", "TRPV1", "SCN10A", "PIEZO2", "B3GNT2", "RRAD"], "modules": ["nociceptor_sensory_transduction", "nociceptor_inflammation_response", "membrane_glycosylation_traffic"]},
+            {"id": "ib4_inflamed", "display": "IB4_Inflamed_vs_IB4_Control", "group_a": "IB4_Inflamed", "group_b": "IB4_Control", "aliases": [{"name": "IB4_Inflamed_vs_IB4_Control"}], "claim": "contrast_ib4_inflamed_claim", "interpretation": "contrast_ib4_inflamed_interpretation", "focus_genes": ["B3GNT2", "RRAD", "SCN10A", "PIEZO2"], "modules": ["nociceptor_inflammation_response", "membrane_glycosylation_traffic"]},
+            {"id": "mechano_inflamed", "display": "Mechano_Inflamed_vs_Mechano_Control", "group_a": "Mechano_Inflamed", "group_b": "Mechano_Control", "aliases": [{"name": "Mechano_Inflamed_vs_Mechano_Control"}], "claim": "contrast_mechano_inflamed_claim", "interpretation": "contrast_mechano_inflamed_interpretation", "focus_genes": ["PIEZO2", "RRAD", "B3GNT2"], "modules": ["nociceptor_sensory_transduction", "nociceptor_inflammation_response"]},
         ],
     },
     "Nat_Commun_SCPro_2024": {
-        "story_title": "KLRG1 状态在 Treg 与其他 T 细胞背景中的蛋白程序差异",
-        "executive_claim": "报告必须优先展开 Treg KLRG1+/- 直接对比，再说明 CD4/CD8 背景下哪些方向共享或不同。",
-        "boundary": "治疗和免疫微环境解释属于 extension，核心证据仍是 current_matrix 的 KLRG1 对比。",
+        "story_title": "nat_commun_scpro_2024_story_title",
+        "executive_claim": "nat_commun_scpro_2024_executive_claim",
+        "boundary": "nat_commun_scpro_2024_boundary",
         "primary_contrasts": [
-            {"id": "treg_klrg1", "display": "CD4_CD25pos_Klrg1pos_vs_CD4_CD25pos_Klrg1neg", "group_a": "CD4_CD25pos_Klrg1pos", "group_b": "CD4_CD25pos_Klrg1neg", "aliases": [{"name": "CD4_CD25pos_Klrg1pos_vs_CD4_CD25pos_Klrg1neg"}, {"name": "CD4_CD25pos_Klrg1neg_vs_CD4_CD25pos_Klrg1pos", "invert": True}], "claim": "Treg 内部 KLRG1+ 相对 KLRG1- 的直接差异", "interpretation": "这是本数据集评分最高权重的核心对比。", "focus_genes": ["KLRG1", "FOXP3", "IL2RA", "CTLA4", "IKZF2", "LAG3", "TIGIT"], "modules": ["treg_klrg1_immune", "ribosome_translation"]},
-            {"id": "cd4_klrg1", "display": "CD4_Klrg1pos_vs_CD4_Klrg1neg", "group_a": "CD4_Klrg1pos", "group_b": "CD4_Klrg1neg", "aliases": [{"name": "CD4_Klrg1pos_vs_CD4_Klrg1neg"}, {"name": "CD4_Klrg1neg_vs_CD4_Klrg1pos", "invert": True}], "claim": "CD4 背景下 KLRG1 相关程序", "interpretation": "用于区分 Treg 特异与更广泛 CD4 KLRG1 程序。", "focus_genes": ["KLRG1", "IL2RA", "CTLA4"], "modules": ["treg_klrg1_immune", "ribosome_translation"]},
-            {"id": "cd8_klrg1", "display": "CD8_Klrg1pos_vs_CD8_Klrg1neg", "group_a": "CD8_Klrg1pos", "group_b": "CD8_Klrg1neg", "aliases": [{"name": "CD8_Klrg1pos_vs_CD8_Klrg1neg"}, {"name": "CD8_Klrg1neg_vs_CD8_Klrg1pos", "invert": True}], "claim": "CD8 背景下 KLRG1 相关程序", "interpretation": "用于判断 KLRG1 程序是否跨 T 细胞背景共享。", "focus_genes": ["KLRG1", "LAG3", "TIGIT"], "modules": ["treg_klrg1_immune", "ribosome_translation"]},
+            {"id": "treg_klrg1", "display": "CD4_CD25pos_Klrg1pos_vs_CD4_CD25pos_Klrg1neg", "group_a": "CD4_CD25pos_Klrg1pos", "group_b": "CD4_CD25pos_Klrg1neg", "aliases": [{"name": "CD4_CD25pos_Klrg1pos_vs_CD4_CD25pos_Klrg1neg"}, {"name": "CD4_CD25pos_Klrg1neg_vs_CD4_CD25pos_Klrg1pos", "invert": True}], "claim": "contrast_treg_klrg1_claim", "interpretation": "contrast_treg_klrg1_interpretation", "focus_genes": ["KLRG1", "FOXP3", "IL2RA", "CTLA4", "IKZF2", "LAG3", "TIGIT"], "modules": ["treg_klrg1_immune", "ribosome_translation"]},
+            {"id": "cd4_klrg1", "display": "CD4_Klrg1pos_vs_CD4_Klrg1neg", "group_a": "CD4_Klrg1pos", "group_b": "CD4_Klrg1neg", "aliases": [{"name": "CD4_Klrg1pos_vs_CD4_Klrg1neg"}, {"name": "CD4_Klrg1neg_vs_CD4_Klrg1pos", "invert": True}], "claim": "contrast_cd4_klrg1_claim", "interpretation": "contrast_cd4_klrg1_interpretation", "focus_genes": ["KLRG1", "IL2RA", "CTLA4"], "modules": ["treg_klrg1_immune", "ribosome_translation"]},
+            {"id": "cd8_klrg1", "display": "CD8_Klrg1pos_vs_CD8_Klrg1neg", "group_a": "CD8_Klrg1pos", "group_b": "CD8_Klrg1neg", "aliases": [{"name": "CD8_Klrg1pos_vs_CD8_Klrg1neg"}, {"name": "CD8_Klrg1neg_vs_CD8_Klrg1pos", "invert": True}], "claim": "contrast_cd8_klrg1_claim", "interpretation": "contrast_cd8_klrg1_interpretation", "focus_genes": ["KLRG1", "LAG3", "TIGIT"], "modules": ["treg_klrg1_immune", "ribosome_translation"]},
         ],
     },
     "Cell_TurnoverDynamics_2025": {
-        "story_title": "蛋白酶体抑制与翻译抑制是否呈现不同总丰度足迹",
-        "executive_claim": "报告必须同时写清 Bortezomib 和 Cycloheximide 相对 Control 的足迹，并把 turnover-rate 边界说清楚。",
-        "boundary": "当前矩阵支持 abundance footprint；无时间序列 L/H 信息时不能直接给出完整 turnover rate。",
+        "story_title": "cell_turnoverdynamics_2025_story_title",
+        "executive_claim": "cell_turnoverdynamics_2025_executive_claim",
+        "boundary": "cell_turnoverdynamics_2025_boundary",
         "primary_contrasts": [
-            {"id": "bort_high", "display": "Bortezomib_High_vs_Control", "group_a": "Bortezomib_High", "group_b": "Control", "aliases": [{"name": "Bortezomib_High_vs_Control"}, {"name": "Control_vs_Bortezomib_High", "invert": True}], "claim": "高剂量 Bortezomib 足迹", "interpretation": "重点看蛋白稳态、蛋白酶体和应激相关变化。", "focus_genes": ["PSMA1", "PSMB1", "PSMD1", "HSPA1A", "HSP90AA1"], "modules": ["proteasome_proteostasis"]},
-            {"id": "bort_low", "display": "Bortezomib_Low_vs_Control", "group_a": "Bortezomib_Low", "group_b": "Control", "aliases": [{"name": "Bortezomib_Low_vs_Control"}, {"name": "Control_vs_Bortezomib_Low", "invert": True}], "claim": "低剂量 Bortezomib 足迹", "interpretation": "用于剂量趋势和稳健性判断。", "focus_genes": ["PSMA1", "PSMB1", "PSMD1"], "modules": ["proteasome_proteostasis"]},
-            {"id": "chx_high", "display": "Cycloheximide_High_vs_Control", "group_a": "Cycloheximide_High", "group_b": "Control", "aliases": [{"name": "Cycloheximide_High_vs_Control"}, {"name": "Control_vs_Cycloheximide_High", "invert": True}], "claim": "高剂量 Cycloheximide 足迹", "interpretation": "重点看翻译、核糖体和短寿命/应激相关变化。", "focus_genes": ["RPLP0", "RPS3", "EIF4A1", "EEF1A1"], "modules": ["ribosome_translation"]},
-            {"id": "chx_low", "display": "Cycloheximide_Low_vs_Control", "group_a": "Cycloheximide_Low", "group_b": "Control", "aliases": [{"name": "Cycloheximide_Low_vs_Control"}, {"name": "Control_vs_Cycloheximide_Low", "invert": True}], "claim": "低剂量 Cycloheximide 足迹", "interpretation": "用于剂量趋势和与 Bortezomib 的共有/相反变化比较。", "focus_genes": ["RPLP0", "RPS3", "EIF4A1"], "modules": ["ribosome_translation"]},
+            {"id": "bort_high", "display": "Bortezomib_High_vs_Control", "group_a": "Bortezomib_High", "group_b": "Control", "aliases": [{"name": "Bortezomib_High_vs_Control"}, {"name": "Control_vs_Bortezomib_High", "invert": True}], "claim": "contrast_bort_high_claim", "interpretation": "contrast_bort_high_interpretation", "focus_genes": ["PSMA1", "PSMB1", "PSMD1", "HSPA1A", "HSP90AA1"], "modules": ["proteasome_proteostasis"]},
+            {"id": "bort_low", "display": "Bortezomib_Low_vs_Control", "group_a": "Bortezomib_Low", "group_b": "Control", "aliases": [{"name": "Bortezomib_Low_vs_Control"}, {"name": "Control_vs_Bortezomib_Low", "invert": True}], "claim": "contrast_bort_low_claim", "interpretation": "contrast_bort_low_interpretation", "focus_genes": ["PSMA1", "PSMB1", "PSMD1"], "modules": ["proteasome_proteostasis"]},
+            {"id": "chx_high", "display": "Cycloheximide_High_vs_Control", "group_a": "Cycloheximide_High", "group_b": "Control", "aliases": [{"name": "Cycloheximide_High_vs_Control"}, {"name": "Control_vs_Cycloheximide_High", "invert": True}], "claim": "contrast_chx_high_claim", "interpretation": "contrast_chx_high_interpretation", "focus_genes": ["RPLP0", "RPS3", "EIF4A1", "EEF1A1"], "modules": ["ribosome_translation"]},
+            {"id": "chx_low", "display": "Cycloheximide_Low_vs_Control", "group_a": "Cycloheximide_Low", "group_b": "Control", "aliases": [{"name": "Cycloheximide_Low_vs_Control"}, {"name": "Control_vs_Cycloheximide_Low", "invert": True}], "claim": "contrast_chx_low_claim", "interpretation": "contrast_chx_low_interpretation", "focus_genes": ["RPLP0", "RPS3", "EIF4A1"], "modules": ["ribosome_translation"]},
         ],
     },
     "Nat_Commun_PiSPA_2024": {
-        "story_title": "迁移细胞是否形成 Rho-ERM-收缩-黏附机制链",
-        "executive_claim": "Cluster-Type 结构、迁移候选蛋白和模块分数共同组织成迁移机制链。",
-        "boundary": "迁移机制主要来自 current_matrix 与 curated module，富集无 FDR 时只作探索。",
+        "story_title": "nat_commun_pispa_2024_story_title",
+        "executive_claim": "nat_commun_pispa_2024_executive_claim",
+        "boundary": "nat_commun_pispa_2024_boundary",
         "primary_contrasts": [
-            {"id": "cluster1_2", "display": "Cluster_1_vs_Cluster_2", "group_a": "Cluster 1", "group_b": "Cluster 2", "aliases": [{"name": "Cluster_1_vs_Cluster_2"}, {"name": "Cluster 1_vs_Cluster 2"}], "claim": "Cluster 1 相对 Cluster 2 的迁移轴", "interpretation": "迁移细胞富集的 Cluster 1 是主轴。", "focus_genes": ["EZR", "MSN", "MYL9", "CDC42", "RAC1", "RHOA", "TLN1", "VCL"], "modules": ["migration_signature", "rho_gtpase_migration", "erm_membrane_cortex", "myosin_contractility", "talin_vinculin_focal_adhesion"]},
-            {"id": "cluster1_3", "display": "Cluster_1_vs_Cluster_3", "group_a": "Cluster 1", "group_b": "Cluster 3", "aliases": [{"name": "Cluster_1_vs_Cluster_3"}, {"name": "Cluster 1_vs_Cluster 3"}], "claim": "Cluster 1 相对 Cluster 3 的迁移轴补充", "interpretation": "用于确认 Cluster 1 是否相对另一对照群体仍保持迁移机制方向。", "focus_genes": ["EZR", "MSN", "MYL9", "CDC42", "RAC1", "RHOA", "TLN1", "VCL", "FLNA", "ACTN1", "ITGB1"], "modules": ["migration_signature", "rho_gtpase_migration", "erm_membrane_cortex", "myosin_contractility", "talin_vinculin_focal_adhesion"]},
-            {"id": "cluster2_3", "display": "Cluster_2_vs_Cluster_3", "group_a": "Cluster 2", "group_b": "Cluster 3", "aliases": [{"name": "Cluster_2_vs_Cluster_3"}, {"name": "Cluster 2_vs_Cluster 3"}], "claim": "Cluster 2/3 对照内部异质性", "interpretation": "用于解释非迁移群体内部差异。", "focus_genes": ["EZR", "MSN", "MYL9", "TLN1", "VCL"], "modules": ["migration_signature", "talin_vinculin_focal_adhesion"]},
-            {"id": "migrated_control", "display": "Migrated_vs_Control", "group_a": "Migrated", "group_b": "Control", "aliases": [{"name": "Migrated_vs_Control"}, {"name": "Control_vs_Migrated", "invert": True}, {"name": "Migrated_vs_non-migrated"}], "claim": "迁移表型相对对照的总体差异", "interpretation": "用于把 cluster 结果和迁移/对照表型连接起来。", "focus_genes": ["EZR", "MSN", "MYL9", "CDC42", "RAC1", "RHOA", "TLN1", "VCL", "FLNA", "ACTN1", "ITGB1"], "modules": ["migration_signature", "rho_gtpase_migration", "erm_membrane_cortex", "myosin_contractility", "talin_vinculin_focal_adhesion"]},
+            {"id": "cluster1_2", "display": "Cluster_1_vs_Cluster_2", "group_a": "Cluster 1", "group_b": "Cluster 2", "aliases": [{"name": "Cluster_1_vs_Cluster_2"}, {"name": "Cluster 1_vs_Cluster 2"}], "claim": "contrast_cluster1_2_claim", "interpretation": "contrast_cluster1_2_interpretation", "focus_genes": ["EZR", "MSN", "MYL9", "CDC42", "RAC1", "RHOA", "TLN1", "VCL"], "modules": ["migration_signature", "rho_gtpase_migration", "erm_membrane_cortex", "myosin_contractility", "talin_vinculin_focal_adhesion"]},
+            {"id": "cluster1_3", "display": "Cluster_1_vs_Cluster_3", "group_a": "Cluster 1", "group_b": "Cluster 3", "aliases": [{"name": "Cluster_1_vs_Cluster_3"}, {"name": "Cluster 1_vs_Cluster 3"}], "claim": "contrast_cluster1_3_claim", "interpretation": "contrast_cluster1_3_interpretation", "focus_genes": ["EZR", "MSN", "MYL9", "CDC42", "RAC1", "RHOA", "TLN1", "VCL", "FLNA", "ACTN1", "ITGB1"], "modules": ["migration_signature", "rho_gtpase_migration", "erm_membrane_cortex", "myosin_contractility", "talin_vinculin_focal_adhesion"]},
+            {"id": "cluster2_3", "display": "Cluster_2_vs_Cluster_3", "group_a": "Cluster 2", "group_b": "Cluster 3", "aliases": [{"name": "Cluster_2_vs_Cluster_3"}, {"name": "Cluster 2_vs_Cluster 3"}], "claim": "contrast_cluster2_3_claim", "interpretation": "contrast_cluster2_3_interpretation", "focus_genes": ["EZR", "MSN", "MYL9", "TLN1", "VCL"], "modules": ["migration_signature", "talin_vinculin_focal_adhesion"]},
+            {"id": "migrated_control", "display": "Migrated_vs_Control", "group_a": "Migrated", "group_b": "Control", "aliases": [{"name": "Migrated_vs_Control"}, {"name": "Control_vs_Migrated", "invert": True}, {"name": "Migrated_vs_non-migrated"}], "claim": "contrast_migrated_control_claim", "interpretation": "contrast_migrated_control_interpretation", "focus_genes": ["EZR", "MSN", "MYL9", "CDC42", "RAC1", "RHOA", "TLN1", "VCL", "FLNA", "ACTN1", "ITGB1"], "modules": ["migration_signature", "rho_gtpase_migration", "erm_membrane_cortex", "myosin_contractility", "talin_vinculin_focal_adhesion"]},
         ],
     },
     "Nat_Methods_iPSC_2025": {
-        "story_title": "iPSC 到 EB 的多能性下降、谱系/ECM 上升和 EB 内异质性",
-        "executive_claim": "核心故事是 EB 相对 iPSCs 的多能性边界、谱系候选和模块梯度。",
-        "boundary": "EB 内部梯度是 current_matrix 模块分布，不等同于真实发育轨迹。",
+        "story_title": "nat_methods_ipsc_2025_story_title",
+        "executive_claim": "nat_methods_ipsc_2025_executive_claim",
+        "boundary": "nat_methods_ipsc_2025_boundary",
         "primary_contrasts": [
-            {"id": "eb_ipsc", "display": "EB_vs_iPSCs", "group_a": "EB", "group_b": "iPSCs", "aliases": [{"name": "EB_vs_iPSCs"}, {"name": "iPSCs_vs_EB", "invert": True}], "claim": "EB 相对 iPSCs 的差异主轴", "interpretation": "连接多能性下降与谱系/ECM 相关候选上升。", "focus_genes": ["POU5F1", "SOX2", "LIN28A", "NANOG", "GATA4", "HAND1", "MAP2", "FN1", "COL1A1"], "modules": ["pluripotency_core", "lineage_endoderm", "lineage_mesoderm", "lineage_ectoderm", "ecm_adhesion"]},
+            {"id": "eb_ipsc", "display": "EB_vs_iPSCs", "group_a": "EB", "group_b": "iPSCs", "aliases": [{"name": "EB_vs_iPSCs"}, {"name": "iPSCs_vs_EB", "invert": True}], "claim": "contrast_eb_ipsc_claim", "interpretation": "contrast_eb_ipsc_interpretation", "focus_genes": ["POU5F1", "SOX2", "LIN28A", "NANOG", "GATA4", "HAND1", "MAP2", "FN1", "COL1A1"], "modules": ["pluripotency_core", "lineage_endoderm", "lineage_mesoderm", "lineage_ectoderm", "ecm_adhesion"]},
         ],
     },
     "Nat_Biotech_Brain_2026": {
-        "story_title": "RG/oRG 到 IPC-EN/EN 的发育状态轴和本地 ASD/NDD 注释边界",
-        "executive_claim": "报告应围绕 RG/oRG -> IPC-EN -> EN 轨迹、候选蛋白和本地外部注释边界组织。",
-        "boundary": "ASD/NDD 是 external_annotation，不是 current_matrix 疾病因果结论。",
+        "story_title": "nat_biotech_brain_2026_story_title",
+        "executive_claim": "nat_biotech_brain_2026_executive_claim",
+        "boundary": "nat_biotech_brain_2026_boundary",
         "primary_contrasts": [
-            {"id": "ipcen_org", "display": "IPC-EN_vs_oRG", "group_a": "IPC-EN", "group_b": "oRG", "aliases": [{"name": "IPC-EN_vs_oRG"}, {"name": "oRG_vs_IPC-EN", "invert": True}], "claim": "IPC-EN 相对 oRG 的过渡轴", "interpretation": "连接 progenitor 到 IPC/early neuron 程序。", "focus_genes": ["EOMES", "TBR1", "BCL11B", "NEUROD2", "MAP2"], "modules": ["brain_ipc_en_transition", "brain_en_maturation", "brain_chromatin_baf"]},
-            {"id": "en_ipcen", "display": "EN_vs_IPC-EN", "group_a": "EN", "group_b": "IPC-EN", "aliases": [{"name": "EN_vs_IPC-EN"}, {"name": "IPC-EN_vs_EN", "invert": True}], "claim": "EN 相对 IPC-EN 的成熟轴", "interpretation": "连接 neuronal maturation、synapse/neurite 与 chromatin/BAF。", "focus_genes": ["TBR1", "BCL11B", "NEUROD2", "MAP2", "SYN1"], "modules": ["brain_en_maturation", "brain_synapse_neurite", "brain_chromatin_baf"]},
+            {"id": "ipcen_org", "display": "IPC-EN_vs_oRG", "group_a": "IPC-EN", "group_b": "oRG", "aliases": [{"name": "IPC-EN_vs_oRG"}, {"name": "oRG_vs_IPC-EN", "invert": True}], "claim": "contrast_ipcen_org_claim", "interpretation": "contrast_ipcen_org_interpretation", "focus_genes": ["EOMES", "TBR1", "BCL11B", "NEUROD2", "MAP2"], "modules": ["brain_ipc_en_transition", "brain_en_maturation", "brain_chromatin_baf"]},
+            {"id": "en_ipcen", "display": "EN_vs_IPC-EN", "group_a": "EN", "group_b": "IPC-EN", "aliases": [{"name": "EN_vs_IPC-EN"}, {"name": "IPC-EN_vs_EN", "invert": True}], "claim": "contrast_en_ipcen_claim", "interpretation": "contrast_en_ipcen_interpretation", "focus_genes": ["TBR1", "BCL11B", "NEUROD2", "MAP2", "SYN1"], "modules": ["brain_en_maturation", "brain_synapse_neurite", "brain_chromatin_baf"]},
         ],
     },
     "Nat_Methods_DVP_2023": {
-        "story_title": "肝小叶 Portal-Central 分区蛋白程序",
-        "executive_claim": "核心是 periportal urea cycle 与 central xenobiotic/metabolism 模块的方向性。",
-        "boundary": "Zonation 结论来自当前矩阵标签和模块/候选蛋白，不使用隐藏阈值。",
+        "story_title": "nat_methods_dvp_2023_story_title",
+        "executive_claim": "nat_methods_dvp_2023_executive_claim",
+        "boundary": "nat_methods_dvp_2023_boundary",
         "primary_contrasts": [
-            {"id": "portal_central", "display": "Portal_vs_Central", "group_a": "Portal", "group_b": "Central", "aliases": [{"name": "Portal_vs_Central"}, {"name": "Central_vs_Portal", "invert": True}], "claim": "Portal 相对 Central 的分区轴", "interpretation": "对照 urea-cycle 与 xenobiotic metabolism 候选/模块方向。", "focus_genes": ["ARG1", "ASS1", "CPS1", "GLUL", "CYP2E1", "CYP1A2"], "modules": ["liver_periportal_urea", "liver_central_xenobiotic"]},
+            {"id": "portal_central", "display": "Portal_vs_Central", "group_a": "Portal", "group_b": "Central", "aliases": [{"name": "Portal_vs_Central"}, {"name": "Central_vs_Portal", "invert": True}], "claim": "contrast_portal_central_claim", "interpretation": "contrast_portal_central_interpretation", "focus_genes": ["ARG1", "ASS1", "CPS1", "GLUL", "CYP2E1", "CYP1A2"], "modules": ["liver_periportal_urea", "liver_central_xenobiotic"]},
         ],
     },
     "Nat_Methods_pSCoPE_2023": {
-        "story_title": "LPS 高/低极化 macrophage 的吞噬体和炎症模块",
-        "executive_claim": "核心是 LPS_high/LPS_low 相对 Untreated 的方向，并区分强弱极化。",
-        "boundary": "Phagosome/lysosome 结论需要候选蛋白、模块或离线富集支撑。",
+        "story_title": "nat_methods_pscope_2023_story_title",
+        "executive_claim": "nat_methods_pscope_2023_executive_claim",
+        "boundary": "nat_methods_pscope_2023_boundary",
         "primary_contrasts": [
-            {"id": "lpshigh_base", "display": "LPS_high_vs_Untreated", "group_a": "LPS_high", "group_b": "Untreated", "aliases": [{"name": "LPS_high_vs_Untreated"}, {"name": "Untreated_vs_LPS_high", "invert": True}], "claim": "LPS high 相对 Untreated", "interpretation": "检测高极化和 phagosome maturation 程序。", "focus_genes": ["ATP6V0A1", "ATP6V1A", "LAMP1", "LAMP2", "CTSB", "CTSD"], "modules": ["phagosome_vatpase_lysosome", "inflammation_interferon"]},
-            {"id": "lpslow_base", "display": "LPS_low_vs_Untreated", "group_a": "LPS_low", "group_b": "Untreated", "aliases": [{"name": "LPS_low_vs_Untreated"}, {"name": "Untreated_vs_LPS_low", "invert": True}], "claim": "LPS low 相对 Untreated", "interpretation": "用于判断低极化响应是否弱于 LPS_high。", "focus_genes": ["ATP6V0A1", "LAMP1", "CTSB"], "modules": ["phagosome_vatpase_lysosome", "inflammation_interferon"]},
+            {"id": "lpshigh_base", "display": "LPS_high_vs_Untreated", "group_a": "LPS_high", "group_b": "Untreated", "aliases": [{"name": "LPS_high_vs_Untreated"}, {"name": "Untreated_vs_LPS_high", "invert": True}], "claim": "contrast_lpshigh_base_claim", "interpretation": "contrast_lpshigh_base_interpretation", "focus_genes": ["ATP6V0A1", "ATP6V1A", "LAMP1", "LAMP2", "CTSB", "CTSD"], "modules": ["phagosome_vatpase_lysosome", "inflammation_interferon"]},
+            {"id": "lpslow_base", "display": "LPS_low_vs_Untreated", "group_a": "LPS_low", "group_b": "Untreated", "aliases": [{"name": "LPS_low_vs_Untreated"}, {"name": "Untreated_vs_LPS_low", "invert": True}], "claim": "contrast_lpslow_base_claim", "interpretation": "contrast_lpslow_base_interpretation", "focus_genes": ["ATP6V0A1", "LAMP1", "CTSB"], "modules": ["phagosome_vatpase_lysosome", "inflammation_interferon"]},
         ],
     },
     "Science_BloodCell_2025": {
-        "story_title": "HSPC 状态层级中的干性、代谢和粒细胞颗粒程序",
-        "executive_claim": "报告要把 HSC/MPP/MEP/LMPP/GMP 的候选和模块组织成状态层级，而不是只列群体。",
-        "boundary": "状态解释来自当前标签和蛋白矩阵，不直接外推造血命运因果。",
+        "story_title": "science_bloodcell_2025_story_title",
+        "executive_claim": "science_bloodcell_2025_executive_claim",
+        "boundary": "science_bloodcell_2025_boundary",
         "primary_contrasts": [
-            {"id": "hsc_gmp", "display": "HSC_vs_GMP", "group_a": "HSC", "group_b": "GMP", "aliases": [{"name": "HSC_vs_GMP"}, {"name": "GMP_vs_HSC", "invert": True}], "claim": "HSC 相对 GMP 的干性/粒细胞轴", "interpretation": "对照 TALDO1/H1F0 与 MPO/ELANE 方向。", "focus_genes": ["TALDO1", "H1F0", "MPO", "ELANE"], "modules": ["hsc_maintenance_ppp_chromatin", "granulocyte_granule"]},
+            {"id": "hsc_gmp", "display": "HSC_vs_GMP", "group_a": "HSC", "group_b": "GMP", "aliases": [{"name": "HSC_vs_GMP"}, {"name": "GMP_vs_HSC", "invert": True}], "claim": "contrast_hsc_gmp_claim", "interpretation": "contrast_hsc_gmp_interpretation", "focus_genes": ["TALDO1", "H1F0", "MPO", "ELANE"], "modules": ["hsc_maintenance_ppp_chromatin", "granulocyte_granule"]},
         ],
     },
     "Nat_Commun_ProteinLeakage_2025": {
-        "story_title": "Permeable 相对 Intact 的蛋白泄漏 QC 与细胞类型边界",
-        "executive_claim": "核心是 membrane-status 对比中的 cytosol/nucleus 与 mito/membrane 标记足迹，并报告 Fresh/Frozen/Cluster 边界。",
-        "boundary": "Leakage 是样本状态/QC 解释，不外推为疾病机制。",
+        "story_title": "nat_commun_proteinleakage_2025_story_title",
+        "executive_claim": "nat_commun_proteinleakage_2025_executive_claim",
+        "boundary": "nat_commun_proteinleakage_2025_boundary",
         "primary_contrasts": [
-            {"id": "permeable_intact", "display": "Permeable_vs_Intact", "group_a": "Permeable", "group_b": "Intact", "aliases": [{"name": "Permeable_vs_Intact"}, {"name": "Intact_vs_Permeable", "invert": True}], "claim": "Permeable 相对 Intact 的泄漏足迹", "interpretation": "检查 cytosol/nucleus 和 mito/membrane 标记是否支持膜破损/泄漏。", "focus_genes": ["GAPDH", "LDHA", "TUBA1B", "LMNB1", "VDAC1", "ATP5F1A"], "modules": ["protein_leakage_cytosol_nucleus", "protein_leakage_mito_membrane"]},
+            {"id": "permeable_intact", "display": "Permeable_vs_Intact", "group_a": "Permeable", "group_b": "Intact", "aliases": [{"name": "Permeable_vs_Intact"}, {"name": "Intact_vs_Permeable", "invert": True}], "claim": "contrast_permeable_intact_claim", "interpretation": "contrast_permeable_intact_interpretation", "focus_genes": ["GAPDH", "LDHA", "TUBA1B", "LMNB1", "VDAC1", "ATP5F1A"], "modules": ["protein_leakage_cytosol_nucleus", "protein_leakage_mito_membrane"]},
         ],
     },
 }
+
+
+# Every text value above is a key of the ``evidence`` registry namespace; these
+# wrappers resolve it in the active report language on each read.
+CORE_STORY_RECIPES = {
+    dataset: _StoryText(recipe) for dataset, recipe in CORE_STORY_RECIPES.items()
+}
+for _recipe in CORE_STORY_RECIPES.values():
+    _recipe["primary_contrasts"] = [
+        _StoryText(spec) for spec in _recipe.get("primary_contrasts", [])
+    ]
 
 
 def read_text(path: str | os.PathLike[str]) -> str:
@@ -798,9 +1289,12 @@ def build_group_composition_qc(config: Dict[str, Any], requirements: Dict[str, A
     else:
         imputation_applied = bool(params.get("imputation_applied")) or bool(
             (config.get("analysis_design") or {}).get("matrix", {}).get("imputation_applied"))
-    qc_definition = ("未检出定义=空值或0；input=原始交付矩阵（过滤/填补之前）；analysed=本轮分析矩阵；"
-                     "analysed 缺失率为 0 时按填补状态判读，不等于全部蛋白被检出；"
-                     "imputation_applied 的来源=%s" % (transform_source or "运行记录中未找到矩阵变换记录"))
+    qc_definition = (
+        t("evidence.qc_definition_a")
+        + t("evidence.qc_definition_b")
+        + t("evidence.qc_definition_c")
+        % (transform_source or t("evidence.qc_definition_source_missing"))
+    )
 
     group_cols = [c for c in [g_col, batch_col, "Type", "Type1", "Type2", "Condition", "Treatment", "Cluster", "Label", "Donor"] if c and c in per_sample.columns]
     group_cols = list(dict.fromkeys(group_cols))
@@ -1057,8 +1551,7 @@ def build_candidate_evidence(config: Dict[str, Any], requirements: Dict[str, Any
                 "detected_in_matrix": bool(mapped),
                 "match_route": match_route,
                 "mapping_note": "" if mapped else (
-                    "该符号未在本次矩阵的基因标签、蛋白组标识、蛋白名称与 UniProt GN= 字段中匹配到，"
-                    "因此未建立映射；未建立映射不等同于该蛋白不存在。"),
+                    t("evidence.mapping_note_a") + t("evidence.mapping_note_b")),
                 "contrast": "matrix_presence_only",
                 "direction": ("detected_without_selected_contrast" if mapped
                               else "symbol_not_matched_in_available_matrix"),
@@ -1421,7 +1914,7 @@ def _story_candidate_rows(diff: pd.DataFrame, genes: List[str], contrast_spec: D
             "direction_display": "up_in_display_group_a" if pd.notna(logfc) and logfc > 0 else "down_in_display_group_a" if pd.notna(logfc) and logfc < 0 else "no_direction",
             "evidence_source": "current_matrix",
             "confidence": "moderate" if pd.notna(fdr) and fdr <= 0.05 else "low" if pd.notna(pval) else "low",
-            "boundary": "候选蛋白只在该对比差异表中检出时用于当前矩阵结论。",
+            "boundary": t("evidence.candidate_boundary"),
             "interpretation": contrast_spec.get("interpretation", ""),
             "source_file": source_path,
         })
@@ -1482,9 +1975,11 @@ def build_core_story_evidence(config: Dict[str, Any], requirements: Dict[str, An
     rows: List[Dict[str, Any]] = []
     metadata = {
         "dataset": dataset,
-        "story_title": recipe.get("story_title", "当前矩阵核心对比故事"),
-        "executive_claim": recipe.get("executive_claim", "围绕当前矩阵核心对比组织结论。"),
-        "boundary": recipe.get("boundary", "所有结论必须标注 current_matrix/offline_enrichment/external_annotation/extension 边界。"),
+        "story_title": recipe.get("story_title", t("evidence.story_title_default")),
+        "executive_claim": recipe.get(
+            "executive_claim", t("evidence.executive_claim_default")
+        ),
+        "boundary": recipe.get("boundary", t("evidence.boundary_default")),
         "has_dataset_story_recipe": bool(recipe),
     }
     primary_contrasts = recipe.get("primary_contrasts", []) if recipe else []
@@ -1498,8 +1993,8 @@ def build_core_story_evidence(config: Dict[str, Any], requirements: Dict[str, An
                 "group_a": contrast.get("group_a", ""),
                 "group_b": contrast.get("group_b", ""),
                 "aliases": [{"name": name}],
-                "claim": f"{name} 核心对比",
-                "interpretation": "通用核心对比，需保守解释。",
+                "claim": str(name) + t("evidence.contrast_claim_suffix"),
+                "interpretation": t("evidence.contrast_interpretation_generic"),
                 "focus_genes": requirements.get("candidate_proteins", [])[:8],
                 "modules": [m.get("name", "") for m in requirements.get("curated_modules", [])[:4]],
             })
@@ -1689,7 +2184,11 @@ def evidence_tables_markdown(artifacts: Dict[str, Any]) -> str:
                 f"| {row.get('recipe_item', '')} | {row.get('expected_evidence', '')} | "
                 f"{row.get('evidence_source', '')} | {row.get('confidence', '')} | {row.get('boundary', '')} |"
             )
-    story_kind = {"contrast": "对比", "candidate": "候选蛋白", "module": "模块"}
+    story_kind = {
+        "contrast": t("evidence.story_kind_contrast"),
+        "candidate": t("evidence.story_kind_candidate"),
+        "module": t("evidence.story_kind_module"),
+    }
     if story_rows:
         lines.extend([
             "",
@@ -1699,7 +2198,16 @@ def evidence_tables_markdown(artifacts: Dict[str, Any]) -> str:
         ])
         for row in story_rows[:35]:
             if row.get("row_type") == "contrast":
-                evidence = f"通过筛选 {row.get('n_sig', '')} 个；第一臂较高 {row.get('n_up_display_group_a', '')} 个；第二臂较高 {row.get('n_down_display_group_a', '')} 个；最强上调 {row.get('top_up_display_group_a', '')}"
+                evidence = (
+                    t("evidence.evidence_cell_a")
+                    + str(row.get("n_sig", ""))
+                    + t("evidence.evidence_cell_b")
+                    + str(row.get("n_up_display_group_a", ""))
+                    + t("evidence.evidence_cell_c")
+                    + str(row.get("n_down_display_group_a", ""))
+                    + t("evidence.evidence_cell_d")
+                    + str(row.get("top_up_display_group_a", ""))
+                )
             elif row.get("row_type") == "candidate":
                 # F3: 请求内证据表属于展示层，不能把全精度浮点原样塞进提示词。
                 evidence = (f"{row.get('candidate', '')} logFC={stat_display(row.get('logFC_display')) or ''}, "
@@ -1764,12 +2272,16 @@ def evidence_tables_markdown(artifacts: Dict[str, Any]) -> str:
                 n_genes = ''
                 if reverse is not None and reverse.get('mean_score') is not None:
                     value = -float(reverse['mean_score'])
-                    reason = '由 %s_minus_%s 取负派生' % (gb, ga)
+                    reason = (
+                        t("evidence.module_source_reverse_prefix")
+                        + "%s_minus_%s" % (gb, ga)
+                        + t("evidence.module_source_reverse_suffix")
+                    )
                     n_genes = reverse.get('n_matched_genes', '')
                 elif (groups.get(ga, {}).get('mean_score') is not None
                       and groups.get(gb, {}).get('mean_score') is not None):
                     value = float(groups[ga]['mean_score']) - float(groups[gb]['mean_score'])
-                    reason = '由两行分组均值相减派生'
+                    reason = t("evidence.module_source_subtract")
                     n_genes = groups.get(ga, {}).get('n_matched_genes', '')
                 if value is None:
                     continue
@@ -1780,9 +2292,10 @@ def evidence_tables_markdown(artifacts: Dict[str, Any]) -> str:
         for row in module_rows:
             if row.get('group') and shown < 30:
                 lines.append(
-                    '| %s | %s | %s | %s | %s | 存储行 |' % (row.get('module', ''), row.get('group', ''),
+                    '| %s | %s | %s | %s | %s | %s |' % (row.get('module', ''), row.get('group', ''),
                                                          row.get('n_matched_genes', ''), row.get('mean_score', ''),
-                                                         row.get('confidence', ''))
+                                                         row.get('confidence', ''),
+                                                         t("evidence.module_source_stored"))
                 )
                 shown += 1
         for row in derived_rows[:20]:

@@ -3886,7 +3886,13 @@ def report_language_directive() -> str:
     """Report-request text an English run needs. Empty for zh, so a zh request is unchanged."""
     if _report_language.get_language() != "en":
         return ""
-    directive = globals().get("EN_REPORT_LANGUAGE_DIRECTIVE") or ""
+    directive = globals().get("EN_REPORT_LANGUAGE_DIRECTIVE")
+    if not directive:
+        # prompts.py is standard library only, so this import is safe on the offline path too
+        try:
+            from prompts import EN_REPORT_LANGUAGE_DIRECTIVE as directive  # noqa: F811
+        except Exception:  # noqa: BLE001
+            directive = ""
     if not directive:
         return ""
     return chr(10) + chr(10) + directive
@@ -7084,7 +7090,11 @@ def parent_run_language(parent_folder: str) -> Tuple[Optional[str], Optional[str
         if not os.path.exists(path):
             continue
         try:
-            payload = load_json(path)
+            # read with the standard library rather than the runtime-injected loader, so the
+            # resolution works before the agent environment is loaded and cannot silently
+            # degrade to "no language recorded" if that global is missing
+            with open(path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
         except Exception:  # noqa: BLE001 - an unreadable record simply falls through
             continue
         if not isinstance(payload, dict) or "report_language" not in payload:
