@@ -6,6 +6,7 @@ cff-version: 1.2.0
 message: "If you use ScProteoAgent, please cite the manuscript listed below."
 title: "ScProteoAgent enables natural-language-driven single-cell proteomics analysis and interpretation"
 version: "1.0.0-rc.1"
+license: "LicenseRef-scProteoAgent-Research-1.0"
 type: software
 repository-code: "https://github.com/paul-3100/ScProteoAgent"
 authors:
@@ -36,11 +37,11 @@ keywords:
   - large language model agent
   - reproducible analysis
   - data analysis agent
-# `license` is intentionally absent: no software licence has been chosen yet, and the CFF 1.2.0
-# schema makes the field optional. The placeholder value `LicenseRef-Proprietary` used in earlier
-# drafts was not an SPDX identifier of an existing licence and has been removed rather than
-# presented as a decision. Add the real SPDX identifier once the rights holder confirms the
-# software licence (see LICENSE_PENDING.md); the data archive keeps its own terms.
+# The software licence is the ScProteoAgent Research Licence 1.0 in LICENSE. It is not an
+# OSI-approved licence, so it is referenced through an SPDX LicenseRef rather than an SPDX
+# identifier: LicenseRef-scProteoAgent-Research-1.0 is defined by that file and by nothing else.
+# Commercial use needs prior written authorisation. The data archive keeps its own terms and is
+# not covered by this licence.
 # Runwen Hu and Keyan Ding contributed equally; Shiqi Wang (shiqwang@cityu.edu.hk) and
 # Yu Wang (wangyu310@zju.edu.cn) are the corresponding authors. Email addresses are listed in
 # the manuscript because the CFF 1.2.0 schema has no field for them.

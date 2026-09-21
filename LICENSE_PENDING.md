@@ -1,46 +1,43 @@
-# Licence status: pending rights-holder confirmation
+# Licence status: research licence adopted; public release gated on contributor confirmation
 
-No software licence has been chosen for this repository, so **no open-source licence is
-granted** and the source is published under the default terms of the rights holder until a
-licence file is added. `CITATION.cff` therefore carries no `license` field at all: the 1.2.0
-schema makes it optional, and a placeholder such as `LicenseRef-Proprietary` would read as a
-decision that has not been taken. The field is added when the licence is chosen.
+The software licence for this repository is the **ScProteoAgent Research Licence 1.0**, in the
+`LICENSE` file beside this one. It is a research / non-commercial licence, not an OSI-approved
+licence, and this repository must not be described as open source. `CITATION.cff` references it as
+`LicenseRef-scProteoAgent-Research-1.0`.
 
-What is still open (author/rights-holder decision):
+In one line: research, teaching, reproducing published results, and non-commercial modification and
+redistribution are free of charge; commercial use needs prior written authorisation from the author
+team.
 
-1. Which licence applies to the **software** in this repository (engine, scripts, reproduction
-   code, tests, examples). Copyright remains with the authors and their institutions.
-2. Which licence applies to the **data archive** that accompanies the manuscript. Data terms
-   are recorded separately from the software licence and are not implied by it.
+## Decision record
+
+| Item | Decision |
+|---|---|
+| Route | a research / non-commercial licence (the alternative is GPL-3.0-only) |
+| Grantor | The Authors - the scProteoAgent author team named in CITATION.cff |
+| Adopted for | software release candidate 1.0.0-rc.1, 2026-09-21 |
+| Contributor agreement | **pending**: every contributor confirms in writing before the repository becomes public |
+| Data licence | a separate question, not covered by this licence |
+| DOI / release tag | not created |
+
+## What is still open
+
+1. Written confirmation from every contributor that the author team may grant these terms.
+2. The terms of the data archive, which are recorded separately and are not implied by this licence.
 3. Whether the third-party resources listed in `THIRD_PARTY_NOTICES.md` may be redistributed.
-   Until that is confirmed, they are *not* part of any release artefact.
 
-Until the licence is added:
+## Before the repository becomes public
 
-* do not describe this repository as open source, and do not present a licence badge;
-* keep redistribution decisions with the rights holder;
-* keep this file in the repository so the pending state stays visible.
+* collect the contributor confirmations and record them in the release manifest;
+* keep this file, the `LICENSE` text and `CITATION.cff` in step with each other;
+* do not add an SPDX identifier: this licence has none, which is why `CITATION.cff` uses a
+  `LicenseRef-` reference.
 
-When the licence is chosen, add the licence text as `LICENSE` (or `LICENSE.md`) beside this file,
-add the `license` field with the SPDX identifier to `CITATION.cff`, and record the decision in the
-release manifest. This file may then be deleted, or kept as a record of the decision.
+## Note on the alternatives, for the record
 
-## The two routes currently on the table
+GPL-3.0-only is OSI-approved and permits commercial use, in exchange for copyleft distribution
+obligations. AGPL-3.0 adds one obligation on top of GPL-3.0: a modified version that users interact
+with over a network must offer those users the corresponding source. That is a **source-provision
+obligation, not a prohibition on commercial services** - an AGPL-licensed service may be run
+commercially, and for profit, as long as the obligation is met. Neither alternative was chosen.
 
-Both are drafts prepared for the rights holder; neither is in force, and no licence file was
-added. The supporting material (quoted policy text, the draft terms, the standard
-open-source alternative and a side-by-side decision sheet) is delivered with the release
-support package rather than in this repository.
-
-1. **A research / non-commercial licence.** Free for research, teaching, reproducing published
-   results and non-commercial modification and redistribution; prior written authorisation for
-   company-internal R&D, paid analysis services and commercial product integration. Not an
-   OSI-approved licence, so it departs from the Nature Portfolio *recommendation* to use one,
-   while still satisfying the mandatory obligation to disclose the licence and its
-   restrictions in the Code Availability statement.
-2. **GPL-3.0-only**, which is OSI-approved and permits commercial use, in exchange for the
-   copyleft distribution obligations. AGPL-3.0 is the variant to consider if the concern is a
-   modified copy being run as a closed network service.
-
-The identity of the granting entity, and confirmation that every contributor agrees, still
-have to be settled before either can be adopted.

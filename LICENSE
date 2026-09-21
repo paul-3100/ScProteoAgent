@@ -1,0 +1,66 @@
+# ScProteoAgent Research Licence, version 1.0
+
+Copyright (c) 2026 The Authors. All rights reserved except as expressly granted below.
+
+This is **not** an open-source licence. It has not been approved by the Open Source Initiative,
+and it does not grant commercial rights. It was adopted by the scProteoAgent author team for
+software release candidate 1.0.0-rc.1.
+
+## 1. Free uses
+
+Subject to clause 2, you may use, reproduce, modify and redistribute the software and its
+documentation, free of charge and without prior permission, for:
+
+1. research, whether academic, governmental or non-profit;
+2. teaching and training;
+3. reproducing or checking published results;
+4. any other purpose that is not a commercial purpose as defined in clause 2.
+
+Modifications and redistributions under clause 1 must keep this licence, keep the copyright
+notice, and state clearly what was changed.
+
+## 2. Uses that need prior written authorisation
+
+The following are **commercial purposes** and require prior written authorisation from the
+grantor named in clause 6:
+
+1. research, development, evaluation or production use inside a for-profit enterprise;
+2. providing a paid analysis service, hosted or otherwise, that uses the software;
+3. incorporating the software, in whole or in part, into a commercial product or an internally
+   deployed commercial platform.
+
+Research at a university or public research institute that is funded by a company is free under
+clause 1 **only** when the work is independent scientific research and is not performed for, or
+delivered as a service to, the funder.
+
+## 3. What "contact the author" does not mean
+
+Nothing in this licence, and no statement that commercial users should "contact the authors",
+grants any commercial right. A commercial right exists only if the grantor has given it in
+writing and signed it.
+
+## 4. No warranty; no endorsement
+
+The software is provided "as is", without warranty of any kind. The authors are not liable for
+any claim, damage or other liability arising from the software or its use. Redistributions must
+not imply endorsement by the authors or their institutions.
+
+## 5. Scope of this licence
+
+This licence covers the software in this repository only. It does not cover:
+
+1. the manuscript, figures, tables or supplementary information, which carry their own terms;
+2. third-party data, tools or resources referenced or required by the software, which carry
+   their own licences;
+3. any dataset archive, which is licensed separately.
+
+## 6. Grantor
+
+The grantor of this licence is the scProteoAgent author team named in CITATION.cff, acting
+through its corresponding authors. Copyright remains with the authors and their institutions.
+
+## 7. Enquiries
+
+Commercial enquiries, and any question about the scope of clause 1, go to the corresponding
+authors named in CITATION.cff and in the manuscript.
+

@@ -12,7 +12,9 @@ applies and compute what changed.
 
 This repository accompanies the manuscript *ScProteoAgent enables natural-language-driven
 single-cell proteomics analysis and interpretation* (Runwen Hu, Keyan Ding, Wenwen Wang, Zhihui
-Zhu, Peilin Chen, Shiqi Wang, Yu Wang), release candidate **v24_2 (2026-09-20)**. It contains the
+Zhu, Peilin Chen, Shiqi Wang, Yu Wang), manuscript release candidate **v24_2 (2026-09-20)**. The
+software version is **1.0.0-rc.1**, recorded once in `CITATION.cff` and mirrored here. This
+repository contains the
 current engine, the frozen scoring implementation used for the cross-system comparison, the
 reproduction scripts and frozen tables for the reported deterministic results, the scripts that
 re-derive the reported case-study numbers field by field, a statistical panel redraw entry point,
@@ -20,9 +22,10 @@ one synthetic example and the offline tests. No DOI, release tag or version badg
 because none exists yet.
 
 This repository is a **candidate** for publication, not a published release. It is hosted at
-https://github.com/paul-3100/ScProteoAgent and is currently **private**: making it public depends on
-the software-licence decision recorded in `LICENSE_PENDING.md`. No tag, release or archive location
-exists yet. The data archive that supplies the frozen inputs is a local candidate of the same
+https://github.com/paul-3100/ScProteoAgent and is currently **private**. It becomes public after the
+preprint is posted and after every contributor has confirmed the software licence in writing;
+`LICENSE_PENDING.md` records the decision, the grantor and the steps still open. No tag, release or
+archive location exists yet. The data archive that supplies the frozen inputs is a local candidate of the same
 submission and is described in `docs/DATA_MANIFEST.md`; `docs/REPRODUCTION.md` records, per
 component, what runs, which fields were checked and what is not reproduced.
 
@@ -149,11 +152,16 @@ software version given there. The file validates against the Citation File Forma
 code accompanying this text is the `main` branch of https://github.com/paul-3100/ScProteoAgent
 (private); no DOI, release tag or archived snapshot is claimed, because none exists yet.
 
-No software licence has been chosen, so **no open-source licence is granted** and no licence
-identifier is claimed in `CITATION.cff` (`LICENSE_PENDING.md` records the open decision). Copyright
-remains with the authors and their institutions. Software terms and data terms are separate
-questions; the data archive carries its own rights table, and third-party components and their
-status are listed in `THIRD_PARTY_NOTICES.md`.
+**Licence.** The software is released under the ScProteoAgent Research Licence 1.0 (`LICENSE`).
+Research, teaching, reproducing published results, and non-commercial modification and
+redistribution are free of charge. Commercial use - research and development inside a company, a
+paid analysis service, or integration into a commercial product - requires prior written
+authorisation from the grantor, the author team named in `CITATION.cff`; contacting the authors
+does not itself grant that right. This is not an OSI-approved licence, so `CITATION.cff` references
+it through an SPDX `LicenseRef` rather than an SPDX identifier, and this repository must not be
+described as open source. Copyright remains with the authors and their institutions. Software terms
+and data terms are separate: the data archive carries its own rights table, and third-party
+components and their status are listed in `THIRD_PARTY_NOTICES.md`.
 
 Correspondence: Shiqi Wang (shiqwang@cityu.edu.hk) and Yu Wang (wangyu310@zju.edu.cn). Please open
 an issue for software problems rather than mailing the authors first; questions about the data
