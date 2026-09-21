@@ -1,0 +1,13 @@
+FileName,Cluster,Donor
+CONT_1,Control,D01
+CONT_2,Control,D02
+CONT_3,Control,D03
+CONT_4,Control,D04
+CONT_5,Control,D05
+CONT_6,Control,D06
+STIM_1,Stimulated,D07
+STIM_2,Stimulated,D08
+STIM_3,Stimulated,D09
+STIM_4,Stimulated,D10
+STIM_5,Stimulated,D11
+STIM_6,Stimulated,D12

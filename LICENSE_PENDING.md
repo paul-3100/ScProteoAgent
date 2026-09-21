@@ -24,3 +24,23 @@ Until the licence is added:
 When the licence is chosen, add the licence text as `LICENSE` (or `LICENSE.md`) beside this file,
 add the `license` field with the SPDX identifier to `CITATION.cff`, and record the decision in the
 release manifest. This file may then be deleted, or kept as a record of the decision.
+
+## The two routes currently on the table
+
+Both are drafts prepared for the rights holder; neither is in force, and no licence file was
+added. The supporting material (quoted policy text, the draft terms, the standard
+open-source alternative and a side-by-side decision sheet) is delivered with the release
+support package rather than in this repository.
+
+1. **A research / non-commercial licence.** Free for research, teaching, reproducing published
+   results and non-commercial modification and redistribution; prior written authorisation for
+   company-internal R&D, paid analysis services and commercial product integration. Not an
+   OSI-approved licence, so it departs from the Nature Portfolio *recommendation* to use one,
+   while still satisfying the mandatory obligation to disclose the licence and its
+   restrictions in the Code Availability statement.
+2. **GPL-3.0-only**, which is OSI-approved and permits commercial use, in exchange for the
+   copyleft distribution obligations. AGPL-3.0 is the variant to consider if the concern is a
+   modified copy being run as a closed network service.
+
+The identity of the granting entity, and confirmation that every contributor agrees, still
+have to be settled before either can be adopted.

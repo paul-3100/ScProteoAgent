@@ -37,7 +37,168 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import report_language  # same directory as this file; the shared zh/en registry
+
 SCHEMA_VERSION = "2026-09-12"
+
+# --------------------------------------------------------------------------- language
+# Reader-facing findings, registered with the shared report-language registry. The zh value
+# of every entry is the released literal copied byte for byte, so a zh run renders exactly the
+# text the released checker rendered. The en value is the same finding in English; it is never
+# a copy of the Chinese text, and t() reports a missing en template instead of falling back.
+#
+# Placeholders stay in %-form (the call sites format with %) rather than in str.format form,
+# so both languages are rendered by exactly the same expression at the call site.
+EVIDENCE_TEXT = {
+    # --- contrast / subject resolution
+    "contrast_name_absent": (
+        "对比名 %s 在本轮差异表中不存在",
+        "the contrast name %s does not exist among this run's differential tables",
+    ),
+    "single_group_multiple_contrasts": (
+        "句中只出现一个分组名，且可对应多个对比（需点明对比名）",
+        "the clause names a single group and that group matches several contrasts "
+        "(name the contrast explicitly)",
+    ),
+    "no_contrast_in_clause": (
+        "未在句中识别出对比",
+        "no contrast could be identified in the clause",
+    ),
+    "contrast_without_table": (
+        "对比 %s 无差异表",
+        "contrast %s has no differential table",
+    ),
+    "gene_multiple_protein_groups": (
+        "基因 %s 对应多个蛋白组且符号不一致（需指定蛋白组）",
+        "gene %s maps to several protein groups with inconsistent signs "
+        "(name the protein group)",
+    ),
+    "no_comparable_protein": (
+        "句中未识别到可比对的蛋白",
+        "no protein that could be compared was identified in the clause",
+    ),
+    # --- count claims
+    "count_convention_missing": (
+        "句子未标明计数口径（原始 P / FDR / 双阈值）",
+        "the sentence does not state a counting convention "
+        "(raw P / FDR / both thresholds)",
+    ),
+    "count_convention_ambiguous": (
+        "同一分句含多种口径，无法绑定：%s",
+        "one clause states several counting conventions and cannot be bound: %s",
+    ),
+    # --- direction claims
+    "table_missing_logfc": (
+        "差异表缺少 logFC",
+        "the differential table has no logFC",
+    ),
+    "no_number_or_direction_word": (
+        "句中未给出可与差异表比对的数值或方向词",
+        "the clause gives neither a number nor a direction word that can be compared "
+        "with the differential table",
+    ),
+    "direction_word": (
+        "方向词",
+        "direction word",
+    ),
+    "direction_word_conflicts": (
+        "方向词与数值/表格相反",
+        "the direction word contradicts the stated value and the table",
+    ),
+    # --- protein claims
+    "table_missing_p_value": (
+        "差异表缺少对应 p 值",
+        "the differential table has no matching adjusted p-value",
+    ),
+    # --- labels
+    "label_not_in_run": (
+        "该标签在本轮工件中不存在",
+        "this label does not exist in this run's artifacts",
+    ),
+    # --- binding
+    "clause_unbound": (
+        "未绑定到任何事实记录",
+        "not bound to any fact record",
+    ),
+    # --- binding levels; the released values were already English, kept verbatim for zh
+    "level_unbound": (
+        "no contrast or fact could be attached to this clause",
+        "no contrast or fact could be attached to this clause",
+    ),
+    "level_contrast_context": (
+        "the comparison was recognised, but no specific protein/module/value was tied to it",
+        "the comparison was recognised, but no specific protein/module/value was tied to it",
+    ),
+    "level_fact_located": (
+        "a specific fact record (protein group, gene or module) was located for this clause",
+        "a specific fact record (protein group, gene or module) was located for this clause",
+    ),
+    "level_verified": (
+        "the number or direction stated in the clause matches that record's value in the "
+        "stated orientation",
+        "the number or direction stated in the clause matches that record's value in the "
+        "stated orientation",
+    ),
+    # --- verdict meanings; released values were already English, kept verbatim for zh
+    "verdict_pass": (
+        "no contradiction and no unverified claim was found by this check",
+        "no contradiction and no unverified claim was found by this check",
+    ),
+    "verdict_unverified": (
+        "no contradiction found, but claims remain unbound - this is not a pass",
+        "no contradiction found, but claims remain unbound - this is not a pass",
+    ),
+    "verdict_contradiction": (
+        "at least one bound claim contradicts the artifacts",
+        "at least one bound claim contradicts the artifacts",
+    ),
+    "scope_note": (
+        "Check-item counts, not full-text fact coverage. The check reports contradictions "
+        "and unbound claims; it does not declare the report scientifically correct.",
+        "Check-item counts, not full-text fact coverage. The check reports contradictions "
+        "and unbound claims; it does not declare the report scientifically correct.",
+    ),
+    "map_note": (
+        "Facts the report was written from. Binding levels: contrast_context (comparison "
+        "recognised), fact_located (a specific record was located), verified (the stated "
+        "value/direction matches that record). Unbound clauses are pending review, not "
+        "errors; do not rank models on the bound count alone.",
+        "Facts the report was written from. Binding levels: contrast_context (comparison "
+        "recognised), fact_located (a specific record was located), verified (the stated "
+        "value/direction matches that record). Unbound clauses are pending review, not "
+        "errors; do not rank models on the bound count alone.",
+    ),
+    # --- _value_check states. These are machine tokens compared across the audit
+    # (bind_report branches on them and the coverage table is keyed by them), so the en value
+    # is the same token by design: the entry exists so the token can never render as the
+    # missing-template marker, and no state string is ever language-dependent.
+    "vc_matched": ("matched", "matched"),
+    "vc_matched_other_record": ("matched_other_record", "matched_other_record"),
+    "vc_value_mismatch": ("value_mismatch", "value_mismatch"),
+    "vc_no_record": ("no_record", "no_record"),
+    "vc_no_value": ("no_value", "no_value"),
+    "vc_no_number": ("no_number", "no_number"),
+    "vc_direction_only": ("direction_only", "direction_only"),
+    "vc_table_row": ("table_row", "table_row"),
+}
+report_language.register("evidence", EVIDENCE_TEXT)
+
+
+def t(key: str, *args) -> str:
+    """Reader-facing finding for the active language, optionally %-formatted.
+
+    A missing template is returned as an explicit marker by the registry; it is never
+    silently replaced by the Chinese text, so an English run cannot look checked when the
+    finding could not be rendered.
+    """
+    value = report_language.t("evidence." + key)
+    return value % args if args else value
+
+
+def _en() -> bool:
+    """True when the active report language is English (the added lexeme layer is used)."""
+    return report_language.get_language() == "en"
+
 
 # --------------------------------------------------------------------------- lexemes
 CLAUSE_SPLIT = re.compile(r"[。！？!?；;，,]")
@@ -45,6 +206,20 @@ SIGNED_NUMBER = re.compile(r"(?<![A-Za-z0-9_])(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)
 CLAIM_COUNT = re.compile(
     r"(?:显著|通过筛选|n_sig\s*=|通过\s*FDR)\s*[:：]?\s*(\d{1,5})"
     r"|(\d{1,5})\s*个\s*(?:蛋白|候选|条目|蛋白组)?\s*(?:通过筛选|显著)"
+)
+# English claim-count phrasings, consulted only when the active language is en. Each branch
+# demands an explicit pass/significance wording, and the negative lookbehinds keep a negated
+# statement ("did not pass screening") out of the count check, where no negation guard exists.
+CLAIM_COUNT_EN = re.compile(
+    r"(?<!not )(?<!no )(?:\bsignificant\b|\bsignificantly\b|passed screening|"
+    r"pass(?:es|ed)? (?:the )?screening|pass(?:es|ed)? FDR|survived screening|"
+    r"met the significance threshold)\s*[:=]?\s*(\d{1,5})"
+    r"|(\d{1,5})\s+(?:differentially expressed|DE|regulated)\s+(?:proteins?|protein groups?)"
+    r"|(\d{1,5})\s+(?:proteins?|protein groups?|candidates?|entries|features)\s+"
+    r"(?:passed|pass|were|are|survived|met)\s+"
+    r"(?:screening|the screening|FDR|the FDR|significance|the significance threshold|"
+    r"the threshold)",
+    re.I,
 )
 PROTEIN_GROUP = re.compile(r"\b(?:[A-Z][0-9][A-Z0-9]{4,9}|[OPQ][0-9][A-Z0-9]{3}[0-9](?:;[A-Z0-9]+)?)\b")
 GENE = re.compile(r"\b[A-Z][A-Z0-9]{2,7}\b")
@@ -58,6 +233,127 @@ CONV_BOTH = ("双阈值", "|logfc|", "log2fc", "效应量")
 UP_WORDS = ("上调", "更高", "升高", "上升", "增加", "富集", "positive")
 DOWN_WORDS = ("下调", "更低", "降低", "下降", "减少", "negative")
 NEGATION = re.compile(r"(没有|未|无|不含|不存在)[^。；，]{0,8}(显著|差异)|不显著|未见显著|无显著|不足以")
+
+# Added English lexemes. They are unioned with the released tuples above when the report
+# language is en and are never consulted for a zh run, so the released zh lexeme layer is
+# unchanged. Short English words ("up", "down") are matched with word boundaries (see
+# _word_hit) because a substring test would fire inside "support" or "downstream".
+# "p value" is deliberately absent from the raw-P set: on its own it does not say whether the
+# number is raw or adjusted, and listing it would make "adjusted p value" look like a mix of
+# two conventions. The mixed wording is bound by the FDR entries instead.
+CONV_RAW_EN = ("raw p-value", "raw p value", "raw p-values", "nominal p", "nominal p value",
+               "unadjusted p value", "uncorrected", "uncorrected p value")
+CONV_FDR_EN = ("adjusted p", "adjusted p-value", "adjusted p value", "adjusted-p",
+               "adj. p", "adj.p.value", "benjamini", "benjamini-hochberg",
+               "false discovery rate", "q-value", "q value", "qvalues", "padj", "p.adjust",
+               "fdr-adjusted", "fdr corrected", "multiple-testing adjusted")
+CONV_BOTH_EN = ("both thresholds", "two thresholds", "two cut-offs", "two cutoffs",
+                "effect size", "effect-size", "fold change", "fold-change", "log2 fold change",
+                "|log2fc|", "logfc", "log2fc")
+UP_WORDS_EN = ("up", "upregulated", "up-regulated", "up regulated", "upregulation",
+               "up-regulation", "higher", "increased", "increase", "elevated", "elevation",
+               "enriched", "enrichment", "greater", "over-represented")
+DOWN_WORDS_EN = ("down", "downregulated", "down-regulated", "down regulated", "downregulation",
+                 "down-regulation", "lower", "decreased", "decrease", "reduced", "reduction",
+                 "depleted", "depletion", "diminished", "under-represented")
+NEGATION_EN = re.compile(
+    r"\bno\s+(?:significant|significance|evidence|detectable|apparent|clear|enrichment)\b"
+    r"|\bnot\s+(?:significant|significantly|detected|detectable|observed|seen|found|supported|"
+    r"enriched)\b"
+    r"|\bnon-?significant\b"
+    r"|\b(?:was|were|is|are)\s+not\s+(?:detected|observed|significant|found|present)\b"
+    r"|\bdid\s+not\b|\bdoes\s+not\b|\bdo\s+not\b"
+    r"|\binsufficient\b|\babsence\s+of\s+evidence\b|\bno\s+evidence\b"
+    r"|\bfailed\s+to\s+reach\b|\bnot\s+detected\b",
+    re.I,
+)
+# Claim gates: the released characters always gate, the English wording is added for en only.
+COUNT_GATE = ("显著", "通过筛选", "蛋白")
+COUNT_GATE_EN = ("significant", "significantly", "passed screening", "differentially expressed",
+                 "protein", "proteins", "protein group", "protein groups", "n_sig")
+CLAIM_GATE = ("显著", "通过筛选")
+CLAIM_GATE_EN = ("significant", "significantly", "passed screening", "differentially expressed")
+DIRECTION_VALUE = re.compile(r"(logfc|log2fc|倍数变化|效应量)\s*[:：=≈]\s*-?\d", re.I)
+DIRECTION_VALUE_EN = re.compile(
+    r"(logfc|log2fc|log2 fold change|fold change|effect size|delta|倍数变化|效应量)"
+    r"\s*[:：=≈]\s*-?\d",
+    re.I,
+)
+
+
+def _word_hit(low: str, token: str) -> bool:
+    """Word-boundary match used for the added English lexemes ("up" must not hit "support")."""
+    return re.search(r"(?<![a-z0-9])" + re.escape(token) + r"(?![a-z0-9])", low) is not None
+
+
+def direction_words(text: str) -> Tuple[bool, bool]:
+    """(states up, states down) for a clause; the released substring test always applies."""
+    low = str(text).lower()
+    up = any(word in low for word in UP_WORDS)
+    down = any(word in low for word in DOWN_WORDS)
+    if _en():
+        up = up or any(_word_hit(low, word) for word in UP_WORDS_EN)
+        down = down or any(_word_hit(low, word) for word in DOWN_WORDS_EN)
+    return up, down
+
+
+def negated_claim(text: str) -> bool:
+    """True when the clause states the absence of an effect rather than an effect."""
+    if NEGATION.search(text):
+        return True
+    return bool(NEGATION_EN.search(text)) if _en() else False
+
+
+def gate_words_present(text: str, released: Tuple[str, ...], added: Tuple[str, ...]) -> bool:
+    """The released claim gate, plus its English wording when the active language is en."""
+    if any(word in text for word in released):
+        return True
+    if not _en():
+        return False
+    low = text.lower()
+    return any(_word_hit(low, word) for word in added)
+
+
+def stated_value_present(text: str) -> bool:
+    """True when the clause states a value ("logFC=1.2"); a threshold names no direction."""
+    if DIRECTION_VALUE.search(text):
+        return True
+    return bool(DIRECTION_VALUE_EN.search(text)) if _en() else False
+
+
+def claim_count_numbers(text: str) -> List[int]:
+    """Numbers stated as a claim count, in the active language.
+
+    zh runs the released expression unchanged. en adds the English pattern and de-duplicates
+    the overlap (a clause such as "n_sig = 12" is matched by both patterns), so one statement
+    is still counted once.
+    """
+    if not _en():
+        return [int(x) for pair in CLAIM_COUNT.findall(text) for x in pair if x]
+    found: List[Tuple[int, int]] = []
+    for pattern in (CLAIM_COUNT, CLAIM_COUNT_EN):
+        for match in pattern.finditer(text):
+            for group in match.groups():
+                if not group:
+                    continue
+                item = (match.start(), int(group))
+                if item not in found:
+                    found.append(item)
+    return [value for _start, value in found]
+
+
+def _hits_released(low: str, words: Tuple[str, ...]) -> bool:
+    """The released substring test; identical in both languages."""
+    return any(word in low for word in words)
+
+
+def _hits_en(low: str, words: Tuple[str, ...]) -> bool:
+    """Added English lexemes, matched on word boundaries.
+
+    A plain substring test would read "adjusted p" inside "unadjusted p", which would make one
+    number look like it mixes two counting conventions.
+    """
+    return any(_word_hit(low, word) for word in words)
 
 GENERIC_STOP = {"LOGFC", "LOG2FC", "FDR", "BH", "VS", "PADJ", "P", "N", "RNA", "DNA", "QC", "PCA", "UMAP",
                 "GO", "KEGG", "MS", "ID", "NA", "SD", "CI", "IQR"}
@@ -409,7 +705,7 @@ def resolve_contrast(clause: str, facts: Dict[str, Any]) -> Dict[str, Any]:
         if conv and conv.get("source_contrast") in facts["contrasts"]:
             return {"table": conv["source_contrast"], "sign": 1, "orientation": "display",
                     "flip": conv.get("flip", -1), "reason": ""}
-        blocked_reason = "对比名 %s 在本轮差异表中不存在" % key
+        blocked_reason = t("contrast_name_absent", key)
     else:
         blocked_reason = ""
     story_both, story_single = [], []
@@ -451,9 +747,9 @@ def resolve_contrast(clause: str, facts: Dict[str, Any]) -> Dict[str, Any]:
             return {"table": table, "sign": sign, "orientation": orientation, "flip": flip, "reason": ""}
         if len(unique) > 1:
             return {"table": None, "sign": 0, "orientation": note, "flip": 1,
-                    "reason": "句中只出现一个分组名，且可对应多个对比（需点明对比名）"}
+                    "reason": t("single_group_multiple_contrasts")}
     return {"table": None, "sign": 0, "orientation": "source", "flip": 1,
-            "reason": blocked_reason or "未在句中识别出对比"}
+            "reason": blocked_reason or t("no_contrast_in_clause")}
 
 
 def conventions_in(clause: str) -> set:
@@ -464,9 +760,13 @@ def conventions_in(clause: str) -> set:
     signal that the same number is being used for two different conventions.
     """
     low = clause.lower()
-    raw = any(t in low for t in CONV_RAW)
-    fdr = any(t in low for t in CONV_FDR)
-    both = any(t in low for t in CONV_BOTH)
+    raw = _hits_released(low, CONV_RAW)
+    fdr = _hits_released(low, CONV_FDR)
+    both = _hits_released(low, CONV_BOTH)
+    if _en():
+        raw = raw or _hits_en(low, CONV_RAW_EN)
+        fdr = fdr or _hits_en(low, CONV_FDR_EN)
+        both = both or _hits_en(low, CONV_BOTH_EN)
     if both and raw and not fdr:
         return {"raw P+effect"}
     if both and fdr and not raw:
@@ -503,7 +803,7 @@ def subject_of(clause: str, facts: Dict[str, Any], table_name: str):
     """Resolve the protein a clause talks about: (kind, key, row, reason)."""
     table = facts["contrasts"].get(table_name)
     if not table:
-        return None, None, None, "对比 %s 无差异表" % table_name
+        return None, None, None, t("contrast_without_table", table_name)
     for group in PROTEIN_GROUP.findall(clause):
         for part in (group, group.split(";")[0]):
             if part in table["by_group"]:
@@ -515,9 +815,9 @@ def subject_of(clause: str, facts: Dict[str, Any], table_name: str):
         if len(groups) > 1:
             signs = {1 if (to_float(table["by_group"][g].get("logFC")) or 0) > 0 else -1 for g in groups}
             if len(signs) > 1:
-                return None, None, None, "基因 %s 对应多个蛋白组且符号不一致（需指定蛋白组）" % gene
+                return None, None, None, t("gene_multiple_protein_groups", gene)
             return "gene", gene, table["by_group"][groups[0]], ""
-    return None, None, None, "句中未识别到可比对的蛋白"
+    return None, None, None, t("no_comparable_protein")
 
 
 # --------------------------------------------------------------------------- checks
@@ -529,7 +829,7 @@ def check_labels(clause_list: List[Dict[str, Any]], facts: Dict[str, Any]) -> Li
             if token in facts["labels"] or token.replace(" ", "") in facts["labels"]:
                 continue
             findings.append({"check": "label", "state": "contradiction", "label": token,
-                             "reason": "该标签在本轮工件中不存在", "line": clause["line"],
+                             "reason": t("label_not_in_run"), "line": clause["line"],
                              "section": clause["section"], "clause": clause["text"][:140]})
     return findings
 
@@ -540,9 +840,9 @@ def check_counts(clause_list: List[Dict[str, Any]], facts: Dict[str, Any]):
     passed = 0
     for clause in clause_list:
         text = clause["text"]
-        if not any(w in text for w in ("显著", "通过筛选", "蛋白")):
+        if not gate_words_present(text, COUNT_GATE, COUNT_GATE_EN):
             continue
-        numbers = [int(x) for pair in CLAIM_COUNT.findall(text) for x in pair if x]
+        numbers = claim_count_numbers(text)
         if not numbers:
             continue
         resolved = resolve_contrast(text, facts)
@@ -554,12 +854,12 @@ def check_counts(clause_list: List[Dict[str, Any]], facts: Dict[str, Any]):
         convs = conventions_in(text)
         if len(convs) == 0:
             unverified.append({"check": "count", "state": "unverified",
-                               "reason": "句子未标明计数口径（原始 P / FDR / 双阈值）",
+                               "reason": t("count_convention_missing"),
                                "line": clause["line"], "section": clause["section"], "clause": text[:140]})
             continue
         if len(convs) > 1:
             unverified.append({"check": "count", "state": "unverified",
-                               "reason": "同一分句含多种口径，无法绑定：%s" % sorted(convs),
+                               "reason": t("count_convention_ambiguous", sorted(convs)),
                                "line": clause["line"], "section": clause["section"], "clause": text[:140]})
             continue
         conv = sorted(convs)[0]
@@ -583,8 +883,9 @@ def check_direction(clause_list: List[Dict[str, Any]], facts: Dict[str, Any]):
         text = clause["text"]
         # only a stated value ("logFC=1.2") is a direction claim; a threshold such as "|logFC|>0.25"
         # names the counting convention and carries no direction
-        has_number_token = bool(re.search(r"(logfc|log2fc|倍数变化|效应量)\s*[:：=≈]\s*-?\d", text, re.I))
-        has_word = any(w in text.lower() for w in UP_WORDS + DOWN_WORDS)
+        has_number_token = stated_value_present(text)
+        _up_word, _down_word = direction_words(text)
+        has_word = _up_word or _down_word
         if not (has_number_token or has_word):
             continue
         resolved = resolve_contrast(text, facts)
@@ -599,7 +900,8 @@ def check_direction(clause_list: List[Dict[str, Any]], facts: Dict[str, Any]):
             continue
         table_logfc = to_float(row.get("logFC"))
         if table_logfc is None:
-            unverified.append({"check": "direction", "state": "unverified", "reason": "差异表缺少 logFC",
+            unverified.append({"check": "direction", "state": "unverified",
+                               "reason": t("table_missing_logfc"),
                                "line": clause["line"], "section": clause["section"], "clause": text[:140]})
             continue
         oriented = table_logfc * resolved["flip"] * resolved["sign"]
@@ -610,8 +912,7 @@ def check_direction(clause_list: List[Dict[str, Any]], facts: Dict[str, Any]):
             if abs(abs(value) - abs(table_logfc)) <= max(0.02, abs(table_logfc) * 0.03):
                 matched = value
                 break
-        words_up = any(w in text.lower() for w in UP_WORDS)
-        words_down = any(w in text.lower() for w in DOWN_WORDS)
+        words_up, words_down = direction_words(text)
         if matched is None:
             if words_up or words_down:
                 expected_positive = oriented > 0
@@ -619,13 +920,14 @@ def check_direction(clause_list: List[Dict[str, Any]], facts: Dict[str, Any]):
                 if claimed_up != expected_positive and (words_up ^ words_down):
                     findings.append({"check": "direction", "state": "contradiction",
                                      "contrast": resolved["table"], "orientation": resolved["orientation"],
-                                     "subject": key, "table_logFC": table_logfc, "stated": "方向词",
+                                     "subject": key, "table_logFC": table_logfc,
+                                     "stated": t("direction_word"),
                                      "line": clause["line"], "section": clause["section"], "clause": text[:140]})
                 else:
                     passed += 1
             else:
                 unverified.append({"check": "direction", "state": "unverified",
-                                   "reason": "句中未给出可与差异表比对的数值或方向词",
+                                   "reason": t("no_number_or_direction_word"),
                                    "line": clause["line"], "section": clause["section"], "clause": text[:140]})
             continue
         expected_positive = oriented > 0
@@ -638,7 +940,7 @@ def check_direction(clause_list: List[Dict[str, Any]], facts: Dict[str, Any]):
         elif (words_up and not words_down and not expected_positive) or (words_down and not words_up and expected_positive):
             findings.append({"check": "direction", "state": "contradiction", "contrast": resolved["table"],
                              "orientation": resolved["orientation"], "subject": key, "table_logFC": table_logfc,
-                             "stated": "方向词与数值/表格相反", "line": clause["line"],
+                             "stated": t("direction_word_conflicts"), "line": clause["line"],
                              "section": clause["section"], "clause": text[:140]})
         else:
             passed += 1
@@ -651,9 +953,9 @@ def check_claims(clause_list: List[Dict[str, Any]], facts: Dict[str, Any]):
     passed = 0
     for clause in clause_list:
         text = clause["text"]
-        if NEGATION.search(text):
+        if negated_claim(text):
             continue
-        if not any(w in text for w in ("显著", "通过筛选")):
+        if not gate_words_present(text, CLAIM_GATE, CLAIM_GATE_EN):
             continue
         resolved = resolve_contrast(text, facts)
         if not resolved["table"]:
@@ -670,7 +972,8 @@ def check_claims(clause_list: List[Dict[str, Any]], facts: Dict[str, Any]):
         conv = sorted(convs)[0]
         p = to_float(row.get("adj.P.Val")) if conv == "adj.P" else to_float(row.get("P.Value"))
         if p is None:
-            unverified.append({"check": "claim", "state": "unverified", "reason": "差异表缺少对应 p 值",
+            unverified.append({"check": "claim", "state": "unverified",
+                               "reason": t("table_missing_p_value"),
                                "line": clause["line"], "section": clause["section"], "clause": text[:140]})
             continue
         if p < facts["thresholds"]["p"]:
@@ -689,6 +992,17 @@ LEVEL_MEANING = {
     "fact_located": "a specific fact record (protein group, gene or module) was located for this clause",
     "verified": "the number or direction stated in the clause matches that record's value in the stated orientation",
 }
+
+
+def _level_meaning() -> Dict[str, str]:
+    """Binding-level meanings in the active language.
+
+    A zh run returns the released mapping unchanged; the en run renders the same levels from
+    the registry, so the level names and their order are identical in both languages.
+    """
+    if not _en():
+        return LEVEL_MEANING
+    return {name: t("level_" + name) for name in LEVEL_MEANING}
 
 
 def _locate_record(facts: Dict[str, Any], table_name: str, key: Any) -> Optional[Dict[str, Any]]:
@@ -735,8 +1049,7 @@ def _clause_verified(text: str, resolved: Dict[str, Any], rec: Optional[Dict[str
         if abs(value - expected) <= max(0.02, abs(expected) * 0.03):
             return True
     low = text.lower()
-    words_up = any(w in low for w in UP_WORDS)
-    words_down = any(w in low for w in DOWN_WORDS)
+    words_up, words_down = direction_words(text)
     if words_up != words_down:
         return (words_up and expected > 0) or (words_down and expected < 0)
     return False
@@ -779,12 +1092,12 @@ def _value_check(text: str, resolved: Dict[str, Any], rec: Optional[Dict[str, An
     is reported only when no stated number corresponds to any of them.
     """
     if rec is None:
-        return "no_record"
+        return t("vc_no_record")
     if text.strip().startswith("|") or " | " in text:
-        return "table_row"
+        return t("vc_table_row")
     expected = _expected_value(rec, resolved.get("orientation", "source"), resolved.get("flip", 1) or 1)
     if expected is None:
-        return "no_value"
+        return t("vc_no_value")
     allowed = [expected, -expected]
     kind = str(rec.get("kind") or "")
     if kind == "module":
@@ -799,12 +1112,12 @@ def _value_check(text: str, resolved: Dict[str, Any], rec: Optional[Dict[str, An
             allowed.extend([float(_value), -float(_value)])
     numbers = [n for n in (to_float(x) for x in SIGNED_NUMBER.findall(text)) if n is not None and abs(n) > 1e-9]
     if not numbers:
-        return "direction_only" if _clause_verified(text, resolved, rec) else "no_number"
+        return t("vc_direction_only") if _clause_verified(text, resolved, rec) else t("vc_no_number")
     for value in numbers:
         for _allowed in allowed:
             if abs(value - _allowed) <= max(0.02, abs(_allowed) * 0.03):
-                return "matched"
-    return "value_mismatch"
+                return t("vc_matched")
+    return t("vc_value_mismatch")
 
 def bind_report(report_text: str, facts: Dict[str, Any]) -> Dict[str, Any]:
     """Bind report clauses to fact records at three levels (see LEVEL_MEANING).
@@ -874,8 +1187,10 @@ def bind_report(report_text: str, facts: Dict[str, Any]) -> Dict[str, Any]:
                 level = "fact_located"
             if _clause_verified(text, resolved, record):
                 level = "verified"
-        has_claim = (bool(SIGNED_NUMBER.search(text)) or "显著" in text or "n_sig" in text
-                     or any(w in text.lower() for w in UP_WORDS + DOWN_WORDS)
+        _claim_up, _claim_down = direction_words(text)
+        has_claim = (bool(SIGNED_NUMBER.search(text)) or "n_sig" in text
+                     or gate_words_present(text, CLAIM_GATE, CLAIM_GATE_EN)
+                     or _claim_up or _claim_down
                      or bool(subject_terms.intersection({g.upper() for g in GENE.findall(text)})))
         if has_claim:
             n_claim += 1
@@ -907,7 +1222,7 @@ def bind_report(report_text: str, facts: Dict[str, Any]) -> Dict[str, Any]:
             "contrast": resolved["table"], "orientation": resolved["orientation"],
             "subject": key, "records": sorted(set(records)),
             "value_check": value_check,
-            "reason": "" if records else (resolved["reason"] or "未绑定到任何事实记录"),
+            "reason": "" if records else (resolved["reason"] or t("clause_unbound")),
         })
     reference_counts: Dict[str, int] = {}
     for _b in bindings:
@@ -934,7 +1249,7 @@ def bind_report(report_text: str, facts: Dict[str, Any]) -> Dict[str, Any]:
         "claims_bound": n_claim_bound,
         "claims_unbound": n_claim - n_claim_bound,
         "levels": levels,
-        "level_meaning": LEVEL_MEANING,
+        "level_meaning": _level_meaning(),
         "pending_review": [{"line": b["line"], "section": b["section"], "clause": b["clause"], "reason": b["reason"]}
                            for b in bindings if b["has_claim"] and b["status"] == "unbound"],
     }
@@ -967,12 +1282,11 @@ def check_report(report_text: str, facts: Dict[str, Any], report_ref: str = "") 
         "coverage": {"contradiction": len(contradictions), "unverified": len(unverified), "passed": passed},
         "verdict": verdict,
         "verdict_meaning": {
-            "pass": "no contradiction and no unverified claim was found by this check",
-            "unverified": "no contradiction found, but claims remain unbound - this is not a pass",
-            "contradiction": "at least one bound claim contradicts the artifacts",
+            "pass": t("verdict_pass"),
+            "unverified": t("verdict_unverified"),
+            "contradiction": t("verdict_contradiction"),
         }[verdict],
-        "scope_note": "Check-item counts, not full-text fact coverage. The check reports contradictions "
-                      "and unbound claims; it does not declare the report scientifically correct.",
+        "scope_note": t("scope_note"),
     }
 
 
@@ -1010,10 +1324,7 @@ def write_artifacts(run_folder, report_text: Optional[str] = None, report_path=N
         "records": facts["records"],
         "bindings": binding["bindings"],
         "coverage": binding["coverage"],
-        "note": "Facts the report was written from. Binding levels: contrast_context (comparison "
-                "recognised), fact_located (a specific record was located), verified (the stated "
-                "value/direction matches that record). Unbound clauses are pending review, not "
-                "errors; do not rank models on the bound count alone.",
+        "note": t("map_note"),
     }
     try:
         out_dir.mkdir(parents=True, exist_ok=True)

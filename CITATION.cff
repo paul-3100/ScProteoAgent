@@ -5,6 +5,7 @@
 cff-version: 1.2.0
 message: "If you use ScProteoAgent, please cite the manuscript listed below."
 title: "ScProteoAgent enables natural-language-driven single-cell proteomics analysis and interpretation"
+version: "1.0.0-rc.1"
 type: software
 repository-code: "https://github.com/paul-3100/ScProteoAgent"
 authors:

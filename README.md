@@ -187,3 +187,36 @@ archive or the manuscript go to the corresponding authors.
   together with the paths that were searched, rather than smoothed over. The same page names the
   checks that ask for artefacts the manuscript does not require.
 
+## Report language
+
+The report language is an explicit option. It is never inferred from the task text, so a
+Chinese request can produce an English report and an English request can produce a Chinese
+one.
+
+    py -3 main_agent.py -i <dataset> -rf runs                       # zh (default)
+    py -3 main_agent.py -i <dataset> -rf runs --report-language en  # English
+
+`--report-language` accepts `zh` (the default) or `en`; any other value fails argument
+parsing before the agent starts. The resolved language and where it came from (`cli`,
+`inherited_from_parent` or `default`) are recorded in `run_metadata.json` and
+`parameters.json`.
+
+`--continue-from <run_folder>` continues an earlier run. It inherits that run's report
+language unless an explicit `--report-language` is given, reuses the saved analysis design
+and the saved normalized matrix, and records each reused artefact with its source path and
+both hashes under `continued_artifacts`. Contrast tables are deliberately not reused, so a
+continuation recomputes the comparisons it needs on the inherited matrix instead of replaying
+the previous report.
+
+Scope of the English mode: the report skeleton, the headings, the deterministic report prose,
+the figure captions and the report fact-check vocabulary are bilingual. Anything that still
+has no English template is reported as an explicit `MISSING_EN_TEMPLATE:<key>` marker and
+listed in the run's gap list, and the report self-check reports any Chinese residue it finds;
+an English report never silently falls back to Chinese.
+
+The released Chinese behaviour is unchanged: with `zh` the report text is byte-identical to
+the 1.0.0-rc.1 baseline. The frozen scoring code under `reproduce/scoring/` is not modified,
+and the English mode does not re-score the paper: the frozen scorer's Chinese-language
+dimension is not applied to English output.
+
+## Reproducing the paper

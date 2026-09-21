@@ -301,3 +301,27 @@ LLM_PROMPT = _escape_prompt_template("""
 4. 如果涉及通路或功能解释，必须尽量与具体蛋白或模块对应起来。
 5. 输出应高信息密度、专业、清晰。
 """)
+
+
+# --- report language ---------------------------------------------------------------
+# The released prompts above are written in Chinese and keep producing the Chinese report
+# unchanged. When a run explicitly asks for an English report, this directive is appended to
+# the report request so the model writes English prose while the deterministic layer keeps
+# exactly the same numbers, directions and evidence labels.
+EN_REPORT_LANGUAGE_DIRECTIVE = _escape_prompt_template("""
+REPORT LANGUAGE (mandatory): write the entire report in English.
+1. Every section heading, paragraph, table header and bullet must be in English.
+2. Use exactly this story-first heading set, and no other:
+   "0. Key Conclusions at a Glance", "1. Data and Preprocessing", one
+   "N. Task X: <the question this contrast answers>" section per contrast, then
+   "N. Summary and Heuristic Inference", "N. Reproducible Asset List", and
+   "N. Conclusion Boundaries and Method Limitations".
+3. Keep unchanged: protein and gene symbols, statistical field names (logFC, P.Value,
+   adj.P.Val, FDR), file names and paths, contrast ids such as C1_vs_C2, and the internal
+   evidence tokens current_matrix, offline_enrichment, external_annotation,
+   external_literature and drug_database.
+4. Never translate, rename or reorder a value that comes from an evidence table; only the
+   surrounding wording is English.
+5. Do not fall back to Chinese for any section, even when the task text or an evidence
+   table is written in Chinese.
+""")

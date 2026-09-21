@@ -30,114 +30,734 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import report_evidence as evidence
+from report_language import get_language, register, t, t_in
 
-TITLE_PREFIX = "# scProteoAgent 分析报告"
-
+# --------------------------------------------------------------------------- reader-facing wording
+# Every reader-facing string this module emits is registered here as key -> (zh, en). The zh
+# value of a key is byte-identical to the literal it replaces, so a zh run renders the released
+# report text unchanged; the en value is a translation into report English. When the active
+# language has no template, report_language.t returns its MISSING_EN_TEMPLATE marker and records
+# the key, so an English report can never silently fall back to Chinese.
+_STRINGS = {
+    'not_recorded': ('未记录', 'not recorded'),
+    'status_computed': ('已计算', 'computed'),
+    'status_recorded': ('已记录', 'recorded'),
+    'status_not_computed': ('未计算', 'not computed'),
+    'arm_higher': ('%s 较高', '%s higher'),
+    'severity_hint': ('提示', 'hint'),
+    'status_not_executed': ('未执行', 'not executed'),
+    'arm_first': ('第一臂', 'arm 1'),
+    'evidence_strength_low_to_moderate': ('证据强度：较低至中等', 'Evidence strength: low to moderate'),
+    'method_not_recorded': ('方法未记录', 'method not recorded'),
+    'group_a': ('A 组', 'Group A'),
+    'group_b': ('B 组', 'Group B'),
+    'analysis_design': ('分析设计', 'analysis design'),
+    'topic_dose_trend': ('剂量趋势', 'dose trend'),
+    'not_detected_in_matrix': ('在可用矩阵中未检出', 'not detected in the available matrix'),
+    'external_annotation': ('外部注释', 'external annotation'),
+    'topic_contrast_concordance': ('对比一致性', 'contrast concordance'),
+    'current_matrix': ('当前矩阵', 'current matrix'),
+    'source_dataset_provided': ('数据集提供', 'provided with the dataset'),
+    'source_current_matrix': ('本次分析的数据矩阵', 'the data matrix of this analysis'),
+    'threshold_adj_p_and_effect': ('校正 P≤%s 且 |效应量|≥%s', 'adjusted P≤%s and |effect size|≥%s'),
+    'topic_sample_count': ('样本数', 'sample count'),
+    'source_offline_enrichment': ('离线富集结果', 'offline enrichment result'),
+    'arm_second': ('第二臂', 'arm 2'),
+    'topic_missing_rate': ('缺失率', 'missing rate'),
+    'evidence_strength_moderate': ('证据强度：中等', 'Evidence strength: moderate'),
+    'evidence_strength_low': ('证据强度：较低', 'Evidence strength: low'),
+    'keyword_boundary': ('边界', 'boundary'),
+    'item_matrix_stages': ('运行链路上的矩阵阶段', 'matrix stages along the run chain'),
+    'arm_higher_suffix': (' 较高', ' higher'),
+    'heading_stratified_summary': ('### 分层对比摘要', '### Stratified Contrast Summary'),
+    'heading_contrast_concordance': ('### 对比一致性', '### Contrast Concordance'),
+    'heading_ora_hypergeometric': ('### 正式富集检验（超几何）', '### Formal Enrichment Test (hypergeometric)'),
+    'arm_higher_in': ('%s 中较高', 'higher in %s'),
+    'protein_filtering_text': ('%s；保留蛋白 %s 个', '%s; %s proteins retained'),
+    'skipped_test_line': ('- 未执行的检验：%s', '- Test not run: %s'),
+    'direction_upregulated': ('上调', 'upregulated'),
+    'enrichment_up_direction': ('上调方向', 'upregulated direction'),
+    'direction_downregulated': ('下调', 'downregulated'),
+    'enrichment_down_direction': ('下调方向', 'downregulated direction'),
+    'connector_and': ('且', 'and'),
+    'asset_candidate_exclusion': ('候选排除记录', 'candidate exclusion record'),
+    'topic_stratified': ('分层对比', 'stratified contrast'),
+    'field_group_and_id_cols': ('分组与标识列', 'grouping and identifier columns'),
+    'field_covariates': ('协变量', 'covariates'),
+    'source_external_literature': ('外部文献', 'external literature'),
+    'field_fdr_method': ('多重校正方法', 'multiple-testing method'),
+    'form_not_recorded': ('形式未记录', 'form not recorded'),
+    'connector_or': ('或', 'or'),
+    'field_effect_size': ('效应量', 'effect size'),
+    'direction_undetermined': ('方向未判定', 'direction not determined'),
+    'direction_not_recorded': ('方向未记录', 'direction not recorded'),
+    'none_value': ('无', 'none'),
+    'dose_no_monotonic_trend': ('无单调趋势', 'no monotonic trend'),
+    'kind_significant_set': ('显著集', 'significant set'),
+    'enrichment_status_valid_empty': ('有效空结果', 'valid empty result'),
+    'not_entered_statistical_test': ('未进入统计检验', 'did not enter statistical testing'),
+    'field_tested_proteins': ('检验蛋白数', 'proteins tested'),
+    'topic_formal_enrichment': ('正式富集检验', 'formal enrichment test'),
+    'note_drug_stratum': ('注：%s / %s %s', 'Note: %s / %s %s'),
+    'source_auto_inferred': ('系统自动推断', 'automatically inferred by the system'),
+    'source_drug_database': ('药物数据库', 'drug database'),
+    'field_design_source': ('设计来源', 'design source'),
+    'field_design_threshold': ('设计阈值', 'design threshold'),
+    'evidence_strength_low_and_moderate': ('证据强度：分别为较低与中等', 'Evidence strength: low and moderate, respectively'),
+    'lower_to_moderate': ('较低至中等', 'low to moderate'),
+    'topic_pathway_terms': ('通路富集条目', 'pathway enrichment entries'),
+    'status_partially_recorded': ('部分记录', 'partially recorded'),
+    'topic_dimensionality_and_figures': ('降维与图件', 'dimensionality reduction and figures'),
+    'dose_rising': ('随剂量上升', 'rising with dose'),
+    'dose_falling': ('随剂量下降', 'falling with dose'),
+    'evidence_this_run_diff': ('（证据：本轮差异分析）', '(evidence: differential analysis of this run)'),
+    'imputed_values_suffix': ('，填补 %s 个取值', ', %s values imputed'),
+    'no_further_repeat': ('，此处不再重复。', '; not repeated here.'),
+    'unit_effect_summary_line': ('  - %s：已检验 %s 个蛋白，效应量范围 %s 至 %s（中位 %s）；其中 %s 个蛋白的 95%% 置信区间不跨 0（逐蛋白、未经多重校正）。', '  - %s: %s proteins tested, effect sizes from %s to %s (median %s); for %s of them the 95%% confidence interval does not cross 0 (per protein, without multiple-testing correction).'),
+    'ora_class_significant_line': ('  - %s：规则 %s；查询集 n=%s；涉及对比 %s', '  - %s: rule %s; query set n=%s; contrasts involved %s'),
+    'ora_class_fallback_line': ('  - %s：该对比显著集为 %s 个蛋白；兜底查询集 n=%s；涉及对比 %s', '  - %s: the significant set of this contrast holds %s proteins; fallback query set n=%s; contrasts involved %s'),
+    'volcano_row_with_arms': ('  - %s：通过筛选 %s 个（%s 较高 %s、%s 较高 %s；按该差异表自身符号）', '  - %s: %s passed screening (%s higher %s, %s higher %s; per the sign convention of that differential table)'),
+    'volcano_row_plain': ('  - %s：通过筛选 %s 个（上调 %s、下调 %s）', '  - %s: %s passed screening (upregulated %s, downregulated %s)'),
+    'title_prefix': ('# scProteoAgent 分析报告', '# scProteoAgent Analysis Report'),
+    'heading_task': ('## %d. 任务%d：%s', '## %d. Task %d: %s'),
+    'heading_assets': ('## %d. 可复核资产清单', '## %d. Reproducible Asset List'),
+    'heading_figures': ('## %d. 图表与文字结论', '## %d. Figures and Text Conclusions'),
+    'heading_summary': ('## %d. 总结与启发式推测', '## %d. Summary and Heuristic Inference'),
+    'heading_boundary': ('## %d. 结论边界与方法局限', '## %d. Conclusion Boundaries and Method Limitations'),
+    'heading_evidence_tables': ('## %d. 证据表（逐条）', '## %d. Evidence Tables (record by record)'),
+    'heading_run_parameters': ('## %d. 运行参数与证据绑定', '## %d. Run Parameters and Evidence Binding'),
+    'heading_key_conclusions': ('## 0. 关键结论速览', '## 0. Key Conclusions at a Glance'),
+    'heading_data': ('## 1. 数据与预处理', '## 1. Data and Preprocessing'),
+    'request_index_title': ('## 本轮可用事实清单（由运行工件直接生成，与最终报告表格同源）', '## Facts available for this run (generated directly from the run artifacts, from the same source as the final report tables)'),
+    'heading_exclusion_trace': ('### 候选排除轨迹', '### Candidate Exclusion Trace'),
+    'heading_candidate_stats': ('### 候选蛋白逐对比统计', '### Candidate Proteins by Contrast'),
+    'heading_extra_unbound': ('### 其他说明（未能绑定到任务小节的内容）', '### Other Notes (content that could not be bound to a task section)'),
+    'heading_stratified_computed': ('### 分层对比摘要（已计算：%d 行；分层变量：%s）', '### Stratified Contrast Summary (computed: %d rows; stratifiers: %s)'),
+    'heading_dose_trend': ('### 剂量趋势检验（Spearman）', '### Dose-Trend Test (Spearman)'),
+    'heading_dose_trend_computed': ('### 剂量趋势（Spearman，已计算）', '### Dose Trend (Spearman, computed)'),
+    'heading_consistency_note': ('### 口径与一致性说明', '### Scope and Consistency Notes'),
+    'heading_task_ids': ('### 可用 task_id（每个对比一个；必须逐字使用）', '### Available task_id values (one per contrast; use verbatim)'),
+    'heading_figures_plain': ('### 图册', '### Figure Index'),
+    'heading_figure_index': ('### 图册（报告按「图号 + 标题 + 文字结论」引用）', '### Figure Index (the report cites each figure as number + title + text conclusion)'),
+    'heading_unit_layer': ('### 实验单位层（个体结构敏感性分析）', '### Experimental-Unit Layer (unit-structure sensitivity analysis)'),
+    'heading_unit_layer_computed': ('### 实验单位层（个体结构敏感性分析，已计算）', '### Experimental-Unit Layer (unit-structure sensitivity analysis, computed)'),
+    'heading_enrichment_hint': ('### 富集方向提示（探索性）', '### Enrichment Direction Hints (exploratory)'),
+    'heading_enrichment_boundary': ('### 富集边界说明', '### Enrichment Boundary Note'),
+    'heading_concordance_and_exclusion': ('### 对比一致性与候选排除', '### Contrast Concordance and Candidate Exclusion'),
+    'heading_contrast_evidence': ('### 对比级证据摘要', '### Contrast-Level Evidence Summary'),
+    'heading_data_preprocessing': ('### 数据与预处理', '### Data and Preprocessing'),
+    'heading_not_computed': ('### 本轮未计算的证据（不得写成已有结果）', '### Evidence Not Computed in This Run (must not be written as an existing result)'),
+    'heading_core_contrasts': ('### 核心对比（task_id 与本节一致）', '### Core Contrasts (task_id matches this section)'),
+    'heading_module_scores': ('### 模块分组分数', '### Module Group Scores'),
+    'heading_ora_background': ('### 正式富集检验（超几何，背景=本次检测到的蛋白）', '### Formal Enrichment Test (hypergeometric, background = proteins detected in this run)'),
+    'heading_overlap_plain': ('### 预定义基因集的重叠富集', '### Overlap Enrichment of Predefined Gene Sets'),
+    'heading_overlap_exploratory': ('### 预定义基因集的重叠富集（探索性，无 FDR/q）', '### Overlap Enrichment of Predefined Gene Sets (exploratory, no FDR/q)'),
+    'range_two_values': ('%.4f 至 %.4f', '%.4f to %.4f'),
+    'samples_two_arms': ('%s / %s（两臂样本数；按运行记录中第一个对比）', '%s / %s (sample counts of the two arms; first contrast in the run record)'),
+    'figure_bar_conclusion': ('%s 个对比共 %s 个蛋白通过筛选（上调 %s、下调 %s，阈值 %s）。%s', '%s contrasts with %s proteins passing screening in total (upregulated %s, downregulated %s, threshold %s). %s'),
+    'proteins_per_contrast': ('%s 个蛋白（每个对比）', '%s proteins (per contrast)'),
+    'unparsable_diff_table': ('%s 的差异表不可解析（%s），筛选与计数无法核对', 'the differential table of %s cannot be parsed (%s), so the screening rule and the counts cannot be checked'),
+    'range_generic': ('%s 至 %s', '%s to %s'),
+    'title_suffix_analysis_report': ('%s分析报告', '%s Analysis Report'),
+    'title_suffix_report': ('%s报告', '%s Report'),
+    'title_core_join': ('%s的%s%s', '%s %s%s'),
+    'fallback_contrast_label': ('%s（%s 较高 / %s 较高）', '%s (%s higher / %s higher)'),
+    'quote_note': ('%s（相关原文：%s）', '%s (source text: %s)'),
+    'n_significant_split': ('%s（较高 %s / 较低 %s）', '%s (%s higher / %s lower)'),
+    'matrix_stage_shape': ('%s：%d 蛋白 × %d 样本', '%s: %d proteins × %d samples'),
+    'fallback_contrast_item': ('%s：该对比显著集 %s 个蛋白，兜底查询集 n=%s', '%s: this contrast holds %s proteins in its significant set and a fallback query set of n=%s'),
+    'figure_line_parse_re': ('(图\\d+)\\s*([^：:]*)', '(Figure\\s*\\d+)\\s*([^:：]*)'),
+    'unit_sensitivity_completed': ('**实验单位敏感性分析**：以「%s」为分析单位（%s；估计目标：%s%s）。本对比%s；进入检验的蛋白组 %s 个%s，按 FDR 口径 %s 条通过，%s，最小校正 P 值 %s。', '**Experimental-unit sensitivity analysis**: the analysis unit is "%s" (%s; estimand: %s%s). For this contrast, %s; %s protein groups entered testing%s, %s passed under the FDR criterion, %s, smallest adjusted P %s.'),
+    'unit_sensitivity_blocked': ('**实验单位敏感性分析**：本对比不做个体级检验（%s）：%s', '**Experimental-unit sensitivity analysis**: no unit-level test is run for this contrast (%s): %s'),
+    'task_id_line': ('- %s：对比 %s；正值表示 %s 较高；源差异表 %s%s', '- %s: contrast %s; a positive value means %s is higher; source differential table %s%s'),
+    'dose_module_cap': ('- 下表列出模块级前 %d 行；模块级共 %s 行（完整结果见本轮工件的 dose_trend.csv）。', "- The table below lists the first %d module-level rows; there are %s module-level rows in all (full results in this run's dose_trend.csv)."),
+    'ora_best_cap': ('- 下表按 q(BH) 升序列出前 %d 条；被检验条目共 %s 条，其余条目未列出（未列出不等于没有结果）。', '- The table below lists the first %d rows in ascending q(BH); %s entries were tested and the rest are not listed (not listed does not mean there is no result).'),
+    'query_scope_warning': ('- 不得把某一对比的显著蛋白数写成整个数据集的数字；两类查询集的 q 值不可直接比较。', '- The number of significant proteins of one contrast must not be written as a figure for the whole dataset; the q values of the two query-set classes are not directly comparable.'),
+    'boundary_matrix_only': ('- 以上结论只对当前分析矩阵成立；模块分数不替代单蛋白 FDR 或正式富集检验。', '- The conclusions above hold only for the current analysis matrix; module scores do not replace per-protein FDR or a formal enrichment test.'),
+    'exclusion_trace_line': ('- 候选排除轨迹：%s；被记录为未检出的候选：%s', '- Candidate exclusion trace: %s; candidates recorded as not detected: %s'),
+    'asset_candidate_records': ('- 候选蛋白记录：%d 条，逐条数值见「候选蛋白逐对比统计」表。', '- Candidate protein records: %d; per-record values are in the table "Candidate Proteins by Contrast".'),
+    'data_group_cols': ('- 分组列：%s；样本 ID 列：%s；批次列：%s', '- Group column: %s; sample ID column: %s; batch column: %s'),
+    'more_hints': ('- 另有 %d 条同类提示未在正文展开。', '- A further %d hints of the same kind are not expanded in the body.'),
+    'figure_line': ('- 图%d %s：%s', '- Figure %d %s: %s'),
+    'volcano_range_one': ('- 图%d 逐对比火山图（阈值 %s）：', '- Figure %d per-contrast volcano plot (threshold %s):'),
+    'volcano_range_many': ('- 图%d–%d 逐对比火山图（阈值 %s）：', '- Figures %d–%d per-contrast volcano plots (threshold %s):'),
+    'figure_caption_count': ('- 图注 %s 条%s；visualize_results 下 PNG %s 个%s：%s', '- %s figure captions%s; %s PNG files under visualize_results%s: %s'),
+    'figure_number_provenance': ('- 图题中的数字由本运行的报告流水线从本运行工件计算或读取（其中 PCA 解释率来自对 processed_proteins/ProteinQuant_ComBat.csv 的复算：列均值中心化、缺失以蛋白均值填补）。与源表数值冲突时以源表为准，冲突处须标注需核验，不得直接写成已验证事实。', "- The numbers in the figure titles are computed or read from this run's artifacts by this run's report pipeline (the PCA explained variance comes from a recomputation on processed_proteins/ProteinQuant_ComBat.csv: column-mean centring, missing values filled with the protein mean). Where a number conflicts with a source table the source table wins, and the conflict must be flagged as needing verification instead of being written as an established fact."),
+    'boundary_external_annotation': ('- 外部注释只作背景说明，不作为当前矩阵的直接证据。', '- External annotation is background only and is not direct evidence from the current matrix.'),
+    'concordance_line': ('- 对比一致性：%s（%s 对比较）', '- Contrast concordance: %s (%s pairs)'),
+    'asset_contrast_records': ('- 对比级证据：%d 条，逐条数值见「对比级证据摘要」表。', '- Contrast-level evidence: %d records; per-record values are in the table "Contrast-Level Evidence Summary".'),
+    'data_threshold': ('- 差异分析阈值：%s', '- Differential-analysis threshold: %s'),
+    'units_excluded_bullet': ('- 已单列并排除在独立个体之外的实验单位：%s（按标签语义事先判定，不按检验结果挑选）。', '- Experimental units listed separately and excluded from independent individuals: %s (decided in advance from label semantics, not selected by test result).'),
+    'unit_citation_rules': ('- 引用规则：观察级与单位层各自的通过数只能写进各自小节；单位层不显著不等于「没有差异」，不可估计的对比只能写「无法在本设计下识别该估计目标」。', '- Citation rule: the counts of the observation level and of the unit level each belong only in their own section; a unit-level result that is not significant does not mean "no difference", and an inestimable contrast may only be written as "this estimand cannot be identified under this design".'),
+    'unit_effect_column_note': ('- 效应量列：%s（尺度：%s）；每个已检验蛋白的效应量、标准误与 95%% 置信区间在该对比的单位层表中逐行给出，未通过最小样本条件的行标为未检验且不带 P 值。', '- Effect column: %s (scale: %s); for every tested protein the effect size, standard error and 95%% confidence interval are given row by row in the unit-level table of that contrast, and rows below the minimum-sample condition are marked as not tested and carry no P value.'),
+    'blocked_contrast_line': ('- 未做个体级检验的对比：%s —— %s', '- Contrasts with no unit-level test: %s - %s'),
+    'boundary_enrichment_states': ('- 未提供富集结果与未执行富集分析是两种不同状态，报告按实际情况分别写明。', '- Enrichment results not provided and enrichment analysis not run are two different states; the report states which one applies.'),
+    'core_contrast_count': ('- 本轮共 %d 个核心对比，证据文件见文末清单。', '- This run has %d core contrasts; the evidence files are listed at the end of the report.'),
+    'run_contrasts': ('- 本轮对比：%s', '- Contrasts in this run: %s'),
+    'query_definition_line': ('- 查询集定义：%s', '- Query-set definition: %s'),
+    'query_classes_intro': ('- 查询集按对比分两类，引用 q 值时必须写明属于哪一类：', '- The query set falls into two classes by contrast; when citing a q value, state which class it belongs to:'),
+    'tested_matrix_and_missing': ('- 检验所用矩阵与缺失口径：统计检验在%s上完成；原始交付矩阵的平均缺失率 %s，本轮分析矩阵 %s%s。', "- Matrix used for testing and missing-value scope: statistical testing was carried out on %s; the mean missing rate of the original delivered matrix is %s and that of this run's analysis matrix is %s%s."),
+    'tested_matrix_plain': ('- 检验所用矩阵：%s；缺失口径%s（运行记录中没有分阶段缺失统计）。', '- Matrix used for testing: %s; missing-value scope %s (the run record holds no per-stage missing-value statistics).'),
+    'dose_summary_line': ('- 模块级 %s 行、蛋白级 %s 行；蛋白级在 q≤0.05 下呈单调趋势 %s 个；最小 q=%s', '- %s module-level rows and %s protein-level rows; %s proteins show a monotonic trend at q≤0.05; smallest q=%s'),
+    'dose_module_significant': ('- 模块级通过 q≤0.05 的条目：%s 条（已计算；0 表示已计算且无模块级显著结果）', '- Module-level entries passing q≤0.05: %s (computed; 0 means the test ran and no module-level result was significant)'),
+    'asset_module_records': ('- 模块记录：%d 条，逐条数值见「模块分组分数」表。', '- Module records: %d; per-record values are in the table "Module Group Scores".'),
+    'data_matrix_state': ('- 矩阵状态：%s；效应尺度：%s（%s）', '- Matrix state: %s; effect scale: %s (%s)'),
+    'boundary_offline_enrichment': ('- 离线富集结果只在 FDR 显著时作为显著富集，其余只能作为探索性提示。', '- Offline enrichment results count as significant enrichment only when FDR-significant; otherwise they are exploratory hints only.'),
+    'method_summary_pointer': ('- 统计模型、多重校正、筛选条件与各参数的记录位置见「运行参数与证据绑定」；本节只给摘要，完整声明集中在该小节，此处不重复。', '- The statistical model, multiple-testing method, screening conditions and each parameter are recorded in "Run Parameters and Evidence Binding"; this section gives the summary only, so the full statement is not repeated here.'),
+    'ora_background_sizes': ('- 背景集大小 %s；统计检验所用矩阵蛋白数 %s（两个数字口径不同，引用时写明指哪一个）', '- Background-set size %s; protein count of the matrix used for testing %s (the two figures have different scopes; state which one is meant when citing)'),
+    'boundary_table_values': ('- 表内数值来自本轮分析的确定性表格；正文解释与表格同源，任何数值以表格为准。', "- Values in the tables come from this run's deterministic tables; the explanatory text and the tables share one source, and the tables decide any value."),
+    'ora_tested_counts': ('- 被检验条目 %s 条，未检验 %s 条', '- %s entries tested, %s not tested'),
+    'data_evidence_paths': ('- 证据表与图件路径见文末清单；数值以确定性表格为准。', '- Evidence tables and figure paths are listed at the end of the report; the deterministic tables decide any value.'),
+    'ora_significant_count': ('- 通过 q(BH)≤0.05 的条目：%s 条（已计算；0 表示检验已执行但没有条目通过，不得写成未执行）', '- Entries passing q(BH)≤0.05: %s (computed; 0 means the test ran and no entry passed, which must not be written as not run)'),
+    'field_n_a_key': ('A 组样本数=', 'Group A sample count='),
+    'field_n_up_a': ('A 组较高数', 'count higher in Group A'),
+    'field_n_b_key': ('B 组样本数=', 'Group B sample count='),
+    'field_n_down_a': ('B 组较高数', 'count higher in Group B'),
+    'fdr_significant': ('FDR 显著', 'FDR significant'),
+    'figure_pca_conclusion': ('PC1 解释 %.1f%%、PC2 解释 %.1f%% 的方差；PC1 分组均值从最低的 %s（%.2f）到最高的 %s（%.2f），说明分组在 PC1 方向存在整体位移。', 'PC1 explains %.1f%% and PC2 explains %.1f%% of the variance; the PC1 group mean runs from the lowest %s (%.2f) to the highest %s (%.2f), showing a systematic shift of the groups along PC1.'),
+    'figure_qc_title': ('PCA 样本结构', 'Sample and missing-rate QC'),
+    'figure_umap_title': ('UMAP 样本结构', 'UMAP sample structure'),
+    'threshold_text': ('adj.P<%s 且 \\|logFC\\|>%s（多重校正：%s）', 'adj.P<%s and \\|logFC\\|>%s (multiple testing: %s)'),
+    'figure_threshold': ('adj.P<0.05 且 |logFC|>0.25（BH 校正）', 'adj.P<0.05 and |logFC|>0.25 (BH correction)'),
+    'threshold_design': ('adj.P≤%s 且 |logFC|≥%s', 'adjusted P≤%s and |effect size|≥%s'),
+    'scale_log2_inferred': ('log2（推断，未记录变换）', 'log2 (inferred; no transform recorded)'),
+    'note_needs_log_transform': ('parameters.json 的 needs_log_transform 是对输入的推断，两者不是同一件事', 'needs_log_transform in parameters.json is an inference about the input, and the two are not the same thing'),
+    'transform_record_derived_source': ('run_events.jsonl 的 combat_calibration 工具结果（派生，不是该步骤直接写出）', 'combat_calibration tool result in run_events.jsonl (derived, not written directly by that step)'),
+    'header_task_id_contrast': ('| task_id | 对比 | 两臂 | 通过筛选 | 第一臂较高 | 第二臂较高 | 方向写法 |', '| task_id | Contrast | Two arms | Passed screening | Higher in arm 1 | Higher in arm 2 | Direction convention |'),
+    'header_unit_layer': ('| task_id | 本轮任务 | 状态 | 分析单位 | 单位语义来源 | 估计目标 | A/ B/ 共同/ 仅A/ 仅B | 检验蛋白/未检验 | FDR口径通过 | 联合口径通过 | 最小校正P |', '| task_id | Task of this run | Status | Analysis unit | Unit-semantics source | Estimand | A/ B/ shared/ A only/ B only | Tested/not tested | Passed under FDR | Passed under the joint rule | Smallest adjusted P |'),
+    'header_contrast_evidence': ('| 任务 | 对比 | 第一臂 | 第二臂 | 通过筛选蛋白数 | 第一臂中较高 | 第二臂中较高 | 证据来源 | 置信度 |', '| Task | Contrast | Arm 1 | Arm 2 | Proteins passing screening | Higher in arm 1 | Higher in arm 2 | Evidence source | Confidence |'),
+    'header_candidate_stats': ('| 候选 | 匹配蛋白 | 对比 | 方向 | logFC | P 值 | 校正 P 值 | 缺失率 | 证据来源 |', '| Candidate | Matched protein | Contrast | Direction | logFC | P value | Adjusted P value | Missing rate | Evidence source |'),
+    'header_candidate_block': ('| 候选 | 蛋白组 | 显示方向 %s | 源表 %s | adj.P.Val | 方向 | 差异表 |', '| Candidate | Protein group | Display direction %s | Source table %s | adj.P.Val | Direction | Differential table |'),
+    'header_exclusion_trace': ('| 候选 | 记录原因 | 记录数 |', '| Candidate | Recorded reason | Records |'),
+    'row_missing_rate_raw': ('| 原始交付矩阵的平均缺失率 | %s | %s |', '| Mean missing rate of the original delivered matrix | %s | %s |'),
+    'row_transform_record_source': ('| 变换记录的来源 | %s | 元数据 |', '| Source of the transform record | %s | metadata |'),
+    'row_fdr': ('| 多重校正 | %s | %s |', '| Multiple testing | %s | %s |'),
+    'row_effective_threshold': ('| 实际生效阈值 | %s | %s |', '| Threshold actually in force | %s | %s |'),
+    'row_log2_transform': ('| 对数变换（按本轮实际执行记录） | %s | %s |', "| Log transform (per this run's execution record) | %s | %s |"),
+    'header_concordance': ('| 对比 A | 对比 B | 共享蛋白 | 效应相关 | 显著重叠 | Fisher p |', '| Contrast A | Contrast B | Shared proteins | Effect correlation | Significant overlap | Fisher p |'),
+    'header_stratified': ('| 对比 | 分层变量 | 层 | 第一臂 n | 第二臂 n | 检验蛋白 | 通过筛选 | 结论 |', '| Contrast | Stratifier | Stratum | Arm 1 n | Arm 2 n | Proteins tested | Passed screening | Conclusion |'),
+    'header_stratified_request': ('| 对比 | 层 | 第一臂 n | 第二臂 n | 检验蛋白 | 通过筛选 | 分层判定 | 备注 |', '| Contrast | Stratum | Arm 1 n | Arm 2 n | Proteins tested | Passed screening | Stratified verdict | Remark |'),
+    'header_ora': ('| 对比 | 方向 | 库 | 通路 | 命中 | 通路在背景中 | 查询集 | p | q(BH) |', '| Contrast | Direction | Database | Pathway | Hits | Pathway in background | Query set | p | q(BH) |'),
+    'header_overlap': ('| 对比 | 状态 | 条目数 | 文件中的对比键（臂序） | 各库条目数 |', '| Contrast | Status | Entries | Contrast key in the file (arm order) | Entries per database |'),
+    'header_core_contrast': ('| 对比 | 通过筛选的蛋白数 | %s 较高 | %s 较高 | 统计口径 |', '| Contrast | Proteins passing screening | %s higher | %s higher | Statistical scope |'),
+    'header_overlap_picks': ('| 对比内的条目 | 库 | 方向 | 通路/语义条目 | 该条种子基因数 | 代表成员 |', '| Entry within contrast | Database | Direction | Pathway/semantic term | Seed genes in that entry | Representative members |'),
+    'header_ora_best': ('| 库 | 通路 | 命中 | 查询集 | p | q(BH) |', '| Database | Pathway | Hits | Query set | p | q(BH) |'),
+    'header_enrichment_hint': ('| 数据库 | 方向 | 通路/语义条目 | 该条种子基因数 | 代表成员 |', '| Database | Direction | Pathway/semantic term | Seed genes in that entry | Representative members |'),
+    'row_missing_rate_analysed': ('| 本轮分析矩阵的平均缺失率 | %s | %s |', "| Mean missing rate of this run's analysis matrix | %s | %s |"),
+    'header_module_block': ('| 模块 | A 组均值 | B 组均值 | Δ（A 组均值 − B 组均值） | 匹配蛋白数 |', '| Module | Group A mean | Group B mean | Δ (Group A mean − Group B mean) | Matched proteins |'),
+    'header_module_scores': ('| 模块 | 分组或差值 | 样本数 | 平均分 | 中位数 | 匹配基因数 | 成员基因（匹配） |', '| Module | Group or difference | Samples | Mean score | Median | Matched genes | Member genes (matched) |'),
+    'row_samples_per_group': ('| 每组样本数 | %s | %s |', '| Samples per group | %s | %s |'),
+    'row_matrix_size': ('| 统计检验所用矩阵规模 | %s 个蛋白 | %s |', '| Size of the matrix used for testing | %s proteins | %s |'),
+    'row_statistical_model': ('| 统计模型 | %s | %s |', '| Statistical model | %s | %s |'),
+    'row_imputation': ('| 缺失值填补（按本轮实际执行记录） | %s | %s |', "| Missing-value imputation (per this run's execution record) | %s | %s |"),
+    'header_dose_module': ('| 药物 | 分层 | 模块 | 样本数 | ρ | p | q(BH) |', '| Drug | Stratum | Module | Samples | ρ | p | q(BH) |'),
+    'header_dose_module_steps': ('| 药物 | 分层 | 模块 | 样本数 | 剂量步 | ρ | p | q(BH) | 方向 |', '| Drug | Stratum | Module | Samples | Dose steps | ρ | p | q(BH) | Direction |'),
+    'header_dose_protein': ('| 蛋白 | 药物 | 分层 | 样本数 | ρ | p | q(BH) |', '| Protein | Drug | Stratum | Samples | ρ | p | q(BH) |'),
+    'row_protein_filtering': ('| 蛋白过滤（按本轮实际执行记录） | %s | %s |', "| Protein filtering (per this run's execution record) | %s | %s |"),
+    'header_asset_pointer': ('| 资产 | 在何处复核 |', '| Asset | Where to verify it |'),
+    'row_matrix_stage': ('| 运行链路上的矩阵阶段 | %s | %s |', '| Matrix stages along the run chain | %s | %s |'),
+    'row_dimred_coordinates': ('| 逐样本降维坐标 | %s | %s |', '| Per-sample dimensionality-reduction coordinates | %s | %s |'),
+    'header_evidence_binding': ('| 项目 | 取值 | 记录位置 | 状态 |', '| Item | Value | Record location | Status |'),
+    'header_request_item': ('| 项目 | 数值或状态 | 状态 |', '| Item | Value or status | Status |'),
+    'enrichment_up_label': ('上调方向（%s 较高）', 'upregulated direction (%s higher)'),
+    'query_scope_two_classes': ('下列 q 值只描述各自查询集的富集情况，不等同于差异蛋白的富集显著性；某一对比的显著蛋白数不适用于整个数据集。', 'The q values below describe the enrichment of each query set respectively and are not equivalent to the enrichment significance of the differential proteins; the number of significant proteins of one contrast does not apply to the whole dataset.'),
+    'query_scope_single': ('下列 q 值描述的是该查询集的富集情况，不等同于差异蛋白的富集显著性。', 'The q values below describe the enrichment of that query set and are not equivalent to the enrichment significance of the differential proteins.'),
+    'exclusion_trace_intro': ('下列候选在进入统计前被排除，原因按来源表逐条记录；未检出不等于样本中不存在。', 'Candidates listed below were excluded before entering the statistics, and the reason is recorded entry by entry from the source table; not detected does not mean absent from the sample.'),
+    'evidence_binding_intro': ('下表逐项列出本节数值所依赖的运行参数及其记录位置；运行记录未写入的参数标记为「未记录」，不按报告措辞补写，也不选择更有利的读法。', 'The table below lists, item by item, the run parameters the values in this section depend on and where each one is recorded; a parameter the run record never wrote is marked "not recorded" and is neither filled in from the report wording nor read in whichever way flatters the text.'),
+    'enrichment_down_label': ('下调方向（%s 较高）', 'downregulated direction (%s higher)'),
+    'unit_status_blocked': ('不可估计，未做个体级检验', 'inestimable, no unit-level test performed'),
+    'absence_note_excludes_presence_only': ('不含未进入统计检验的候选（这类候选只在附录单独列出）', 'and does not contain records that did not enter statistical testing (such candidates are listed separately in the appendix)'),
+    'figure_umap_conclusion': ('与 PCA 同一输入的二维投影，用于交叉检查分组分离与离群样本。', 'A two-dimensional projection of the same input as the PCA, used to cross-check group separation and outlier samples.'),
+    'note_imputation_versus_missing': ('与下一行的插补状态是两个不同问题：这里问统计检验如何对待缺失观测，那里问分析矩阵是否被填补', 'This is a different question from the imputation state in the next row: here the question is how statistical testing treats missing observations, there it is whether the analysis matrix was imputed.'),
+    'arm_order_matches': ('与本对比臂序一致', 'the arm order matches this contrast'),
+    'arm_order_reversed': ('与本对比臂序相反', 'the arm order is reversed relative to this contrast'),
+    'field_pair_col': ('个体/实验单位列=%s', 'pair/experimental-unit column=%s'),
+    'estimand_within_unit_mean_diff': ('个体内均值差（同一实验单位在两臂的均值差）', 'within-unit mean difference (difference of the means of the same experimental unit across the two arms)'),
+    'estimand_within_unit_observed': ('个体内均值差（同一实验单位在两臂都有观测）', 'within-unit mean difference (the same experimental unit observed in both arms)'),
+    'reason_matched_by_name_only': ('个体列仅按名称匹配，未在分析设计中声明', 'the unit column is matched by name only and is not declared in the analysis design'),
+    'item_unit_sensitivity': ('个体结构敏感性分析', 'individual-structure sensitivity analysis'),
+    'estimand_between_unit_pooled': ('个体间均值差（每条臂只使用只在该臂观测的实验单位）', 'between-unit mean difference (each arm uses only the experimental units observed in that arm)'),
+    'estimand_between_unit_independent': ('个体间均值差（每条臂只使用只在该臂观测的独立个体）', 'between-unit mean difference (each arm uses only the independent individuals observed in that arm)'),
+    'confidence_moderate': ('中', 'moderate'),
+    'moderate_slash_low': ('中等/较低', 'moderate/low'),
+    'stage_delivered_matrix': ('交付矩阵（未经步骤命名）', 'delivered matrix (no step name)'),
+    'scale_log2_range_only': ('仅按数值范围推断，未记录变换', 'log2 (inferred; no transform recorded)'),
+    'scale_log2_range_only_long': ('仅按数值范围推断；运行记录只记录了输入的判断字段，未记录实际变换', 'inferred from the value range only; the run record holds only the input judgement fields and nothing about the transform actually applied'),
+    'figure_group_means_conclusion': ('代表蛋白组的分组均值；逐条数值与差值见「模块分组分数」表，模块分数无 FDR，只作方向性证据。', 'Group means of representative protein groups; per-record values and differences are in the table "Module Group Scores", and module scores carry no FDR, so they are directional evidence only.'),
+    'unit_layer_digest': ('以%s为分析单位（来源：%s）：%d 个对比中 %d 个可做个体级检验（两臂共同单位 %s 个）；按 FDR 口径合计 %d 条通过，按联合口径（FDR 且 |效应| > %s）合计 %d 条通过；%d 个蛋白行因有效单位不足标为未检验。', 'using %s as the analysis unit (source: %s): of %d contrasts, %d support a unit-level test (%s shared units across the two arms); %d entries passed under the FDR criterion and %d passed under the joint criterion (FDR and |effect| > %s); %d protein rows are marked as not tested for lack of valid units.'),
+    'file_scoring_coverage': ('任务覆盖检查表', 'task coverage checklist'),
+    'confidence_low': ('低', 'low'),
+    'unit_design_paired': ('使用两臂都有观测的 %s 个独立单位做配对 t 检验；只在一个臂出现的单位不参与配对', 'paired t-test on the %s independent units observed in both arms; units appearing in only one arm do not enter the pairing'),
+    'asset_candidate_exclusion_trace': ('候选排除轨迹', 'candidate exclusion trace'),
+    'figure_bubble_conclusion': ('候选蛋白在各对比中的方向与效应量；逐条数值见「候选蛋白逐对比统计」表。', 'Direction and effect size of the candidate proteins across contrasts; per-record values are in the table "Candidate Proteins by Contrast".'),
+    'figure_bubble_title': ('候选蛋白对比气泡图', 'Candidate protein contrast bubble plot'),
+    'asset_candidate_index': ('候选蛋白索引共 %d 个「对比 × 蛋白组」组合：%d 个已在上文对应任务中列出%s', 'Candidate protein index covers %d "contrast x protein group" combinations: %d are listed in the corresponding task above%s'),
+    'file_candidate_protein': ('候选蛋白表', 'candidate protein table'),
+    'candidate_caption_all': ('候选蛋白（共 %d 条）', 'Candidate proteins (%d in total)'),
+    'candidate_caption_capped': ('候选蛋白（共 %d 条，本节列前 %d 条，完整清单见「证据表（逐条）」）', 'Candidate proteins (%d in total; this section lists the first %d, and the full list is in "Evidence Tables (record by record)")'),
+    'fallback_query_scope': ('兜底查询集用于该对比显著集过小的情形：%s；本节所列兜底条目查询集 n=%s。', 'The fallback query set covers contrasts whose significant set is too small: %s; the fallback entries listed in this section have a query set of n=%s.'),
+    'kind_fallback_set': ('兜底集（该对比显著集过小时按 |logFC| 取前 10%）', "fallback set (the first 10% by |logFC| when a contrast's significant set is too small)"),
+    'unit_design_between': ('共享单位不足以配对，改用只在单臂观测的独立个体（A 臂 %s 个、B 臂 %s 个）做个体间 Welch 检验，共享单位被排除在外、不重复计数', 'the shared units are too few to pair, so independent individuals observed in only one arm (arm A %s, arm B %s) are used in a between-unit Welch test, with shared units excluded and never counted twice'),
+    'figure_key_protein_title': ('关键蛋白总览', 'Key protein overview'),
+    'merged_flipped_note': ('其中 %s 的臂序与本节坐标相反，其句内正负号与本节表格相反；引用这些句子的数值时以本节表格的方向为准。', 'the arm order of %s is opposite to the coordinates of this section, so the signs inside those sentences are opposite to the tables of this section; when citing numbers from those sentences, follow the direction of the tables in this section.'),
+    'backend_internal_fallback': ('内置回退实现（运行环境缺少 R/rpy2，标准流程未启用）', 'built-in fallback implementation (this run environment lacks R/rpy2, so the standard pipeline was not enabled)'),
+    'asset_stratified_summary': ('分层对比摘要表', 'stratified contrast summary table'),
+    'not_computed_stratified': ('分层对比摘要（源表没有带分层的行）', 'stratified contrast summary (the source table has no stratified rows)'),
+    'file_stratified_summary': ('分层对比汇总', 'stratified contrast summary'),
+    'stratified_scope_note': ('分层结果按单个分层变量分别分组，不等于同时控制多个变量；主结论仍以主模型为准。', 'Stratified results group by one stratifier at a time and are not equivalent to controlling several variables at once; the main conclusion still follows the main model.'),
+    'stratified_scope_note_short': ('分层结果按单个变量分别分组，不等于同时控制多个变量；主结论仍以主模型为准。', 'Stratified results are grouped by one variable at a time and are not equivalent to controlling several variables at once; the main conclusion still follows the main model.'),
+    'field_analysed_missing': ('分析后缺失率=', 'analysed missing rate='),
+    'field_analysed_missing_rate': ('分析矩阵平均缺失率', 'mean missing rate of the analysis matrix'),
+    'transform_basis': ('分析矩阵最大值 %s，过滤后原始矩阵最大值 %s（log2(x+1) 后的上界约 %s）', 'analysis matrix maximum %s, filtered raw matrix maximum %s (upper bound after log2(x+1) about %s)'),
+    'note_imputation_flag_scope': ('分析矩阵缺失率为 0 时按此字段判读，不等于全部蛋白被检出', 'When the missing rate of the analysis matrix is 0, this field decides how to read it, and that does not mean every protein was detected'),
+    'field_analysed_proteins': ('分析蛋白数=', 'proteins analysed='),
+    'item_contrasts_in_design': ('分析设计中的对比（%d 个）', 'contrasts in the analysis design (%d)'),
+    'unit_source_design_declared': ('分析设计声明的实验单位列', 'the experimental-unit column declared in the analysis design'),
+    'file_analysis_design': ('分析设计记录', 'analysis design record'),
+    'file_group_cross_table': ('分组交叉表', 'group cross table'),
+    'field_group_col': ('分组列=%s', 'group column=%s'),
+    'file_group_composition_qc': ('分组构成与质量控制表', 'group composition and quality-control table'),
+    'source_qc_analysed_missing': ('分组组成与质控表 → analysed_mean_missing_rate', 'group composition and QC table -> analysed_mean_missing_rate'),
+    'source_qc_imputation': ('分组组成与质控表 → imputation_applied', 'group composition and QC table -> imputation_applied'),
+    'source_qc_input_missing': ('分组组成与质控表 → input_mean_missing_rate', 'group composition and QC table -> input_mean_missing_rate'),
+    'verdict_line': ('判定：%s 中通过筛选口径的蛋白 %s 个（口径：%s），其中 %s 较高 %s 个、%s 较高 %s 个。', 'Verdict: %s has %s proteins passing the screening scope (scope: %s), of which %s are higher in %s and %s are higher in %s.'),
+    'dose_scope_note': ('剂量趋势以样本为观测单位（对照、低剂量、高剂量三步，分池与单细胞分层各自检验）；模块分数只作方向性佐证，不能替代蛋白水平的趋势检验。', 'The dose trend uses samples as the observation unit (control, low dose and high dose; the pooled and the single-cell strata are each tested separately); module scores are directional corroboration only and do not replace a protein-level trend test.'),
+    'not_computed_dose_trend': ('剂量趋势检验（Spearman）', 'dose-trend test (Spearman)'),
+    'translate_raw_p': ('原始 P<0.05 = ', 'raw P<0.05 =  '),
+    'item_missing_rate_raw_by_group': ('原始交付矩阵的平均缺失率（分组）', 'mean missing rate of the original delivered matrix (by group)'),
+    'field_input_mean_missing': ('原始矩阵平均缺失率', 'mean missing rate of the raw matrix'),
+    'figure_heatmap_conclusion': ('取信息量最高的前 %s 个特征（阈值 %s）展示样本间分布。', 'The %s most informative features (threshold %s) are shown to display the distribution across samples.'),
+    'file_confounding_estimability': ('可估计性检查', 'estimability check'),
+    'translate_log2_likely': ('可能为 log2 尺度（未记录变换）', 'possibly log2 scale (no transform recorded)'),
+    'figure_key_protein_conclusion': ('各对比通过筛选的蛋白及其效应量；逐条数值见「对比级证据摘要」表。', 'Proteins passing screening in each contrast together with their effect sizes; per-record values are in the table "Contrast-Level Evidence Summary".'),
+    'merged_note_aligned': ('各小节的对比标识臂序与本节坐标一致。', 'the contrast labels of each subsection state the same arm order as the coordinates of this section.'),
+    'field_n_per_group': ('各组样本数', 'samples per group'),
+    'no_background_contrast': ('否（背景对比）', 'no (background contrast)'),
+    'ora_fallback_reason_count': ('因本数据集通过显著阈值的蛋白仅 %s 个、不足以做标准的过表征分析。', 'because this dataset has only %s proteins passing the significance threshold, too few for a standard over-representation analysis.'),
+    'ora_fallback_reason_too_few': ('因本数据集通过显著阈值的蛋白过少，不足以做标准的过表征分析。', 'because this dataset has too few proteins passing the significance threshold for a standard over-representation analysis.'),
+    'figures_narrative_note': ('图件以「图号 + 标题 + 文字结论」在正文中给出，图不可见时信息仍可读。', 'Figures are given in the body as "number + title + text conclusion", so the information stays readable when a figure cannot be displayed.'),
+    'not_computed_figures': ('图册与图注（visualize_results 未产出可引用图件）', 'figure index and captions (visualize_results produced no citable figure)'),
+    'file_figure_index': ('图册索引', 'figure index'),
+    'translate_down_in_group_a': ('在 A 组中较低', 'lower in Group A'),
+    'translate_up_in_group_a': ('在 A 组中较高', 'higher in Group A'),
+    'translate_down_in_capture': ('在\\1中较低', 'lower in \\1'),
+    'translate_up_in_capture': ('在\\1中较高', 'higher in \\1'),
+    'translate_zero_p': ('在原差异表中记为 0', 'recorded as 0 in the source differential table'),
+    'translate_batch_corrected_claimed': ('声称已批次校正', 'reported as batch-corrected'),
+    'field_effective_threshold': ('实际生效阈值', 'threshold actually in force'),
+    'enrichment_hint_heading': ('富集方向提示', 'Enrichment Direction Hints'),
+    'translate_log_transform_form_fallback': ('对数变换', 'logarithmic transform'),
+    'field_contrast_vif': ('对比 VIF=', 'contrast VIF='),
+    'asset_contrast_concordance': ('对比一致性表', 'contrast concordance table'),
+    'not_computed_concordance': ('对比一致性（源分析未产出可比较的对比对）', 'contrast concordance (the source analysis produced no comparable contrast pairs)'),
+    'field_contrast_estimable': ('对比可估计性=', 'contrast estimable='),
+    'field_contrasts': ('对比清单', 'contrast list'),
+    'prob_less_than': ('小于 1e-300', 'less than 1e-300'),
+    'item_scale_and_transform': ('尺度与变换（记录字段）', 'scale and transform (recorded fields)'),
+    'field_scale_flags': ('尺度判断字段', 'scale judgement fields'),
+    'keyword_limitation': ('局限', 'limitation'),
+    'record_limma': ('差异分析记录', 'differential-analysis record'),
+    'record_limma_dot': ('差异分析记录 · ', 'differential-analysis record ·  '),
+    'record_limma_sanity': ('差异分析记录 · 记录字段 · ', 'differential-analysis record · recorded fields ·  '),
+    'file_core_story': ('差异检验与故事线摘要', 'differential testing and story-line summary'),
+    'file_differential': ('差异检验摘要', 'differential test summary'),
+    'asset_differential': ('差异检验结果表（%s）', 'differential test result table (%s)'),
+    'figure_differential_bar_title': ('差异蛋白数量概览', 'Overview of differential protein counts'),
+    'figure_heatmap_title': ('差异蛋白热图', 'Differential protein heatmap'),
+    'translate_already_processed': ('已处理输入', 'already-processed input'),
+    'unit_status_completed': ('已完成个体级敏感性分析', 'unit-level sensitivity analysis completed'),
+    'executed_parens_two': ('已执行（%s%s）', 'executed (%s%s)'),
+    'executed_parens_one': ('已执行（%s）', 'executed (%s)'),
+    'imputation_conflict_note': ('已执行（%s）；分组组成与质控表中的 imputation_applied=%s 与执行记录不同，以执行记录为准并登记该冲突', 'executed (%s); imputation_applied=%s in the group composition and QC table differs from the execution record, so the execution record decides here and the conflict is logged'),
+    'executed_colon': ('已执行：%s', 'executed: %s'),
+    'executed_colon_two': ('已执行：%s%s', 'executed: %s%s'),
+    'unit_all_blocked': ('已检查实验单位结构，%d 个对比均不满足个体级检验条件。', 'the experimental-unit structure was checked, and none of the %d contrasts meets the conditions for a unit-level test.'),
+    'scale_note_log2_recorded': ('已记录 log2 变换', 'log2 transform recorded'),
+    'figure_qc_conclusion': ('平均每样本检出 %s 个蛋白，未注释 %s 个；分组规模与缺失率见「数据与预处理」。', 'an average of %s proteins detected per sample, %s of them unannotated; group sizes and missing rates are in "Data and Preprocessing".'),
+    'absence_note_includes_presence_only': ('并包含未进入统计检验的记录', 'and contains records that did not enter statistical testing'),
+    'file_normalized_matrix': ('归一化定量矩阵', 'normalized quantitative matrix'),
+    'matrix_alias_total_abundance': ('总丰度矩阵', 'total abundance matrix'),
+    'keyword_summary': ('总结', 'summary'),
+    'field_eta2_batch_pc': ('批次主成分效应量=', 'batch principal-component effect size='),
+    'field_batch_col': ('批次列=%s', 'batch column=%s'),
+    'file_combat_matrix': ('批次标定后定量矩阵', 'batch-calibrated quantitative matrix'),
+    'stage_combat_matrix': ('批次标定后矩阵', 'batch-calibrated matrix'),
+    'overlap_pick_rule': ('报告将按同一规则各取一条（每个数据库每个方向种子基因数最多的一条）：', 'The report takes one entry per rule (the entry with the most seed genes for each database and direction):'),
+    'translate_display_direction': ('报告方向', 'report direction'),
+    'request_direction_by': ('按 %s', 'per %s'),
+    'request_direction_by_inverted': ('按 %s（源差异表 %s 符号相反）', 'per %s (the source differential table %s has the opposite sign)'),
+    'unit_source_column_name_unconfirmed': ('按列名匹配推断，未在分析设计中确认', 'inferred by column-name matching and not confirmed in the analysis design'),
+    'finding_joint_mismatch_detailed': ('按报告自己声明的联合条件（%s 连接，列 %s / %s）在差异表上复算得到 %d 行，与本对比汇总的 %d 不一致；其中仅满足校正 P 的有 %d 行、仅满足效应阈值的有 %d 行、最小校正 P=%s', 'Recounting the joint condition this report declares (%s connector, columns %s / %s) on the differential table gives %d rows, which disagrees with the %d of this contrast summary; of those, %d rows satisfy only the adjusted P and %d satisfy only the effect threshold, and the smallest adjusted P is %s'),
+    'scale_note_from_execution_record': ('按本轮执行记录：%s（依据：%s；记录来源：%s）', "per this run's execution record: %s (basis: %s; record source: %s)"),
+    'unit_joint_pass': ('按联合口径（校正 P 值 < 0.05 且 |效应量| > %s）%s 条通过', 'under the joint scope (adjusted P < 0.05 and |effect size| > %s), %s entries passed'),
+    'exclusion_count_note': ('排除记录数统计的是记录条数，不是蛋白数量。', 'The exclusion count counts records, not proteins.'),
+    'enrichment_hint_note_short': ('探索性方向提示：集合重叠结果，无 FDR/q，不作显著性证据（口径见「结论边界与方法局限」）。各节按同一规则各取一条。', 'Exploratory direction hints: set-overlap results with no FDR/q, not significance evidence (see "Conclusion Boundaries and Method Limitations"). Each section takes one entry per rule.'),
+    'translate_exploratory': ('探索性，未达到 FDR 显著', 'exploratory, not FDR-significant'),
+    'translate_inferred': ('推断', 'inferred'),
+    'keyword_inference': ('推测', 'inference'),
+    'checks_not_a_metric': ('提示条数不得用作性能计数、验收总分或改进指标；只用于定位。', 'The number of hints must not be used as a performance count, an acceptance total or an improvement metric; it serves to locate items only.'),
+    'checks_mode': ('提示（不阻断，不改变结论）', 'hint (non-blocking, never changes a conclusion)'),
+    'effect_column_unconfirmed': ('效应量（尺度未确认）', 'effect size (scale not confirmed)'),
+    'field_numeric_range': ('数值范围', 'value range'),
+    'field_looks_logged': ('数值范围形似对数尺度=%s', 'value range resembles a log scale=%s'),
+    'file_dataset_recipe': ('数据集分析配置', 'dataset analysis configuration'),
+    'overlap_state_unavailable': ('文件不可用', 'file unavailable'),
+    'overlap_state_empty': ('文件存在但是空对象（已执行且无条目）', 'the file exists but is an empty object (the analysis ran and produced no entry)'),
+    'overlap_state_unparsable': ('文件存在但解析失败（读取状态，不是未产出）', 'the file exists but does not parse (a read state, not an absent result)'),
+    'finding_direction_mismatch': ('方向句写出的较高/较低组与差异表记录的方向不同：表中记为 %s', 'the direction sentence names a different higher/lower group than the differential table records: the table records %s'),
+    'candidate_direction_short': ('方向读法同前：显示方向列按「%s」，源表列为反向写法「%s」。', 'Direction convention as above: the display-direction column follows "%s" and the source-table column follows the reverse writing "%s".'),
+    'candidate_direction_long': ('方向读法：显示方向列按「%s」（正值为 %s 较高），源表列按反向写法「%s」（正值为 %s 较高）；两列数值符号相反，但指的是同一个对比。', 'Direction convention: the display-direction column follows "%s" (a positive value means %s is higher) and the source-table column follows the reverse writing "%s" (a positive value means %s is higher); the two columns have opposite signs but describe the same contrast.'),
+    'dose_flat_zero_rho': ('无单调趋势（ρ=0）', 'no monotonic trend (rho=0)'),
+    'estimand_none': ('无可识别的个体内或个体间估计目标', 'no identifiable within-unit or between-unit estimand'),
+    'enrichment_status_no_entry': ('无本对比条目', 'no entry for this contrast'),
+    'status_unusable': ('无法使用', 'unusable'),
+    'exclusion_none': ('无（记录项为分组与实验设计术语，不是蛋白候选）', 'none (the recorded items are grouping and experimental-design terms, not protein candidates)'),
+    'yes_value': ('是', 'yes'),
+    'item_imputation_executed': ('是否执行插补', 'was imputation performed'),
+    'field_imputation_applied': ('是否插补', 'imputation applied'),
+    'translate_display_lower': ('显示方向较低', 'display direction lower'),
+    'translate_display_higher': ('显示方向较高', 'display direction higher'),
+    'enrichment_status_valid_empty_contrast': ('有效空结果（该对比无条目）', 'valid empty result (no entry for this contrast)'),
+    'unit_blocked_reasons': ('未做个体级检验的原因：%s。', 'reason why no unit-level test was run: %s.'),
+    'pca_ungrouped': ('未分组', 'ungrouped'),
+    'unbound_section_default': ('未命名小节', 'unnamed section'),
+    'reason_no_unit_column': ('未声明实验单位列，元数据中也没有可识别的个体列', 'no experimental-unit column is declared and the metadata holds no identifiable individual column'),
+    'unit_no_joint_threshold': ('未套用联合效应阈值', 'no joint effect threshold applied'),
+    'translate_symbol_not_mapped': ('未建立符号映射', 'symbol mapping not established'),
+    'evidence_symbol_not_mapped': ('未建立符号映射（不等同于未检出）', 'symbol mapping not established (which is not the same as not detected)'),
+    'translate_symbol_not_matched': ('未建立符号映射（该符号未匹配到矩阵标识，不等同于未检出）', 'symbol mapping not established (the symbol matched no matrix identifier, which is not the same as not detected)'),
+    'scale_note_unknown': ('未记录尺度', 'no scale recorded'),
+    'not_recorded_rule': ('未记录（记录中的规则：%s）', 'not recorded (the rule in the record: %s)'),
+    'ledger_dropped': ('未进入成品（需人工确认）', 'did not reach the finished report (needs manual confirmation)'),
+    'ora_mixed_scope_lead': ('本小节所列条目来自两类查询集，须按对比分别理解。第一类使用显著集（%s），本节所列条目的查询集 n=%s。', 'The entries listed in this section come from two classes of query set and must be read per contrast. The first class uses the significant set (%s), and the entries listed here have a query set of n=%s.'),
+    'ora_mixed_scope_all_fallback': ('本小节的查询集不是一个统一口径，须按对比分别理解：本节所列条目均来自兜底查询集。', 'The query set of this section is not a single scope and must be read per contrast: every entry listed here comes from the fallback query set.'),
+    'ora_scope_significant': ('本小节的查询集为各对比中通过显著阈值的蛋白（%s）：%s。', 'The query set of this section is the set of proteins passing the significance threshold in each contrast (%s): %s.'),
+    'ora_scope_fallback_lead': ('本小节的查询集为按 |logFC| 取前 10%% 的蛋白（本小节所列条目的查询集 n=%s，全部被检验的查询集 n=%s），', 'The query set of this section is the top 10%% of proteins by |logFC| (the entries listed here have a query set of n=%s and the full set of tested entries has n=%s),'),
+    'enrichment_boundary_empty': ('本数据集在当前富集配置下未产出可用条目（预定义基因集的重叠结果为空），故不提供通路层面结论；这是分析能力边界，不是结果缺失，也不引入替代性通路推测。', 'This dataset produced no usable entry under the current enrichment configuration (the overlap result of the predefined gene sets is empty), so no pathway-level conclusion is given; this is an analysis-capability boundary, not an absent result, and no substitute pathway is inferred.'),
+    'concordance_absent': ('本数据集未产出对比一致性表：源分析中没有满足条件的可比较对比对，因此不提供跨对比重叠或一致性结论。', 'This dataset produced no contrast concordance table: the source analysis holds no contrast pair meeting the conditions, so no cross-contrast overlap or concordance conclusion is offered.'),
+    'enrichment_boundary_missing': ('本数据集未产出预定义基因集的重叠富集文件，因此本报告不提供通路层面结论；这是该项分析未执行，不是分析执行后没有结果。', 'This dataset produced no overlap-enrichment file for the predefined gene sets, so this report gives no pathway-level conclusion; this analysis was not run, which is not the same as running it and finding nothing.'),
+    'enrichment_boundary_other_contrasts': ('本数据集的重叠富集文件含有条目，但没有条目能对应到本报告的核心对比，因此本节不给出通路层面结论；这是对比覆盖边界，不是结果缺失。', 'The overlap-enrichment file of this dataset holds entries, but none of them corresponds to a core contrast of this report, so this section gives no pathway-level conclusion; this is a contrast-coverage boundary, not an absent result.'),
+    'enrichment_boundary_unparsable': ('本数据集的重叠富集文件存在但无法解析，因此本报告不使用其内容，也不据此写通路结论；这是读取状态，不是结果缺失。', 'The overlap-enrichment file of this dataset exists but cannot be parsed, so this report does not use its content and writes no pathway conclusion from it; this is a read state, not an absent result.'),
+    'overlap_state_missing': ('本次运行没有该文件，该项分析未执行', 'this run has no such file, so that analysis was not run'),
+    'request_index_intro': ('本清单只列本次运行实际产出的证据。状态含义：已计算=可以直接引用并给出数值；未计算=本轮没有产出，不得据此写结论；无法使用=产出为空或不可读，必须按边界说明处理。报告引用数值时必须与本清单一致：标注「已计算」的内容不得写成「未提供 / 未包含 / 未产出」，标注「未计算」的内容不得写成已完成的分析结果。', 'This list covers only the evidence this run actually produced. Status values: computed = may be cited directly with its numbers; not computed = not produced in this run and no conclusion may rest on it; unusable = the output is empty or unreadable and must be handled as a boundary statement. Any number the report cites must agree with this list: content marked "computed" must not be written as "not provided / not included / not produced", and content marked "not computed" must not be written as a completed analysis result.'),
+    'enrichment_hint_note_long': ('本节为探索性方向提示：所列通路来自预定义基因集的集合重叠结果，未经多重检验校正，无 FDR/q 值，不得作为显著性证据，仅用于假设生成。每个数据库每个方向取种子基因数最多的一条。', 'This section is an exploratory direction hint: the pathways listed come from set-overlap results on predefined gene sets, without multiple-testing correction and without FDR/q values, so they are not significance evidence and serve hypothesis generation only. Each database and direction contributes the single entry with the most seed genes.'),
+    'consistency_note_intro': ('本节列出运行记录之间、以及正文与表格之间需要核对的口径差异，共 %d 条；提示只指出位置与依据，不修改任何数值或结论。', 'This section lists %d scope differences that need checking, between run records and between the body text and the tables; a hint points to a location and its basis and never changes a value or a conclusion.'),
+    'unit_layer_intro': ('本节数值来自正式分析路径的单位层敏感性分析，覆盖本轮 %s 个对比（可做个体级检验 %s 个、不可估计 %s 个）。它以个体均值计权，与以单个观测计权的观察级检验估计目标不同，两套数值不可直接互换，也不可互相替代。', 'The values in this section come from the unit-level sensitivity analysis of the formal analysis path and cover the %s contrasts of this run (%s allow a unit-level test and %s are inestimable). It weights by unit means, whereas the observation-level test weights single observations, so the two estimands differ and the two sets of values can neither be interchanged nor substituted for one another.'),
+    'enrichment_hint_reversed': ('本节的通路条目取自富集结果文件（对比键「%s」，该键下正值为 %s 较高）；本任务正文的方向基准为「%s」。两者臂序相反，因此下表方向列逐一写出该方向较高的一组，不沿用正文基准。', 'The pathway entries in this section come from the enrichment result file (contrast key "%s", where a positive value means %s is higher); the direction baseline of this task\'s body text is "%s". The two arm orders are opposite, so the direction column of the table below writes out the group that is higher for each direction instead of following the body baseline.'),
+    'concordance_coverage_all': ('本表列出源表中的全部 %d 对比较。', 'This table lists all %d contrast pairs of the source table.'),
+    'candidate_other_contrasts_short': ('本表另含任务小节之外的对比（%s），符号按各行「对比」列。', 'This table also contains contrasts outside the task sections (%s), with signs taken from the "Contrast" column of each row.'),
+    'candidate_fold_note': ('本表按候选、对比、方向与统计量完全相同的行折叠后共 %d 行（源表 %d 行，重复 %d 行）；这里的计数单位是行，不是蛋白个数。', 'Rows identical in candidate, contrast, direction and statistics are folded, giving %d rows in total (source table %d rows, %d duplicates); the counting unit here is rows, not proteins.'),
+    'concordance_coverage_capped': ('本表按源表顺序列出前 %d 对（共 %d 对）。', 'This table lists the first %d pairs in source-table order (of %d pairs in total).'),
+    'candidate_source_direction_short': ('本表符号方向按各行「对比」列（与正文反向写法「%s」同义）。', 'The sign convention of this table follows the "Contrast" column of each row (synonymous with the reverse writing "%s" in the body).'),
+    'candidate_other_contrasts_long': ('本表还包含报告任务小节之外的对比（%s）：这些行按各自差异表自身的符号给出，正值表示该行「对比」列中前一组较高。', 'This table also contains contrasts outside the report\'s task sections (%s): those rows follow the sign convention of their own differential table, and a positive value means the first group of that row\'s "Contrast" column is higher.'),
+    'candidate_source_direction_long': ('本表逐行按该行「对比」列的方向给符号：以 %s 行为例，正值表示 %s 较高；同一对比在正文中按反向写法「%s」叙述时符号相反，两者是同一个对比。', 'This table gives the sign of each row from that row\'s "Contrast" column: for the row %s, a positive value means %s is higher; when the body text describes the same contrast by the reverse writing "%s" the signs are opposite, and the two are one and the same contrast.'),
+    'finding_qc_stage': ('本轮分析矩阵的平均缺失率为 %.4f 且运行记录未执行插补（imputation_applied=%s），与原始交付矩阵的平均缺失率 %.4f 至 %.4f 不同一阶段；引用缺失/检出数值时应写明阶段', "The mean missing rate of this run's analysis matrix is %.4f and the run record shows no imputation (imputation_applied=%s), a different stage from the mean missing rate %.4f to %.4f of the original delivered matrix; when citing missing or detection values, state the stage"),
+    'item_missing_rate_analysed_by_group': ('本轮分析矩阵的平均缺失率（分组）', "mean missing rate of this run's analysis matrix (by group)"),
+    'item_log_transform_executed': ('本轮实际执行的对数变换', 'log transform actually executed in this run'),
+    'item_matrix_transform_executed': ('本轮实际执行的矩阵变换', 'matrix transform actually executed in this run'),
+    'item_imputation_executed_actual': ('本轮实际执行的缺失填补', 'missing-value imputation actually executed in this run'),
+    'item_protein_filtering_executed': ('本轮实际执行的蛋白过滤', 'protein filtering actually executed in this run'),
+    'not_computed_stratified_line': ('本轮未产出分层对比（状态：未计算）。', 'not produced in this run (status: not computed).'),
+    'not_computed_figures_line': ('本轮未产出可引用图件（状态：未计算）。', 'no citable figure was produced in this run (status: not computed).'),
+    'not_computed_line': ('本轮未产出（状态：未计算）。', 'not produced in this run (status: not computed).'),
+    'unit_layer_absent': ('本轮未记录单位层结果（状态：未记录）；不得据此写成「已确认个体间无差异」。', 'this run recorded no unit-level result (status: not recorded); it must not be written as "no difference between individuals has been confirmed".'),
+    'exclusion_trace_no_protein_level': ('本轮记录中不含蛋白级排除：被记录的未解析符号为分组与实验设计术语（例如分组名、样本表列名），不是蛋白候选，因此本节不提供候选层面的排除结论。', "This run's records hold no protein-level exclusion: the unresolved symbols recorded are grouping and experimental-design terms (for example group names or sample-table column names) and not protein candidates, so this section offers no candidate-level exclusion conclusion."),
+    'figure_enrichment_dotplot_title': ('机制富集 dotplot', 'Mechanism enrichment dotplot'),
+    'overlap_source_note': ('来源：本次运行 enrichment_results 中的预定义基因集重叠结果；已读取并解析。', 'Source: the predefined-gene-set overlap result in enrichment_results of this run; it was read and parsed.'),
+    'reason_fewer_than': ('某一臂或两臂共同个体数不足', 'one arm, or the two arms taken together, has too few individuals'),
+    'unit_background_rows_note': ('标注为「否（背景对比）」的行是本轮分析已算出的其它目标对比；它们只作背景，不得为它们另写任务小节，也不得把它们的通过数并入本节任务。', 'Rows marked "no (background contrast)" are other target contrasts this run already computed; they serve as background only, no task section may be written for them, and their passing counts may not be merged into the tasks of this section.'),
+    'field_sample_id_col': ('样本 ID 列=%s', 'sample ID column=%s'),
+    'figure_qc_sample_title': ('样本与缺失率 QC', 'Sample and missing-rate QC'),
+    'file_sample_info': ('样本信息表', 'sample information table'),
+    'field_n_samples': ('样本数=', 'sample count='),
+    'file_module_sample_scores': ('样本级模块评分', 'sample-level module scores'),
+    'finding_joint_mismatch': ('核对提示：按本报告声明的联合筛选条件（%s 连接）在差异表上复算得到 %d 行通过，与本对比汇总的 %s 不一致（只满足校正 P 的 %d 行、只满足效应阈值的 %d 行；最小校正 P=%s）；请核对筛选口径与数据阶段。', 'Recounting the joint screening condition this report declares (%s connector) on the differential table gives %d passing rows, which disagrees with the %s of this contrast summary (%d rows satisfy only the adjusted P, %d satisfy only the effect threshold; smallest adjusted P=%s); please check the screening scope and the data stage.'),
+    'finding_unavailable_detail': ('核对提示：正文称「%s」类证据未提供或未执行，但本次运行已产出该类证据（数值见对应表格与「运行参数与证据绑定」）；此处只标记位置，不修改原句。', 'Check hint: the body text says evidence of class "%s" was not provided or not run, but this run produced such evidence (the values are in the corresponding tables and in "Run Parameters and Evidence Binding"); this marks the location only and does not change the sentence.'),
+    'core_contrast_caption': ('核心对比（本表方向：正值表示 %s 较高，按「%s」）', 'Core contrast (direction in this table: a positive value means %s is higher, per "%s")'),
+    'figure_group_means_title': ('核心蛋白组均值图', 'Representative protein group means'),
+    'finding_stage_unclear': ('检出/缺失陈述未写明数据阶段，无法对应到运行记录中的具体矩阵', 'a detection/absence statement does not name its data stage, so it cannot be tied to a specific matrix in the run record'),
+    'directive_note': ('模块分数与样本级评分仅作为方向性证据，不等同于显著性检验。', 'Module scores and sample-level scores serve as directional evidence only and are not equivalent to a significance test.'),
+    'module_no_fdr_short': ('模块分数无 FDR，只作方向性证据（口径见「结论边界与方法局限」）。', 'Module scores carry no FDR and are directional evidence only (see "Conclusion Boundaries and Method Limitations").'),
+    'module_no_fdr_long': ('模块分数是成员蛋白评分的分组汇总，没有 FDR，只能作为方向性证据，不能当作显著富集。', 'A module score is a group summary of the scores of its member proteins; it carries no FDR, so it can only be directional evidence and must not be written as significant enrichment.'),
+    'file_module_group_summary': ('模块分组摘要', 'module group summary'),
+    'field_module_mean_score': ('模块平均分=', 'module mean score='),
+    'dose_flip_note_long': ('模块方向翻转的解释：%s 的 %s 模块在剂量轴上并不单调（%s），两个分层的方向相反且都未达 q≤0.05，因此高低剂量差值的符号相反应登记为未解释的观察，而不是单一机制的结论。', 'Explaining the module direction flip: the module %s of %s is not monotonic along the dose axis (%s), the two strata point in opposite directions and neither reaches q≤0.05, so the opposite sign of the high- versus low-dose difference is logged as an unexplained observation rather than as a conclusion about a single mechanism.'),
+    'dose_flip_note_short': ('模块方向翻转：%s 的 %s 模块在分层间符号相反（%s），均未达 q≤0.05；按未解释的观察登记，不解释为单一机制。', 'Module direction flip: the module %s of %s has opposite signs between strata (%s), none of which reaches q≤0.05; it is logged as an unexplained observation and not interpreted as a single mechanism.'),
+    'asset_module_index': ('模块记录共 %d 条：%d 条已在上文对应任务中列出%s', 'Module records: %d in total; %d are listed in the corresponding task above%s'),
+    'module_caption_capped': ('模块证据（共 %d 条，本节列前 %d 条；Δ 方向同本任务组名）', 'Module evidence (%d in total; this section lists the first %d; the Δ direction follows the group names of this task)'),
+    'module_caption_all': ('模块证据（共 %d 条；Δ 方向同本任务组名）', 'Module evidence (%d in total; the Δ direction follows the group names of this task)'),
+    'ledger_table_all_found': ('模型表格数值均可在成品中找到', 'every value of the model table can be found in the finished report'),
+    'ledger_table_missing': ('模型表格由确定性表替代，但以下数值未在成品中出现，需人工确认：%s', 'the model table was replaced by a deterministic table, but the following values do not appear in the finished report and need manual confirmation: %s'),
+    'not_computed_ora': ('正式富集检验（超几何 ORA）', 'formal enrichment test (hypergeometric ORA)'),
+    'candidate_rows_note': ('每一行是一个候选蛋白在一个对比中的统计结果；未列出的候选不在候选清单内。', 'Each row is the statistical result of one candidate protein in one contrast; a candidate not listed here is not in the candidate list.'),
+    'item_samples_per_group': ('每组样本数（%s）', 'samples per group (%s)'),
+    'note_prefix': ('注：%s', 'Note: %s'),
+    'candidate_below_threshold_note': ('注：%s 的效应量绝对值未超过当前筛选口径的 0.25 效应阈值，列出供完整性参考，不计入通过筛选的蛋白集合（口径见上表「统计口径」列）。', 'Note: the absolute effect size of %s does not exceed the 0.25 effect threshold of the current screening scope, so it is listed for completeness and is not part of the set of proteins passing screening (see the "Statistical scope" column of the table above).'),
+    'module_note_long': ('注：Δ 为 A 组均值减 B 组均值，方向与上表同一组名；模块分数是成员蛋白评分的汇总，没有 FDR，因此只能作为方向性证据，不能写成显著富集。', 'Note: Δ is the Group A mean minus the Group B mean, in the same direction as the group names of the table above; a module score is a summary of the scores of its member proteins and carries no FDR, so it can only be directional evidence and must not be written as significant enrichment.'),
+    'module_note_short': ('注：Δ 方向同组名；模块分数无 FDR，只作方向性证据（口径见「结论边界与方法局限」）。', 'Note: the Δ direction follows the group names; module scores carry no FDR and are directional evidence only (see "Conclusion Boundaries and Method Limitations").'),
+    'unit_column_unconfirmed_note': ('注：单位列不是研究者确认的字段，而是由自动生成的分析设计按列名匹配得到；“每个标签对应一个独立生物学个体”在本轮是标签层假定，本节数值按标签层探索性分析解读，不作为个体层确认性结论。', 'Note: the unit column is not a field the researcher confirmed but one obtained by column-name matching from an automatically generated analysis design; "each label corresponds to one independent biological individual" is a label-level assumption in this run, so the values in this section are read as a label-level exploratory analysis and not as a confirmatory individual-level conclusion.'),
+    'merged_alias_note': ('注：模型原文把同一对比写成 %d 个平级小节（%s）；本节按对比合并，内容按原顺序全部保留（未删减）。本报告统一按「%s」坐标读数', 'Note: the model\'s own text wrote the same contrast as %d headings of equal rank (%s); this section merges them by contrast and keeps all content in its original order (nothing removed). This report reads everything in the "%s" coordinates'),
+    'unit_excluded_note_long': ('混合来源或未确认来源的单位已单列并排除在独立个体之外：%s。「是否为独立生物学个体」按标签语义事先判定，不按检验结果挑选。', 'Units of mixed or unconfirmed origin have been listed separately and excluded from the independent individuals: %s. Whether a unit is an independent biological individual is decided in advance from label semantics and not selected by test result.'),
+    'unit_excluded_note_digest': ('混合来源／未确认来源单位单列并排除在独立个体之外：%s（按标签语义事先判定）。', 'Units of mixed or unconfirmed origin are listed separately and excluded from the independent individuals: %s (decided in advance from label semantics).'),
+    'unit_excluded_note_short': ('混合来源／未确认来源单位同前，已排除在独立个体之外。', 'Units of mixed or unconfirmed origin are as above and have been excluded from the independent individuals.'),
+    'file_confounding_adjusted': ('混杂校正效应', 'confounding-adjusted effects'),
+    'keyword_index': ('清单', 'index'),
+    'overlap_status_line': ('状态：%s；不得据本项写通路结论，按边界说明处理。', 'Status: %s; no pathway conclusion may rest on this item, which is handled as a boundary statement.'),
+    'field_threshold_used': ('生效阈值', 'threshold in force'),
+    'source_user_provided': ('用户提供', 'provided by the user'),
+    'concordance_correlation_note': ('相关性描述两个对比的效应分布关系，不构成显著性检验。', 'The correlation describes how the effect distributions of the two contrasts relate and does not constitute a significance test.'),
+    'field_matrix_state': ('矩阵状态', 'matrix state'),
+    'scale_note_matrix_state': ('矩阵状态记录为 %s', 'matrix state recorded as %s'),
+    'figure_enrichment_dotplot_conclusion': ('离线富集条目按方向提示展示，未经多重检验校正；条目数见「富集方向提示」小节。', 'Offline enrichment entries are shown as direction hints without multiple-testing correction; the entry count is in the "Enrichment Direction Hints" section.'),
+    'sign_convention_long': ('符号约定：本表按「%s」显示，底层差异表为 %s，其中 logFC 符号与本表相反；正文数值一律按「%s」方向给出（正值为 %s 较高、负值为 %s 较高），仅当句子明确引用源文件 %s 时按该文件的原始符号读取。', 'Sign convention: this table follows "%s" while the underlying differential table is %s, where the sign of logFC is opposite to this table; values in the body text are always given in the "%s" direction (a positive value means %s is higher, a negative value means %s is higher), and they follow the original sign of the source file %s only where a sentence explicitly cites that file.'),
+    'sign_convention_short': ('符号约定：本表方向同上（按「%s」；源文件 %s 的符号相反）。', 'Sign convention: the direction of this table is as above (per "%s"; the sign of the source file %s is opposite).'),
+    'samples_two_arms_named': ('第一臂 %s vs 第二臂 %s', 'arm 1 %s vs arm 2 %s'),
+    'candidate_screening_scope_note': ('筛选口径只使用校正后 P 值（adj.P.Val）；原始 P 值列出仅供核对，不参与筛选。', 'The screening scope uses the adjusted P value only (adj.P.Val); the raw P values are listed for checking and take no part in screening.'),
+    'figure_pca_conclusion_missing': ('线性降维用于检查分组分离与离群样本（解释率未记录）。', 'A linear projection used to check group separation and outlier samples (no explained variance recorded).'),
+    'keyword_conclusion': ('结论', 'conclusion'),
+    'boundary_pointer_phrase': ('结论边界', 'conclusion boundary'),
+    'field_statistical_backend': ('统计后端', 'statistical backend'),
+    'field_statistical_backend_and_reason': ('统计后端与回退原因', 'statistical backend and fallback reason'),
+    'field_statistical_method': ('统计方法', 'statistical method'),
+    'item_matrix_size_tested': ('统计检验所用矩阵规模', 'size of the matrix used for statistical testing'),
+    'item_statistical_model_raw': ('统计模型（记录原文）', 'statistical model (recorded verbatim)'),
+    'translate_synthesis': ('综合评述', 'synthesis'),
+    'item_missing_value_handling': ('缺失值处理（统计口径）', 'missing-value handling (statistical scope)'),
+    'note_transform_record_absent': ('缺少该记录只说明执行动作未记录，不能推断为未执行', 'the absence of that record only means the executed action was not recorded and cannot be read as not executed'),
+    'ora_background_note': ('背景集为本次分析实际检测到的蛋白的基因符号（去重后 N=%s）：p 为超几何尾概率，q 为同一次查询内全部被检验条目的 BH 校正。', 'The background set is the gene symbols of the proteins this analysis actually detected (N=%s after de-duplication): p is the hypergeometric tail probability and q is the BH correction over all tested entries within the same query.'),
+    'unit_source_design_auto': ('自动生成的分析设计中的单位列（按列名匹配，未由研究者确认）', 'the unit column of an automatically generated analysis design (matched by column name, not confirmed by the researcher)'),
+    'file_protein_quant': ('蛋白定量矩阵', 'protein quantitative matrix'),
+    'dose_protein_summary': ('蛋白水平：每个药物 × 分层单独检验并各自做 BH 校正，共检验 %d 个蛋白，其中 %d 个在 q≤0.05 下呈单调剂量趋势。', 'Protein level: each drug × stratum is tested separately with its own BH correction, testing %d proteins in total, of which %d show a monotonic dose trend at q≤0.05.'),
+    'stratified_coverage_note': ('覆盖范围（这是本清单的显示元数据，不是分析结论）：本清单为该源表的节选，列出前 %d 行 / 共 %d 行，其余 %d 行未在本清单列出；节选只影响本清单的展示，不代表分析范围，也不要把「未列出的其余行」写成科学结论。', 'Coverage (this is display metadata of this list, not an analysis conclusion): this list is an excerpt of the source table and shows the first %d of %d rows, with the remaining %d rows not listed here; the excerpt affects only what this list displays, does not represent the analysis scope, and the "remaining rows not listed" must not be written as a scientific conclusion.'),
+    'pointer_see_differential': ('见差异表', 'see the differential table'),
+    'pointer_exclusion_trace': ('见本报告「候选排除轨迹」', 'see "Candidate Exclusion Trace" in this report'),
+    'pointer_stratified': ('见本报告「分层对比摘要」', 'see "Stratified Contrast Summary" in this report'),
+    'pointer_concordance': ('见本报告「对比一致性」', 'see "Contrast Concordance" in this report'),
+    'pointer_evidence_tables': ('见本报告「证据表（逐条）」', 'see "Evidence Tables (record by record)" in this report'),
+    'pointer_figures': ('见随报告交付的图册与图注', 'see the figure index and captions delivered with the report'),
+    'unit_reference_note_short': ('观察级检验仍是参照估计，个体级与观察级的估计目标不同。', 'The observation-level test remains the reference estimate; the unit level and the observation level have different estimands.'),
+    'unit_reference_note_long': ('观察级检验仍是参照估计：两者以不同的单位计权（个体均值 vs 单细胞观测），估计目标不同，数值不可直接互换。', 'The observation-level test remains the reference estimate: the two weight by different units (unit means vs single-cell observations), so the estimands differ and the values cannot be interchanged.'),
+    'enrichment_status_unparsable': ('解析失败', 'parsing failed'),
+    'keyword_discussion': ('讨论', 'discussion'),
+    'translate_looks_logged_false': ('记录为未确认已对数化', 'recorded as not confirmed to be log-transformed'),
+    'translate_needs_log_transform': ('记录为需要 log 变换', 'recorded as needing a log transform'),
+    'note_scale_flags_only': ('记录的是对输入的判断字段；实际执行了哪一步变换、检验空间属于哪种尺度都未记录，因此与「数据与预处理」的尺度推断不矛盾也不互相支持', 'what is recorded are judgement fields about the input; neither the transform actually applied nor the scale of the testing space is recorded, so this neither contradicts nor supports the scale inference under "Data and Preprocessing"'),
+    'reason_no_residual_df': ('设计没有剩余自由度，处理效应与个体效应无法分离', 'the design has no residual degrees of freedom, so the treatment effect cannot be separated from the individual effect'),
+    'evidence_prefix': ('证据 ', 'Evidence  '),
+    'evidence_ref_capture': ('证据 \\1', 'Evidence \\1'),
+    'evidence_strength_moderate_to_low': ('证据强度：中等至较低', 'Evidence strength: moderate to low'),
+    'evidence_strength_moderate_and_low': ('证据强度：分别为中等与较低', 'Evidence strength: moderate and low, respectively'),
+    'evidence_strength_high': ('证据强度：较高', 'Evidence strength: high'),
+    'translate_evidence_file': ('证据文件', 'evidence file'),
+    'asset_evidence_entry_points': ('证据条目的复核入口：', 'Where to check the evidence records:'),
+    'file_evidence_ledger': ('证据来源记录', 'evidence source ledger'),
+    'translate_evidence_ids': ('证据清单', 'evidence list'),
+    'figure_bar_direction_note_plural': ('该图按各对比源差异表的符号绘制，与正文显示方向的对应关系见各任务小节表注。', "This figure is drawn with the sign convention of each contrast's source differential table; the mapping to the display direction of the body text is given in the table notes of each task section."),
+    'figure_bar_direction_note_single': ('该图按源差异表 %s 的符号绘制：上调＝%s 较高，下调＝%s 较高；正文按「%s」叙述时符号相反。', 'This figure is drawn with the sign convention of the source differential table %s: upregulated = %s is higher, downregulated = %s is higher; the body text narrates "%s", where the sign is opposite.'),
+    'reason_no_unit_level_test': ('该对比不支持个体层检验', 'no unit-level test is defensible for this contrast'),
+    'reader_note_no_testable_entry': ('该对比没有可检验的条目。', 'this contrast has no entry that can be tested.'),
+    'matrix_alias_this_data': ('该数据', 'this data'),
+    'reader_note_too_few': ('该方向进入检验的蛋白只有 %s 个，少于最少 %s 个的要求，因此本轮未执行该检验（保留未执行状态，未用替代方法补算）。', 'only %s proteins of this direction entered the test, fewer than the required minimum of %s, so the test was not run in this run (the not-run state is kept and no substitute method was used to fill it in).'),
+    'note_non_missing_fraction_stage': ('该比例在原始交付矩阵上统计，与过滤后矩阵不同一阶段', 'this fraction is computed on the original delivered matrix and belongs to a different stage from the filtered matrix'),
+    'overlap_exploratory_note': ('该结果为集合重叠，未经多重检验校正、没有 FDR/q 值，只能作为探索性方向提示；不得写成显著富集。', 'This result is a set overlap without multiple-testing correction and without FDR/q values, so it can only be an exploratory direction hint and must not be written as significant enrichment.'),
+    'concordance_gap_note': ('该缺口是分析设计的边界，不是结果缺失。', 'This gap is a boundary of the analysis design, not an absent result.'),
+    'ora_background_vs_matrix_note': ('该背景集按本次实际检测到的蛋白对应的基因符号去重后统计（同一基因的多行折叠为一条），因此与统计检验所用矩阵的蛋白行数 %s 不同；两个数字口径不同，引用时写明指哪一个。', 'That background set is counted over the de-duplicated gene symbols of the proteins this run actually detected (multiple rows of one gene fold into one), so it differs from the %s protein rows of the matrix used for statistical testing; the two figures have different scopes and citing them must state which one is meant.'),
+    'transform_record_derived_note': ('该记录由本次运行的执行记录派生（%s），不是该步骤直接写出的独立文件。', "this record is derived from this run's execution record (%s) and is not a stand-alone file written directly by that step."),
+    'contrast_pointer_note': ('说明：本小节讨论的对比与「任务%d：%s」相同，标题沿用模型给出的对比标识；两节数值来自同一张差异表，表格方向见各表标题后的方向标注，正文按模型原句保留。', 'Note: this subsection discusses the same contrast as "Task %d: %s", and its heading keeps the contrast identifier the model gave; both sections draw on one differential table, the direction of each table is given in the annotation after its caption, and the body text keeps the model\'s own sentences.'),
+    'keyword_asset': ('资产', 'asset'),
+    'task_alias_note': ('输入兼容：同一对比的其它写法（%s）会被识别为同一个任务，它们不是额外任务，不得为它们另写小节。', 'Input compatibility: other spellings of the same contrast (%s) are recognised as the same task; they are not extra tasks and no separate section may be written for them.'),
+    'field_already_processed': ('输入已处理=%s', 'input already processed=%s'),
+    'item_input_numeric_range': ('输入矩阵数值范围', 'value range of the input matrix'),
+    'item_input_matrix_state': ('输入矩阵状态', 'input matrix state'),
+    'item_non_missing_fraction': ('输入矩阵非缺失比例', 'non-missing fraction of the input matrix'),
+    'evidence_boundary_line': ('边界：%s', 'Boundary: %s'),
+    'stage_marker_filtered': ('过滤后', 'filtered'),
+    'file_filtered_matrix': ('过滤后定量矩阵', 'filtered quantitative matrix'),
+    'file_filtered_sample_info': ('过滤后样本信息表', 'filtered sample information table'),
+    'stage_filtered_matrix': ('过滤后矩阵（统计检验所用）', 'filtered matrix (used for statistical testing)'),
+    'source_matrix_shapes': ('运行目录中的矩阵文件行数与列数（行=蛋白，列=样本）', 'row and column counts of the matrix files in the run folder (rows = proteins, columns = samples)'),
+    'source_run_record': ('运行记录 %s', 'run record %s'),
+    'source_run_records_design': ('运行记录 · 分析设计与差异分析记录', 'run record · analysis design and differential-analysis records'),
+    'binding_note': ('运行记录与主张绑定的机器可读副本；正文只呈现其中面向读者的部分', 'machine-readable copy of the binding between run records and claims; the body presents only the reader-facing part of it'),
+    'item_n_significant_from_run': ('运行记录中的通过筛选数（%s）', 'passing count in the run record (%s)'),
+    'scale_note_unknown_long': ('运行记录只记录了输入的判断字段，未记录实际变换，无法确认检验空间的尺度', 'the run record holds only the input judgement fields and nothing about the transform actually applied, so the scale of the testing space cannot be confirmed'),
+    'unit_reason_unclassified': ('运行记录未给出可归类的阻断原因', 'the run record gives no classifiable blocking reason'),
+    'note_transform_record_absent_request': ('运行记录没有矩阵变换的完整记录：不能把「未记录」写成「未执行」，也不能写成已经执行', 'The run record holds no complete record of the matrix transform: "not recorded" must not be written as "not executed", nor as having been executed'),
+    'record_parameters': ('运行配置', 'run configuration'),
+    'record_parameters_dot': ('运行配置 · ', 'run configuration ·  '),
+    'record_parameters_design': ('运行配置 · 分析设计 · ', 'run configuration · analysis design ·  '),
+    'record_parameters_design_differential': ('运行配置 · 分析设计 · 差异分析 · ', 'run configuration · analysis design · differential analysis ·  '),
+    'record_parameters_design_matrix': ('运行配置 · 分析设计 · 矩阵 · ', 'run configuration · analysis design · matrix ·  '),
+    'ledger_preserved': ('逐字保留', 'kept verbatim'),
+    'dimred_note': ('逐样本 %s 坐标已在 processed_proteins/qc_metrics.csv 给出（%d 行）；UMAP 二维坐标为未产出坐标，不要写成缺少全部降维坐标。', 'per-sample %s coordinates are given in processed_proteins/qc_metrics.csv (%d rows); UMAP two-dimensional coordinates count as not produced, so do not write that all dimensionality-reduction coordinates are missing.'),
+    'field_pass_count': ('通过筛选数', 'passing count'),
+    'field_proteins_passing_screening': ('通过筛选的蛋白数', 'proteins passing screening'),
+    'translate_n_sig': ('通过筛选的蛋白数=', 'proteins passing screening='),
+    'keyword_overview': ('速览', 'overview'),
+    'threshold_not_recorded': ('阈值未记录（parameters.json 缺 differential 阈值）', 'threshold not recorded (parameters.json has no differential thresholds)'),
+    'keyword_appendix': ('附录', 'appendix'),
+    'file_unmatched_table': ('附随结果表', 'accompanying result table'),
+    'dose_flat_with_dose': ('随剂量不单调', 'non-monotonic with dose'),
+    'field_needs_log_transform': ('需要对数变换=%s', 'needs log transform=%s'),
+    'field_non_missing_fraction_short': ('非缺失比例', 'non-missing fraction'),
+    'filtering_rule': ('非缺失比例 >= %s（%s）', 'non-missing fraction >= %s (%s)'),
+    'not_computed_overlap_empty': ('预定义基因集的重叠富集（文件存在但是空对象）', 'overlap enrichment of predefined gene sets (the file exists but is an empty object)'),
+    'not_computed_overlap_unparsable': ('预定义基因集的重叠富集（文件存在但解析失败——这是读取状态，不是未产出）', 'overlap enrichment of predefined gene sets (the file exists but does not parse - this is a read state, not an absent result)'),
+    'not_computed_overlap_missing': ('预定义基因集的重叠富集（本次运行没有该文件：分析未执行）', 'overlap enrichment of predefined gene sets (this run has no such file: the analysis was not run)'),
+    'confidence_high': ('高', 'high'),
+    'figure_caption_merged': ('（一个图注条目可能覆盖同一编号段的多张图）', '(one caption entry may cover several figures of the same number range)'),
+    'unit_all_testable': ('（全部可检验）', '(all testable)'),
+    'unit_some_not_tested': ('（另有 %d 个蛋白行因有效单位不足标记为未检验）', '(%d further protein rows are marked as not tested for lack of valid units)'),
+    'figure_file_fallback': ('（图册文件）%s', '(figure file) %s'),
+    'candidate_none': ('（本对比没有候选蛋白记录）', '(no candidate protein record for this contrast)'),
+    'task_section_unmatched': ('（本轮标准对比未匹配到模型小节：该对比按确定性事实呈现。）', "(this run's standard contrasts matched no model subsection: the contrast is presented from deterministic facts.)"),
+    'evidence_source_note': ('（来源：%s）', '(source: %s)'),
+    'key_summary_absent': ('（模型未提供速览，以下为确定性事实）', '(the model provided no key summary; the deterministic facts follow)'),
+    'positive_means': ('（正值表示 %s 较高）', '(a positive value means %s is higher)'),
+    'sign_opposite': ('（符号与此相反）', '(the sign is opposite)'),
+    'boundary_pointer': ('（结论边界见本报告「结论边界与方法局限」）', '(for conclusion boundaries see "Conclusion Boundaries and Method Limitations" in this report)'),
+    'asset_count_scope_note': ('（该计数按对比与蛋白组去重；「证据表（逐条）」的候选蛋白表另按方向与统计量去重，%s，因此两者行数不同，不是同一口径。）', '(this count is de-duplicated by contrast and protein group; the candidate protein table of "Evidence Tables (record by record)" is additionally de-duplicated by direction and statistics, %s, so the two row counts differ and do not share one scope.)'),
+    'unit_direction_reversed_suffix': ('，与本节标题的写法相反，标题方向的正负号需取反', ', which is opposite to the wording of this section heading, so the signs of the heading direction must be flipped'),
+    'more_contrasts_suffix': ('；其余 %d 个对比见运行配置中的对比清单', '; the remaining %d contrasts are in the contrast list of the run configuration'),
+    'more_records_suffix': ('；其余 %d 个见下表。', '; the remaining %d are in the table below.'),
+    'more_module_records_suffix': ('；其余 %d 条见下表。', '; the remaining %d are in the table below.'),
+    'imputation_done_suffix': ('；分析矩阵按执行记录做过缺失填补（%s）', '; the analysis matrix was imputed according to the execution record (%s)'),
+    'imputation_not_done_suffix': ('；执行记录显示未做缺失填补', '; the execution record shows no missing-value imputation'),
+    'unit_direction_suffix': ('；本段数值按「%s − %s」方向给出（正值为 %s 侧较高）', '; the values in this paragraph are given in the "%s − %s" direction (a positive value means the %s side is higher)'),
+    'figure_caption_capped_suffix': ('；此处列出前 %d 条，其余 %d 条未列出', '; the first %d are listed here and the remaining %d are not listed'),
+    'imputation_unknown_suffix': ('；缺失填补状态未记录，不能写成未执行', '; the imputation state is not recorded and must not be written as not executed'),
+}
+register("assembly", _STRINGS)
 
 # --------------------------------------------------------------------------- reader-facing wording
 # Internal provenance / field vocabulary that must not reach a finished report. The model answers
 # are written for an internal reader, so the assembler translates their scaffolding into plain
 # Chinese *before* the text becomes part of the deliverable. Science is untouched: values, protein
 # ids, evidence ids and directions are preserved verbatim.
-SOURCE_LABELS = {
-    "current_matrix": "当前矩阵",
-    "offline_enrichment": "离线富集结果",
-    "external_annotation": "外部注释",
-    "external_literature": "外部文献",
-    "drug_database": "药物数据库",
-    "dataset_provided": "数据集提供",
-}
+#
+# These tables are accessors rather than module constants on purpose. The report language is chosen
+# at run time, so a table bound at import time would freeze whichever language was active then; each
+# accessor resolves its templates for the language in force.
+
+
+def _title_prefix() -> str:
+    """Default report H1, used when a run exposes no descriptive title of its own."""
+    return t("assembly.title_prefix")
+
+
+def _source_labels() -> Dict[str, str]:
+    """Provenance token -> reader label for the model's own source annotations."""
+    return {
+        "current_matrix": t("assembly.current_matrix"),
+        "offline_enrichment": t("assembly.source_offline_enrichment"),
+        "external_annotation": t("assembly.external_annotation"),
+        "external_literature": t("assembly.source_external_literature"),
+        "drug_database": t("assembly.source_drug_database"),
+        "dataset_provided": t("assembly.source_dataset_provided"),
+    }
 
 PROVENANCE_TOKENS = ("current_matrix", "offline_enrichment", "external_annotation",
                      "external_literature", "drug_database", "dataset_provided")
 
-FIELD_TOKENS = ("置信度", "置信度：", "证据来源", "证据：", "证据", "边界", "证据ID", "证据 ID")
+
+def _field_tokens() -> Tuple[str, ...]:
+    """Internal annotation fields: a parenthesised chunk naming one of these is scaffolding."""
+    return ("置信度", "置信度：", "证据来源", "证据：", "证据", t("assembly.keyword_boundary"),
+            "证据ID", "证据 ID")
 
 
 def _translate_tokens(text: str) -> str:
-    """Reader-facing prose: translate internal scaffolding, never touch numbers or ids."""
+    """Reader-facing prose: translate internal scaffolding, never touch numbers or ids.
+
+    This is an English-to-Chinese rewriting layer: the internal vocabulary is already English and
+    this step turns it into the Chinese the released report reads in. An English report needs no
+    translation, so for every other language the layer is a pass-through and the internal tokens
+    (provenance names, field names, direction enums) stay exactly as they are.
+    """
+    if get_language() != "zh":
+        return text
     out = text
     # a source table that records an exact zero usually means underflow, not a true zero p-value
     out = re.sub(r"(?:FDR|adj\.P(?:\.Val)?|P\.Value|P)\s*[=＝]\s*0(?![.\d])",
-                 "在原差异表中记为 0", out)
+                 t("assembly.translate_zero_p"), out)
     # confidence vocabulary (internal English level -> readable Chinese level)
     # a CJK range word right after the English level defeats \b, so the 至/到 form needs its own rule
     out = re.sub(r"置信度\s*[:：]?\s*low\s*(?:至|到|~|-|–|—|/)\s*moderate",
-                 "证据强度：较低至中等", out)
+                 t("assembly.evidence_strength_low_to_moderate"), out)
     out = re.sub(r"置信度\s*[:：]?\s*moderate\s*(?:至|到|~|-|–|—|/)\s*low",
-                 "证据强度：中等至较低", out)
+                 t("assembly.evidence_strength_moderate_to_low"), out)
     out = re.sub(r"置信度\s*[:：]?\s*(?:low[-–/]?moderate|moderate[-–/]?low)\b",
-                 "证据强度：较低至中等", out)
-    out = re.sub(r"置信度\s*[:：]?\s*(moderate|medium)\b", "证据强度：中等", out)
-    out = re.sub(r"置信度\s*[:：]?\s*low\b", "证据强度：较低", out)
-    out = re.sub(r"置信度\s*[:：]?\s*high\b", "证据强度：较高", out)
-    out = out.replace("置信度 moderate/low", "证据强度：较低至中等")
-    out = out.replace("置信度 low–moderate", "证据强度：较低至中等")
-    out = out.replace("置信度 low-moderate", "证据强度：较低至中等")
-    out = out.replace("置信度 moderate", "证据强度：中等")
-    out = out.replace("置信度 low", "证据强度：较低")
-    out = out.replace("moderate/low", "中等/较低")
-    out = out.replace("low–moderate", "较低至中等").replace("low-moderate", "较低至中等")
+                 t("assembly.evidence_strength_low_to_moderate"), out)
+    out = re.sub(r"置信度\s*[:：]?\s*(moderate|medium)\b", t("assembly.evidence_strength_moderate"), out)
+    out = re.sub(r"置信度\s*[:：]?\s*low\b", t("assembly.evidence_strength_low"), out)
+    out = re.sub(r"置信度\s*[:：]?\s*high\b", t("assembly.evidence_strength_high"), out)
+    out = out.replace("置信度 moderate/low", t("assembly.evidence_strength_low_to_moderate"))
+    out = out.replace("置信度 low–moderate", t("assembly.evidence_strength_low_to_moderate"))
+    out = out.replace("置信度 low-moderate", t("assembly.evidence_strength_low_to_moderate"))
+    out = out.replace("置信度 moderate", t("assembly.evidence_strength_moderate"))
+    out = out.replace("置信度 low", t("assembly.evidence_strength_low"))
+    out = out.replace("moderate/low", t("assembly.moderate_slash_low"))
+    out = out.replace("low–moderate", t("assembly.lower_to_moderate")).replace("low-moderate", t("assembly.lower_to_moderate"))
     out = re.sub(r"置信度\s*[:：]?\s*分别为\s*low\s*/\s*moderate",
-                 "证据强度：分别为较低与中等", out)
+                 t("assembly.evidence_strength_low_and_moderate"), out)
     out = re.sub(r"置信度\s*[:：]?\s*分别为\s*moderate\s*/\s*low",
-                 "证据强度：分别为中等与较低", out)
+                 t("assembly.evidence_strength_moderate_and_low"), out)
     out = re.sub(r"置信度\s*[:：]?\s*分别为\s*low\s*与\s*moderate",
-                 "证据强度：分别为较低与中等", out)
+                 t("assembly.evidence_strength_low_and_moderate"), out)
     # provenance vocabulary
-    out = out.replace("current_matrix", "当前矩阵")
-    out = out.replace("offline_enrichment", "离线富集结果")
-    out = out.replace("external_annotation", "外部注释")
-    out = out.replace("external_literature", "外部文献")
-    out = out.replace("drug_database", "药物数据库")
-    out = out.replace("dataset_provided", "数据集提供")
+    out = out.replace("current_matrix", t("assembly.current_matrix"))
+    out = out.replace("offline_enrichment", t("assembly.source_offline_enrichment"))
+    out = out.replace("external_annotation", t("assembly.external_annotation"))
+    out = out.replace("external_literature", t("assembly.source_external_literature"))
+    out = out.replace("drug_database", t("assembly.source_drug_database"))
+    out = out.replace("dataset_provided", t("assembly.source_dataset_provided"))
     # remaining internal field names / values
-    out = re.sub(r"needs_log_transform\s*[=＝]\s*(?:true|True|1)", "记录为需要 log 变换", out)
-    out = out.replace("looks_logged=false", "记录为未确认已对数化")
-    out = out.replace("already_processed", "已处理输入")
-    out = out.replace("batch_corrected_claimed", "声称已批次校正")
-    out = out.replace("adj.significant", "FDR 显著")
-    out = out.replace("analysis_design", "分析设计")
-    out = out.replace("n_sig=", "通过筛选的蛋白数=")
-    out = out.replace("n_sig", "通过筛选的蛋白数")
-    out = out.replace("raw P<0.05 = ", "原始 P<0.05 = ")
-    out = out.replace("log2_likely", "可能为 log2 尺度（未记录变换）")
+    out = re.sub(r"needs_log_transform\s*[=＝]\s*(?:true|True|1)", t("assembly.translate_needs_log_transform"), out)
+    out = out.replace("looks_logged=false", t("assembly.translate_looks_logged_false"))
+    out = out.replace("already_processed", t("assembly.translate_already_processed"))
+    out = out.replace("batch_corrected_claimed", t("assembly.translate_batch_corrected_claimed"))
+    out = out.replace("adj.significant", t("assembly.fdr_significant"))
+    out = out.replace("analysis_design", t("assembly.analysis_design"))
+    out = out.replace("n_sig=", t("assembly.translate_n_sig"))
+    out = out.replace("n_sig", t("assembly.field_proteins_passing_screening"))
+    out = out.replace("raw P<0.05 = ", t("assembly.translate_raw_p"))
+    out = out.replace("log2_likely", t("assembly.translate_log2_likely"))
     out = out.replace("（type=synthesis）", "").replace("(type=synthesis)", "")
-    out = out.replace("type=synthesis", "综合评述")
-    out = out.replace("exploratory_not_fdr_significant", "探索性，未达到 FDR 显著")
-    out = out.replace("inferred", "推断")
-    out = out.replace("tested proteins", "检验蛋白数")
-    out = out.replace("analysed_n_proteins=", "分析蛋白数=")
-    out = out.replace("analysed_mean_missing_rate=", "分析后缺失率=")
-    out = out.replace("n_samples=", "样本数=")
-    out = out.replace("mean_score=", "模块平均分=")
-    out = out.replace("n_up_display_group_a", "A 组较高数")
-    out = out.replace("n_down_display_group_a", "B 组较高数")
-    out = out.replace("n_a=", "A 组样本数=").replace("n_b=", "B 组样本数=")
-    out = out.replace("contrast_estimable=", "对比可估计性=")
-    out = out.replace("eta2_batch_pc_descriptive=", "批次主成分效应量=")
-    out = out.replace("contrast_vif=", "对比 VIF=")
-    out = out.replace("confidence=moderate", "证据强度：中等")
-    out = out.replace("confidence=low", "证据强度：较低")
-    out = out.replace("up_in_group_a", "在 A 组中较高")
-    out = out.replace("down_in_group_a", "在 A 组中较低")
-    out = out.replace("up_in_display", "显示方向较高")
-    out = out.replace("down_in_display", "显示方向较低")
+    out = out.replace("type=synthesis", t("assembly.translate_synthesis"))
+    out = out.replace("exploratory_not_fdr_significant", t("assembly.translate_exploratory"))
+    out = out.replace("inferred", t("assembly.translate_inferred"))
+    out = out.replace("tested proteins", t("assembly.field_tested_proteins"))
+    out = out.replace("analysed_n_proteins=", t("assembly.field_analysed_proteins"))
+    out = out.replace("analysed_mean_missing_rate=", t("assembly.field_analysed_missing"))
+    out = out.replace("n_samples=", t("assembly.field_n_samples"))
+    out = out.replace("mean_score=", t("assembly.field_module_mean_score"))
+    out = out.replace("n_up_display_group_a", t("assembly.field_n_up_a"))
+    out = out.replace("n_down_display_group_a", t("assembly.field_n_down_a"))
+    out = out.replace("n_a=", t("assembly.field_n_a_key")).replace("n_b=", t("assembly.field_n_b_key"))
+    out = out.replace("contrast_estimable=", t("assembly.field_contrast_estimable"))
+    out = out.replace("eta2_batch_pc_descriptive=", t("assembly.field_eta2_batch_pc"))
+    out = out.replace("contrast_vif=", t("assembly.field_contrast_vif"))
+    out = out.replace("confidence=moderate", t("assembly.evidence_strength_moderate"))
+    out = out.replace("confidence=low", t("assembly.evidence_strength_low"))
+    out = out.replace("up_in_group_a", t("assembly.translate_up_in_group_a"))
+    out = out.replace("down_in_group_a", t("assembly.translate_down_in_group_a"))
+    out = out.replace("up_in_display", t("assembly.translate_display_higher"))
+    out = out.replace("down_in_display", t("assembly.translate_display_lower"))
     # R17: presence state enums are machine values; the claim they carry is kept word for word
-    out = out.replace("not_detected_in_available_matrix", "在可用矩阵中未检出")
+    out = out.replace("not_detected_in_available_matrix", t("assembly.not_detected_in_matrix"))
     # R29: an unmapped symbol is a different state from an absent protein and must read differently.
     out = out.replace("symbol_not_matched_in_available_matrix",
-                      "未建立符号映射（该符号未匹配到矩阵标识，不等同于未检出）")
-    out = out.replace("symbol_not_mapped", "未建立符号映射")
-    out = out.replace("not detected in available matrix", "在可用矩阵中未检出")
-    out = out.replace("matrix_presence_only", "未进入统计检验")
+                      t("assembly.translate_symbol_not_matched"))
+    out = out.replace("symbol_not_mapped", t("assembly.translate_symbol_not_mapped"))
+    out = out.replace("not detected in available matrix", t("assembly.not_detected_in_matrix"))
+    out = out.replace("matrix_presence_only", t("assembly.not_entered_statistical_test"))
     # remaining English direction vocabulary inside Chinese sentences
-    out = re.sub(r"\b(?:up|higher) in ([A-Za-z0-9_.\-]+)", r"在\1中较高", out)
-    out = re.sub(r"\b(?:down|lower) in ([A-Za-z0-9_.\-]+)", r"在\1中较低", out)
-    out = out.replace("display 方向", "报告方向")
+    out = re.sub(r"\b(?:up|higher) in ([A-Za-z0-9_.\-]+)", t("assembly.translate_up_in_capture"), out)
+    out = re.sub(r"\b(?:down|lower) in ([A-Za-z0-9_.\-]+)", t("assembly.translate_down_in_capture"), out)
+    out = out.replace("display 方向", t("assembly.translate_display_direction"))
     out = re.sub(r"当前矩阵\s*\+\s*[A-Za-z0-9_.\-]+\s*[:：]", "", out)
     # provenance label followed by an evidence id: keep the id, drop the scaffolding
-    out = re.sub(r"(?:%s)\s*/\s*(E-[A-Z])" % "|".join(PROVENANCE_TOKENS), r"证据 \1", out)
+    out = re.sub(r"(?:%s)\s*/\s*(E-[A-Z])" % "|".join(PROVENANCE_TOKENS), t("assembly.evidence_ref_capture"), out)
     out = re.sub(r"(?:%s)|matrix_state=|scale_note" % "|".join(PROVENANCE_TOKENS), "", out)
     out = re.sub(r"(?m)^\s*当前矩阵\s*[:：]\s*", "", out)
     out = re.sub(r"\s*,\s*([；。，、])", r"\1", out)
@@ -155,17 +775,17 @@ def _plain_boundary_pointer(text: str) -> str:
     instead of an English field name. Applied after the annotation cleanup so the pointer is not
     mistaken for scaffolding and rewritten again.
     """
-    pointer = "（结论边界见本报告「结论边界与方法局限」）"
+    pointer = t("assembly.boundary_pointer")
     out = re.sub(r"[（(]\s*(?:证据)?边界\s*(?:参见|见)?\s*boundary\s*[）)]", pointer, text, flags=re.I)
     out = re.sub(r"[（(]\s*boundary\s*[）)]", pointer, out, flags=re.I)
-    return re.sub(r"\bboundary\b", "结论边界", out, flags=re.I)
+    return re.sub(r"\bboundary\b", t("assembly.boundary_pointer_phrase"), out, flags=re.I)
 
 
 def _clean_parens(text: str) -> str:
     """Compact the model's internal source annotations into one reader-facing 证据 marker."""
     def repl(match):
         inner = match.group(1)
-        if not any(token in inner for token in PROVENANCE_TOKENS + FIELD_TOKENS):
+        if not any(token in inner for token in PROVENANCE_TOKENS + _field_tokens()):
             return match.group(0)
         # keep the evidence ids; keep the report-author numbers and provenance labels, drop only
         # the internal confidence vocabulary so no author data is lost.
@@ -192,7 +812,7 @@ def _clean_parens(text: str) -> str:
             if chunk and chunk not in parts and not all(token in PROVENANCE_TOKENS
                                                        for token in re.split(r"[/、,，\s]+", chunk) if token):
                 parts.append(chunk)
-        body = "证据 " + "；".join(parts) if parts else ""
+        body = t("assembly.evidence_prefix") + "；".join(parts) if parts else ""
         return "（%s）" % body if body else ""
     return re.sub(r"（([^（）]{0,400})）", repl, text)
 
@@ -200,9 +820,9 @@ def _clean_parens(text: str) -> str:
 def polish_for_reader(text: str) -> str:
     """Strip internal prefixes, file names and directive records from reader-facing prose."""
     out = text
-    for pattern, label in FILE_LABELS:
+    for pattern, label in _file_labels():
         out = re.sub(r"[A-Za-z0-9_/\.-]*" + pattern + r"(?:\.csv|\.json|\.md|\.yaml|\.jsonl)?", label, out)
-    for pattern, replacement in EVIDENCE_REPAIRS:
+    for pattern, replacement in _evidence_repairs():
         out = re.sub(pattern, replacement, out)
     for prefix in INTERNAL_PREFIXES:
         out = out.replace(prefix, "")
@@ -210,7 +830,7 @@ def polish_for_reader(text: str) -> str:
     for pattern in DIRECTIVE_PATTERNS:
         if re.search(pattern, out):
             out = re.sub(pattern, "", out)
-            out = out.rstrip(" 。；") + "。" + DIRECTIVE_NOTE
+            out = out.rstrip(" 。；") + "。" + t("assembly.directive_note")
     out = re.sub(r"（\s*）", "", out)
     out = re.sub(r"[ 	]{2,}", " ", out)
     out = re.sub(r"\s+([，。；：])", r"", out)
@@ -218,49 +838,55 @@ def polish_for_reader(text: str) -> str:
     return out.strip(" ，；：")
 
 
-FILE_LABELS = (
-    (r"ProteinQuant_Filtered", "过滤后定量矩阵"),
-    (r"ProteinQuant_ComBat", "批次标定后定量矩阵"),
-    (r"ProQuant_Normalized", "归一化定量矩阵"),
-    (r"ProteinQuant", "蛋白定量矩阵"),
-    (r"SampleInfo_Filtered", "过滤后样本信息表"),
-    (r"SampleInfo", "样本信息表"),
-    (r"core_story_evidence", "差异检验与故事线摘要"),
-    (r"candidate_protein_evidence", "候选蛋白表"),
-    (r"curated_module_group_summary", "模块分组摘要"),
-    (r"curated_module_sample_scores", "样本级模块评分"),
-    (r"group_composition_qc", "分组构成与质量控制表"),
-    (r"group_cross_table_[A-Za-z0-9_]+", "分组交叉表"),
-    (r"dataset_recipe_evidence", "数据集分析配置"),
-    (r"scoring_standard_coverage", "任务覆盖检查表"),
-    (r"candidate_exclusion_trace", "候选排除记录"),
-    (r"confounding_adjusted_effects", "混杂校正效应"),
-    (r"confounding_estimability", "可估计性检查"),
-    (r"stratified_contrast_summary", "分层对比汇总"),
-    (r"differential_[A-Za-z0-9_]+", "差异检验摘要"),
-    (r"analysis_design\.used", "分析设计记录"),
-    (r"evidence_ledger", "证据来源记录"),
-    (r"figure_index", "图册索引"),
-)
-EVIDENCE_REPAIRS = (
-    (r'\uff08\s*\u8bc1\u636e\u6765\u6e90\uff1a?\s*\u5f53\u524d\u77e9\u9635\s*\uff09', '\uff08\u8bc1\u636e\uff1a\u672c\u8f6e\u5dee\u5f02\u5206\u6790\uff09'),
-    (r'\uff08\s*\u8bc1\u636e\u5f53\u524d\u77e9\u9635\s*\uff09', '\uff08\u8bc1\u636e\uff1a\u672c\u8f6e\u5dee\u5f02\u5206\u6790\uff09'),
-    (r'\u5f53\u524d\u77e9\u9635\s*[:\uff1a]', ''),
-    # R16: the catch-all must not claim a specific role for a file it cannot name; run after
-    # FILE_LABELS so every known table keeps its own reader label instead of collapsing into one.
-    (r'(?<![A-Za-z0-9_])[A-Za-z0-9_-]+\.(?:csv|json|jsonl|yaml|md)', '\u9644\u968f\u7ed3\u679c\u8868'),
-)
+def _file_labels() -> Tuple[Tuple[str, str], ...]:
+    """Internal file-stem pattern -> reader-facing label; the specific patterns come first."""
+    return (
+        (r"ProteinQuant_Filtered", t("assembly.file_filtered_matrix")),
+        (r"ProteinQuant_ComBat", t("assembly.file_combat_matrix")),
+        (r"ProQuant_Normalized", t("assembly.file_normalized_matrix")),
+        (r"ProteinQuant", t("assembly.file_protein_quant")),
+        (r"SampleInfo_Filtered", t("assembly.file_filtered_sample_info")),
+        (r"SampleInfo", t("assembly.file_sample_info")),
+        (r"core_story_evidence", t("assembly.file_core_story")),
+        (r"candidate_protein_evidence", t("assembly.file_candidate_protein")),
+        (r"curated_module_group_summary", t("assembly.file_module_group_summary")),
+        (r"curated_module_sample_scores", t("assembly.file_module_sample_scores")),
+        (r"group_composition_qc", t("assembly.file_group_composition_qc")),
+        (r"group_cross_table_[A-Za-z0-9_]+", t("assembly.file_group_cross_table")),
+        (r"dataset_recipe_evidence", t("assembly.file_dataset_recipe")),
+        (r"scoring_standard_coverage", t("assembly.file_scoring_coverage")),
+        (r"candidate_exclusion_trace", t("assembly.asset_candidate_exclusion")),
+        (r"confounding_adjusted_effects", t("assembly.file_confounding_adjusted")),
+        (r"confounding_estimability", t("assembly.file_confounding_estimability")),
+        (r"stratified_contrast_summary", t("assembly.file_stratified_summary")),
+        (r"differential_[A-Za-z0-9_]+", t("assembly.file_differential")),
+        (r"analysis_design\.used", t("assembly.file_analysis_design")),
+        (r"evidence_ledger", t("assembly.file_evidence_ledger")),
+        (r"figure_index", t("assembly.file_figure_index")),
+    )
+
+
+def _evidence_repairs() -> Tuple[Tuple[str, str], ...]:
+    """Source-annotation patterns rewritten before the prose reaches a reader."""
+    return (
+        (r'\uff08\s*\u8bc1\u636e\u6765\u6e90\uff1a?\s*\u5f53\u524d\u77e9\u9635\s*\uff09', t("assembly.evidence_this_run_diff")),
+        (r'\uff08\s*\u8bc1\u636e\u5f53\u524d\u77e9\u9635\s*\uff09', t("assembly.evidence_this_run_diff")),
+        (r'\u5f53\u524d\u77e9\u9635\s*[:\uff1a]', ''),
+        # R16: the catch-all must not claim a specific role for a file it cannot name; run after
+        # the file-label table so every known table keeps its own reader label instead of collapsing into one.
+        (r'(?<![A-Za-z0-9_])[A-Za-z0-9_-]+\.(?:csv|json|jsonl|yaml|md)', t("assembly.file_unmatched_table")),
+    )
 INTERNAL_PREFIXES = (
     "当前矩阵：", "当前矩阵:",
     "（证据当前矩阵：",
 )
-DIRECTIVE_NOTE = "模块分数与样本级评分仅作为方向性证据，不等同于显著性检验。"
 DIRECTIVE_PATTERNS = (
     "\u6309\s*R[123]\s*\u8981\u6c42[^\u3002\uff1b]*[\u3002\uff1b]?",
     "\u9075\u5faa\s*R[123][^\u3002\uff1b]*[\u3002\uff1b]?",
     "\uff08?\s*R[123][^\u3002\uff09]*\uff09?",
     "R[123]\s*\u7ea6\u675f",
 )
+
 
 def _evidence_source_note(match) -> str:
     """Turn an internal `evidence:` annotation into one reader-facing source note, deduplicated."""
@@ -269,7 +895,7 @@ def _evidence_source_note(match) -> str:
         chunk = chunk.strip()
         if chunk and chunk not in parts:
             parts.append(chunk)
-    return "（来源：%s）" % "、".join(parts) if parts else ""
+    return t("assembly.evidence_source_note") % "、".join(parts) if parts else ""
 
 
 def rewrite_for_reader(text: str) -> str:
@@ -281,8 +907,8 @@ def rewrite_for_reader(text: str) -> str:
     out = re.sub(r"\uff08\s*\u8bc1\u636e\s*\uff1a\s*\uff09", "", out)
     # R16: the model writes the annotation with an ASCII colon as often as a full-width one, and the
     # internal field name can appear outside a parenthesis. Both are the same scaffolding defect.
-    out = re.sub(r"evidence[_\s]?ids", "证据清单", out, flags=re.I)
-    out = re.sub(r"evidence\s*文件", "证据文件", out, flags=re.I)
+    out = re.sub(r"evidence[_\s]?ids", t("assembly.translate_evidence_ids"), out, flags=re.I)
+    out = re.sub(r"evidence\s*文件", t("assembly.translate_evidence_file"), out, flags=re.I)
     out = re.sub(r"\uff08\s*evidence\s*[:\uff1a]\s*([^\uff09]{0,200})\uff09", _evidence_source_note, out)
     out = out.replace("(evidence: current_matrix)", "")
     out = re.sub(r"\s{2,}", " ", out)
@@ -300,7 +926,6 @@ def rewrite_for_reader(text: str) -> str:
     out = re.sub(r"\s+([。；，、])", r"\1", out)
     out = re.sub(r"（\s*）", "", out)
     return out.strip()
-
 
 REPORT_HASH_NORMALISATION = "utf-8, CRLF/CR -> LF"
 REPORT_BINDING_SCHEMA = "report-binding-1"
@@ -360,7 +985,7 @@ def read_json(path: Path, default):
 
 def _fmt(value: Any) -> str:
     if value is None or value == "":
-        return "未记录"
+        return t("assembly.not_recorded")
     if isinstance(value, float):
         return "%.4g" % value
     return str(value)
@@ -370,21 +995,38 @@ def _cell(value: Any) -> str:
     """Markdown-safe cell text (escape the pipe that would otherwise break the table grid)."""
     return str(value if value is not None else "").replace("|", "\\|")
 
-
 # --------------------------------------------------------------------------- conditions
-UNIT_REASON_ZH = (
-    ("no experimental-unit column", "未声明实验单位列，元数据中也没有可识别的个体列"),
-    ("the design has no residual degrees of freedom", "设计没有剩余自由度，处理效应与个体效应无法分离"),
-    ("matched by name only", "个体列仅按名称匹配，未在分析设计中声明"),
-    ("no unit-level test is defensible", "该对比不支持个体层检验"),
-    ("fewer than", "某一臂或两臂共同个体数不足"),
-)
+
+
+def _unit_reason_pairs() -> Tuple[Tuple[str, str], ...]:
+    """Legacy English reason needle -> the reader-facing one-liner that replaces it."""
+    return (
+        ("no experimental-unit column", t("assembly.reason_no_unit_column")),
+        ("the design has no residual degrees of freedom", t("assembly.reason_no_residual_df")),
+        ("matched by name only", t("assembly.reason_matched_by_name_only")),
+        ("no unit-level test is defensible", t("assembly.reason_no_unit_level_test")),
+        ("fewer than", t("assembly.reason_fewer_than")),
+    )
+
+
+def _reader_language_text(text: str) -> bool:
+    """True when a recorded string carries text the report language can show as written.
+
+    The unit-level reasons are written into the run records by the analysis path, not by this
+    module, so the wording that arrives here depends on which language that path produced. The
+    released Chinese wording is accepted always; Latin wording is accepted once the report is no
+    longer Chinese, so an English report states the recorded reason instead of the boilerplate
+    "unclassifiable" line.
+    """
+    if any("\u4e00" <= ch <= "\u9fff" for ch in text):
+        return True
+    return get_language() != "zh" and any(ch.isascii() and ch.isalpha() for ch in text)
 
 
 def _unit_reason_zh(record: Dict[str, Any]) -> str:
     """Reader-facing one-liner for a blocked unit-level analysis."""
     blob = " | ".join(str(item) for item in (record.get("reasons") or [])).lower()
-    for needle, zh in UNIT_REASON_ZH:
+    for needle, zh in _unit_reason_pairs():
         if needle.lower() in blob:
             return zh
     # R25: the unit-level reasons are written for the reader directly; when no legacy English
@@ -395,26 +1037,28 @@ def _unit_reason_zh(record: Dict[str, Any]) -> str:
         if text.startswith("已排除"):
             continue  # the exclusion notice is information, not the blocking reason
         if text and any(key in text for key in ("门槛", "不足", "无法", "不能", "no unit-level test")):
-            if any("\u4e00" <= ch <= "\u9fff" for ch in text):
+            if _reader_language_text(text):
                 return text.split("（")[0].strip()
     for item in record.get("reasons") or []:
         text = str(item).strip()
-        if text and not text.startswith("已排除") and any("\u4e00" <= ch <= "\u9fff" for ch in text):
+        if text and not text.startswith("已排除") and _reader_language_text(text):
             return text.split("（")[0].strip()
-    return "运行记录未给出可归类的阻断原因"
+    return t("assembly.unit_reason_unclassified")
 
 
-UNIT_SOURCE_ZH = {
-    "analysis_design.pair_col_auto_inferred": "自动生成的分析设计中的单位列（按列名匹配，未由研究者确认）",
-    "analysis_design.pair_col": "分析设计声明的实验单位列",
-    "column_name_match_unconfirmed": "按列名匹配推断，未在分析设计中确认",
-    "absent": "未记录",
-}
+def _unit_source_labels() -> Dict[str, str]:
+    """Unit-column provenance token -> the wording a reader can act on."""
+    return {
+        "analysis_design.pair_col_auto_inferred": t("assembly.unit_source_design_auto"),
+        "analysis_design.pair_col": t("assembly.unit_source_design_declared"),
+        "column_name_match_unconfirmed": t("assembly.unit_source_column_name_unconfirmed"),
+        "absent": t("assembly.not_recorded"),
+    }
 
 
 def _unit_source_label(value: Any) -> str:
     text = str(value or "")
-    return UNIT_SOURCE_ZH.get(text, text or "未记录")
+    return _unit_source_labels().get(text, text or t("assembly.not_recorded"))
 
 
 def read_conditions(run: Path) -> Dict[str, Any]:
@@ -430,20 +1074,20 @@ def read_conditions(run: Path) -> Dict[str, Any]:
     transform = read_matrix_transform_record(Path(run))
     t_log = (transform.get("log2_transform") or {}) if isinstance(transform, dict) else {}
     if matrix.get("log2_transform_applied") is True:
-        scale, scale_note = "log2", "已记录 log2 变换"
+        scale, scale_note = "log2", t("assembly.scale_note_log2_recorded")
     elif t_log.get("applied") is True:
         scale = "log2"
-        scale_note = ("按本轮执行记录：%s（依据：%s；记录来源：%s）"
-                      % (t_log.get("form") or "对数变换",
-                         t_log.get("applied_basis") or "未记录",
+        scale_note = (t("assembly.scale_note_from_execution_record")
+                      % (t_log.get("form") or t("assembly.translate_log_transform_form_fallback"),
+                         t_log.get("applied_basis") or t("assembly.not_recorded"),
                          (transform.get("record_source") if isinstance(transform, dict) else "")
-                         or "未记录"))
+                         or t("assembly.not_recorded")))
     elif str(matrix.get("matrix_state") or "").lower() in {"logged", "log2"}:
-        scale, scale_note = "log2", "矩阵状态记录为 %s" % matrix.get("matrix_state")
+        scale, scale_note = "log2", t("assembly.scale_note_matrix_state") % matrix.get("matrix_state")
     elif matrix.get("looks_logged") is True:
-        scale, scale_note = "log2_likely", "仅按数值范围推断，未记录变换"
+        scale, scale_note = "log2_likely", t("assembly.scale_log2_range_only")
     else:
-        scale, scale_note = "unknown", "未记录尺度"
+        scale, scale_note = "unknown", t("assembly.scale_note_unknown")
     return {"p_thresh": p_thresh, "logfc_thresh": logfc_thresh,
             "fdr_method": diff.get("fdr_method"), "contrasts": diff.get("contrasts") or [],
             "matrix_state": matrix.get("matrix_state"), "scale": scale, "scale_note": scale_note,
@@ -455,15 +1099,16 @@ def threshold_text(cond: Dict[str, Any]) -> str:
     p, logfc = cond.get("p_thresh"), cond.get("logfc_thresh")
     fdr = cond.get("fdr_method") or "BH"
     if p is None or logfc is None:
-        return "阈值未记录（parameters.json 缺 differential 阈值）"
-    return "adj.P<%s 且 \\|logFC\\|>%s（多重校正：%s）" % (_fmt(p), _fmt(logfc), _fmt(fdr))
+        return t("assembly.threshold_not_recorded")
+    return t("assembly.threshold_text") % (_fmt(p), _fmt(logfc), _fmt(fdr))
 
 
 def effect_column(cond: Dict[str, Any]) -> str:
-    return "logFC" if cond.get("scale") == "log2" else "效应量（尺度未确认）"
-
+    return "logFC" if cond.get("scale") == "log2" else t("assembly.effect_column_unconfirmed")
 
 # --------------------------------------------------------------------------- evidence index
+
+
 def build_evidence_index(run: Path) -> Dict[str, Any]:
     """Composite keys: candidates by (contrast, protein group / gene), modules by (contrast, module)."""
     facts = evidence.build_facts(run)
@@ -527,8 +1172,9 @@ def plan_report(run: Path, sections: Dict[str, Any]) -> Dict[str, Any]:
                                   if v["display_contrast"] == rec["display_contrast"]]})
     return {"mode": "hybrid", "index": index, "tasks": tasks, "sections": sections}
 
-
 # --------------------------------------------------------------------------- blocks / task mapping
+
+
 def register_blocks(text: str) -> List[Dict[str, Any]]:
     """Register every block of the source text before any parsing touches it."""
     blocks: List[Dict[str, Any]] = []
@@ -586,7 +1232,6 @@ def _match_task_section(sections: Dict[str, Any], contrast: Dict[str, Any]) -> T
     found, route = _match_task_sections(sections, contrast)
     return (found[0] if found else None), route
 
-
 # --------------------------------------------------------------------------- rendering
 # R17: repeated method sentences are emitted once and then referred to by a short pointer, so the
 # reader sees each caveat in full but the sections stop repeating whole paragraphs.
@@ -606,10 +1251,10 @@ def _note_once(key: str, full: str, short: str = "") -> List[str]:
 
 def _contrast_block(task: Dict[str, Any], cond: Dict[str, Any]) -> List[str]:
     rec = task["contrast"]
-    groups = rec.get("groups") or ["A 组", "B 组"]
-    lines = ["核心对比（本表方向：正值表示 %s 较高，按「%s」）"
+    groups = rec.get("groups") or [t("assembly.group_a"), t("assembly.group_b")]
+    lines = [t("assembly.core_contrast_caption")
              % (_cell(groups[0]), _cell(rec.get("display_contrast"))),
-             "| 对比 | 通过筛选的蛋白数 | %s 较高 | %s 较高 | 统计口径 |" % (_cell(groups[0]), _cell(groups[1])),
+             t("assembly.header_core_contrast") % (_cell(groups[0]), _cell(groups[1])),
              "|---|---:|---:|---:|---|",
              "| %s | %s | %s | %s | %s |" % (_cell(rec.get("display_contrast")), _fmt(rec.get("n_sig")),
                                              _fmt(rec.get("n_up_display_a")), _fmt(rec.get("n_down_display_a")),
@@ -617,13 +1262,11 @@ def _contrast_block(task: Dict[str, Any], cond: Dict[str, Any]) -> List[str]:
     if rec.get("inverted"):
         lines += _note_once(
             "inverted_%s" % _cell(rec.get("source_contrast")),
-            "符号约定：本表按「%s」显示，底层差异表为 %s，其中 logFC 符号与本表相反；"
-            "正文数值一律按「%s」方向给出（正值为 %s 较高、负值为 %s 较高），"
-            "仅当句子明确引用源文件 %s 时按该文件的原始符号读取。"
+            t("assembly.sign_convention_long")
             % (_cell(rec.get("display_contrast")), _cell(rec.get("source_contrast")),
                _cell(rec.get("display_contrast")), _cell(groups[0]), _cell(groups[1]),
                _cell(rec.get("source_contrast"))),
-            "符号约定：本表方向同上（按「%s」；源文件 %s 的符号相反）。"
+            t("assembly.sign_convention_short")
             % (_cell(rec.get("display_contrast")), _cell(rec.get("source_contrast"))))
     return lines
 
@@ -632,15 +1275,15 @@ def _candidate_block(task: Dict[str, Any], index: Dict[str, Any], cond: Dict[str
                      limit: Optional[int] = None, total: Optional[int] = None) -> List[str]:
     keys = task["candidates"] if limit is None else task["candidates"][:limit]
     if not keys:
-        return ["（本对比没有候选蛋白记录）"]
+        return [t("assembly.candidate_none")]
     effect = effect_column(cond)
     # R17: the caption says how many rows exist instead of promising more than the table shows
     shown_total = total if total is not None else len(task["candidates"])
-    caption = ("候选蛋白（共 %d 条）" % shown_total if shown_total <= len(keys)
-               else "候选蛋白（共 %d 条，本节列前 %d 条，完整清单见「证据表（逐条）」）"
+    caption = (t("assembly.candidate_caption_all") % shown_total if shown_total <= len(keys)
+               else t("assembly.candidate_caption_capped")
                     % (shown_total, len(keys)))
     lines = [caption,
-             "| 候选 | 蛋白组 | 显示方向 %s | 源表 %s | adj.P.Val | 方向 | 差异表 |" % (_cell(effect), _cell(effect)),
+             t("assembly.header_candidate_block") % (_cell(effect), _cell(effect)),
              "|---|---|---:|---:|---|---|---|"]
     for key in keys:
         rec = index["candidates"][key]
@@ -659,12 +1302,11 @@ def _candidate_block(task: Dict[str, Any], index: Dict[str, Any], cond: Dict[str
                      and rec.get("source_contrast") != rec.get("display_contrast")}
     for display, source in sorted(inverted_keys):
         groups = next((item.get("groups") for item in index["contrasts"]
-                       if item.get("display_contrast") == display), None) or ["第一臂", "第二臂"]
+                       if item.get("display_contrast") == display), None) or [t("assembly.arm_first"), t("assembly.arm_second")]
         lines += _note_once(
             "cand_direction_%s" % source,
-            "方向读法：显示方向列按「%s」（正值为 %s 较高），源表列按反向写法「%s」（正值为 %s 较高）；"
-            "两列数值符号相反，但指的是同一个对比。" % (display, _cell(groups[0]), source, _cell(groups[1])),
-            "方向读法同前：显示方向列按「%s」，源表列为反向写法「%s」。" % (display, source))
+            t("assembly.candidate_direction_long") % (display, _cell(groups[0]), source, _cell(groups[1])),
+            t("assembly.candidate_direction_short") % (display, source))
     below = []
     for key in keys:
         record = index["candidates"][key]
@@ -676,8 +1318,7 @@ def _candidate_block(task: Dict[str, Any], index: Dict[str, Any], cond: Dict[str
             below.append(_cell(record.get("candidate")))
     if below:
         lines.append("")
-        lines.append("注：%s 的效应量绝对值未超过当前筛选口径的 0.25 效应阈值，列出供完整性参考，"
-                     "不计入通过筛选的蛋白集合（口径见上表「统计口径」列）。" % "、".join(below))
+        lines.append(t("assembly.candidate_below_threshold_note") % "、".join(below))
     return lines
 
 
@@ -688,11 +1329,11 @@ def _module_block(task: Dict[str, Any], index: Dict[str, Any], limit: Optional[i
         return []
     # R17: the member hash is machine metadata (it stays in the manifest), not reader content.
     shown_total = total if total is not None else len(task["modules"])
-    caption = ("模块证据（共 %d 条；Δ 方向同本任务组名）" % shown_total if shown_total <= len(keys)
-               else "模块证据（共 %d 条，本节列前 %d 条；Δ 方向同本任务组名）"
+    caption = (t("assembly.module_caption_all") % shown_total if shown_total <= len(keys)
+               else t("assembly.module_caption_capped")
                     % (shown_total, len(keys)))
     lines = [caption,
-             "| 模块 | A 组均值 | B 组均值 | Δ（A 组均值 − B 组均值） | 匹配蛋白数 |",
+             t("assembly.header_module_block"),
              "|---|---:|---:|---:|---:|"]
     for key in keys:
         rec = index["modules"][key]
@@ -702,16 +1343,15 @@ def _module_block(task: Dict[str, Any], index: Dict[str, Any], limit: Optional[i
     if keys:
         lines += _note_once(
             "module_no_fdr",
-            "注：Δ 为 A 组均值减 B 组均值，方向与上表同一组名；模块分数是成员蛋白评分的汇总，"
-            "没有 FDR，因此只能作为方向性证据，不能写成显著富集。",
-            "注：Δ 方向同组名；模块分数无 FDR，只作方向性证据（口径见「结论边界与方法局限」）。")
+            t("assembly.module_note_long"),
+            t("assembly.module_note_short"))
     return lines
 
 
 def _verdict_line(task: Dict[str, Any], cond: Dict[str, Any]) -> str:
     rec = task["contrast"]
-    groups = rec.get("groups") or ["A 组", "B 组"]
-    return ("判定：%s 中通过筛选口径的蛋白 %s 个（口径：%s），其中 %s 较高 %s 个、%s 较高 %s 个。"
+    groups = rec.get("groups") or [t("assembly.group_a"), t("assembly.group_b")]
+    return (t("assembly.verdict_line")
             % (_cell(rec.get("display_contrast")), _fmt(rec.get("n_sig")), threshold_text(cond),
                _cell(groups[0]), _fmt(rec.get("n_up_display_a")), _cell(groups[1]),
                _fmt(rec.get("n_down_display_a"))))
@@ -734,9 +1374,9 @@ def _unit_sensitivity_lines(run: Path, rec: Dict[str, Any], index: Dict[str, Any
     if not isinstance(unit, dict) or not unit:
         return []
     status = str(unit.get("status") or "")
-    column = str(unit.get("analysis_unit") or "未记录")
+    column = str(unit.get("analysis_unit") or t("assembly.not_recorded"))
     source = _unit_source_label(unit.get("unit_column_source"))
-    effect_name = str(unit.get("effect_column") or "效应量")
+    effect_name = str(unit.get("effect_column") or t("assembly.field_effect_size"))
     thr = unit.get("logfc_threshold")
     fdr = unit.get("n_passing_fdr_only")
     if fdr is None:
@@ -750,48 +1390,42 @@ def _unit_sensitivity_lines(run: Path, rec: Dict[str, Any], index: Dict[str, Any
         arms = [part.strip() for part in str(unit.get("direction") or "").split(" - ")]
         direction_text = ""
         if len(arms) == 2 and arms[0] and arms[1]:
-            direction_text = "；本段数值按「%s − %s」方向给出（正值为 %s 侧较高）" % (arms[0], arms[1], arms[0])
+            direction_text = t("assembly.unit_direction_suffix") % (arms[0], arms[1], arms[0])
             if _reversed_arms(key or "", rec.get("display_contrast")):
-                direction_text += "，与本节标题的写法相反，标题方向的正负号需取反"
+                direction_text += t("assembly.unit_direction_reversed_suffix")
         route_key = str(unit.get("analysis_route"))
-        estimand_zh = ("个体内均值差（同一实验单位在两臂的均值差）" if route_key == "within_unit_paired"
-                       else "个体间均值差（每条臂只使用只在该臂观测的实验单位）")
+        estimand_zh = (t("assembly.estimand_within_unit_mean_diff") if route_key == "within_unit_paired"
+                       else t("assembly.estimand_between_unit_pooled"))
         tested = _fmt(unit.get("n_proteins_tested"))
         not_tested = int(unit.get("n_proteins_not_tested") or 0)
-        joint_text = ("按联合口径（校正 P 值 < 0.05 且 |效应量| > %s）%s 条通过" % (_fmt(thr), _fmt(joint))
-                      if joint is not None else "未套用联合效应阈值")
+        joint_text = (t("assembly.unit_joint_pass") % (_fmt(thr), _fmt(joint))
+                      if joint is not None else t("assembly.unit_no_joint_threshold"))
         if route_key == "within_unit_paired":
-            design_text = ("使用两臂都有观测的 %s 个独立单位做配对 t 检验；只在一个臂出现的单位不参与配对"
+            design_text = (t("assembly.unit_design_paired")
                            % _fmt(unit.get("n_pairs") or unit.get("n_units_shared")))
         else:
-            design_text = ("共享单位不足以配对，改用只在单臂观测的独立个体（A 臂 %s 个、B 臂 %s 个）"
-                           "做个体间 Welch 检验，共享单位被排除在外、不重复计数"
+            design_text = (t("assembly.unit_design_between")
                            % (_fmt(unit.get("n_units_a_only")), _fmt(unit.get("n_units_b_only"))))
-        lines.append("**实验单位敏感性分析**：以「%s」为分析单位（%s；估计目标：%s%s）。本对比%s；"
-                     "进入检验的蛋白组 %s 个%s，按 FDR 口径 %s 条通过，%s，最小校正 P 值 %s。"
+        lines.append(t("assembly.unit_sensitivity_completed")
                      % (_cell(column), source, estimand_zh, direction_text, design_text, tested,
-                        ("（另有 %d 个蛋白行因有效单位不足标记为未检验）" % not_tested) if not_tested else "（全部可检验）",
+                        (t("assembly.unit_some_not_tested") % not_tested) if not_tested else t("assembly.unit_all_testable"),
                         _fmt(fdr), joint_text, _fmt(unit.get("min_adj_p_value"))))
-        lines.append("观察级检验仍是参照估计：两者以不同的单位计权（个体均值 vs 单细胞观测），"
-                     "估计目标不同，数值不可直接互换。")
+        lines.append(t("assembly.unit_reference_note_long"))
     else:
-        lines.append("**实验单位敏感性分析**：本对比不做个体级检验（%s）：%s"
+        lines.append(t("assembly.unit_sensitivity_blocked")
                      % (source, _unit_reason_zh(unit)))
     if str(unit.get("unit_column_source") or "") in ("column_name_match_unconfirmed",
                                                       "analysis_design.pair_col_auto_inferred"):
-        lines.append("注：单位列不是研究者确认的字段，而是由自动生成的分析设计按列名匹配得到；"
-                     "“每个标签对应一个独立生物学个体”在本轮是标签层假定，本节数值按标签层探索性分析解读，"
-                     "不作为个体层确认性结论。")
+        lines.append(t("assembly.unit_column_unconfirmed_note"))
     if excluded:
         lines += _note_once(
             "unit_excluded_units",
-            "混合来源或未确认来源的单位已单列并排除在独立个体之外：%s。「是否为独立生物学个体」按标签语义事先判定，"
-            "不按检验结果挑选。" % "、".join(_cell(x) for x in excluded),
-            "混合来源／未确认来源单位同前，已排除在独立个体之外。")
+            t("assembly.unit_excluded_note_long") % "、".join(_cell(x) for x in excluded),
+            t("assembly.unit_excluded_note_short"))
     reason_needed = [str(item) for item in (unit.get("reasons") or [])
                      if "分布不均" in str(item) or "矩阵匹配后" in str(item)]
     for item in reason_needed[:2]:
-        lines.append("注：%s" % item)
+        lines.append(t("assembly.note_prefix") % item)
     return lines
 
 
@@ -802,25 +1436,24 @@ def _data_section(run: Path, cond: Dict[str, Any],
     state = _fmt(cond.get("matrix_state"))
     scale = cond.get("scale")
     if scale == "log2_likely":
-        scale = "log2（推断，未记录变换）"
-        scale_note = "仅按数值范围推断；运行记录只记录了输入的判断字段，未记录实际变换"
+        scale = t("assembly.scale_log2_inferred")
+        scale_note = t("assembly.scale_log2_range_only_long")
     elif scale == "unknown":
-        scale = "未记录"
-        scale_note = "运行记录只记录了输入的判断字段，未记录实际变换，无法确认检验空间的尺度"
+        scale = t("assembly.not_recorded")
+        scale_note = t("assembly.scale_note_unknown_long")
     else:
         scale_note = cond.get("scale_note") or ""
-    lines = ["- 矩阵状态：%s；效应尺度：%s（%s）" % (state, _fmt(scale), scale_note),
-             "- 分组列：%s；样本 ID 列：%s；批次列：%s" % (_fmt(cond.get("group_col")),
+    lines = [t("assembly.data_matrix_state") % (state, _fmt(scale), scale_note),
+             t("assembly.data_group_cols") % (_fmt(cond.get("group_col")),
                                                          _fmt(cond.get("sample_id_col")),
                                                          _fmt(cond.get("batch_col"))),
-             "- 差异分析阈值：%s" % threshold_text(cond),
-             "- 本轮对比：%s" % (contrasts or "见差异表")]
+             t("assembly.data_threshold") % threshold_text(cond),
+             t("assembly.run_contrasts") % (contrasts or t("assembly.pointer_see_differential"))]
     if run_evidence:
         lines += _run_method_summary_lines(run, cond, run_evidence)
     else:
-        lines.append("- 证据表与图件路径见文末清单；数值以确定性表格为准。")
+        lines.append(t("assembly.data_evidence_paths"))
     return lines
-
 
 REPORT_TITLE: Dict[str, str] = {}
 
@@ -869,7 +1502,7 @@ def _descriptive_title_core(task_text: str) -> str:
         head, _, raw_tail = core.partition("的")
         gap = " " if raw_tail[:1] == " " else ""
         head, tail = head.strip(), raw_tail.strip()
-        core = ("%s的%s%s" % (head, gap, tail)) if (head and tail) else (head or core)
+        core = (t("assembly.title_core_join") % (head, gap, tail)) if (head and tail) else (head or core)
     core = re.sub(r"\s+", " ", core).strip(" ，,。；;：:")
     core = re.sub(r"(矩阵|数据集|数据)$", "", core).strip()
     lowered = core.lower()
@@ -889,8 +1522,8 @@ def derive_report_title(run: Path) -> str:
     """
     core = _descriptive_title_core(_dataset_task_text(run))
     if not core:
-        return TITLE_PREFIX
-    return ("%s报告" % core) if core.endswith("分析") else ("%s分析报告" % core)
+        return _title_prefix()
+    return (t("assembly.title_suffix_report") % core) if core.endswith("分析") else (t("assembly.title_suffix_analysis_report") % core)
 
 
 def _resolved_report_title(run: Path) -> str:
@@ -902,9 +1535,7 @@ def _resolved_report_title(run: Path) -> str:
             return title
     return derive_report_title(run)
 
-
 ENRICHMENT_DATABASES = ("GO", "KEGG", "Reactome")
-
 
 DIRECTION_KEYS = ("upregulated", "downregulated")
 # the overlap file is read once per run: ten task sections share one 97 KB payload
@@ -1047,7 +1678,7 @@ def _enrichment_view(data: Dict[str, Any], names: Any) -> Dict[str, Any]:
     """
     wanted = _as_names(names)
     view: Dict[str, Any] = {"buckets": {db: {} for db in ENRICHMENT_DATABASES},
-                            "status": "未执行", "shape": "", "matched_key": "",
+                            "status": t("assembly.status_not_executed"), "shape": "", "matched_key": "",
                             "reversed": False, "terms": 0}
     if not isinstance(data, dict) or not data:
         return view
@@ -1058,7 +1689,7 @@ def _enrichment_view(data: Dict[str, Any], names: Any) -> Dict[str, Any]:
         if isinstance(value, dict) and any(isinstance(value.get(db), dict) for db in ENRICHMENT_DATABASES):
             layers.append((str(key), value))
     if not layers:
-        view["status"] = "解析失败"
+        view["status"] = t("assembly.enrichment_status_unparsable")
         return view
     chosen = None
     for label, layer in layers:
@@ -1074,7 +1705,7 @@ def _enrichment_view(data: Dict[str, Any], names: Any) -> Dict[str, Any]:
         view["shape"] = label or "db-first"
         for database in ENRICHMENT_DATABASES:
             view["buckets"][database] = _direction_layer(layer.get(database), wanted)[2]
-        view["status"] = "无本对比条目" if any(view["buckets"].values()) else "有效空结果"
+        view["status"] = t("assembly.enrichment_status_no_entry") if any(view["buckets"].values()) else t("assembly.enrichment_status_valid_empty")
         return view
     label, layer, key, reversed_name = chosen
     for database in ENRICHMENT_DATABASES:
@@ -1094,7 +1725,7 @@ def _enrichment_view(data: Dict[str, Any], names: Any) -> Dict[str, Any]:
     view.update({"shape": label or "db-first", "matched_key": key or "",
                  "display_name": display,
                  "reversed": bool(reversed_name) or _reversed_arms(key or "", display),
-                 "status": "已计算" if view["terms"] else "有效空结果"})
+                 "status": t("assembly.status_computed") if view["terms"] else t("assembly.enrichment_status_valid_empty")})
     return view
 
 
@@ -1118,8 +1749,8 @@ def _enrichment_hint_lines(run: Path, contrast: Any, limit: int = 6,
     names = _as_names(contrast)
     key_name = view.get("matched_key") or (names[0] if names else "")
     arms = _arm_labels_for(key_name, index)
-    up_label = "上调方向（%s 较高）" % arms[0] if len(arms) == 2 else "上调方向"
-    down_label = "下调方向（%s 较高）" % arms[1] if len(arms) == 2 else "下调方向"
+    up_label = t("assembly.enrichment_up_label") % arms[0] if len(arms) == 2 else t("assembly.enrichment_up_direction")
+    down_label = t("assembly.enrichment_down_label") % arms[1] if len(arms) == 2 else t("assembly.enrichment_down_direction")
     rows = []
     for database in ENRICHMENT_DATABASES:
         node = buckets.get(database) or {}
@@ -1132,20 +1763,17 @@ def _enrichment_hint_lines(run: Path, contrast: Any, limit: int = 6,
                 rows.append((database, label, term, len(members), members))
     if not rows:
         return []
-    lines = ["### 富集方向提示（探索性）"]
+    lines = [t("assembly.heading_enrichment_hint")]
     lines += _note_once(
         "enrichment_hint",
-        "本节为探索性方向提示：所列通路来自预定义基因集的集合重叠结果，未经多重检验校正，无 FDR/q 值，"
-        "不得作为显著性证据，仅用于假设生成。每个数据库每个方向取种子基因数最多的一条。",
-        "探索性方向提示：集合重叠结果，无 FDR/q，不作显著性证据（口径见「结论边界与方法局限」）。"
-        "各节按同一规则各取一条。")
+        t("assembly.enrichment_hint_note_long"),
+        t("assembly.enrichment_hint_note_short"))
     if view.get("reversed"):
         # R21/F2: same comparison, opposite arm order between the overlap file and the report table.
         # The labels above follow the file, so the reader has to be told which order they follow.
-        lines += ["本节的通路条目取自富集结果文件（对比键「%s」，该键下正值为 %s 较高）；本任务正文的方向基准为「%s」。"
-                  "两者臂序相反，因此下表方向列逐一写出该方向较高的一组，不沿用正文基准。" % (_cell(key_name), _cell(arms[0] if arms else ""), _cell(names[0] if names else ""))]
+        lines += [t("assembly.enrichment_hint_reversed") % (_cell(key_name), _cell(arms[0] if arms else ""), _cell(names[0] if names else ""))]
     lines += ["",
-              "| 数据库 | 方向 | 通路/语义条目 | 该条种子基因数 | 代表成员 |",
+              t("assembly.header_enrichment_hint"),
               "|---|---|---|---:|---|"]
     for database, label, term, count, members in rows[:limit]:
         lines.append("| %s | %s | %s | %d | %s |" % (_cell(database), _cell(label), _cell(term),
@@ -1153,9 +1781,14 @@ def _enrichment_hint_lines(run: Path, contrast: Any, limit: int = 6,
     lines.append("")
     return lines
 
-
 DENSITY_CAP = 4
-MATRIX_ALIASES = ("\u672c\u6b21\u5206\u6790\u7684\u6570\u636e\u77e9\u9635", "\u603b\u4e30\u5ea6\u77e9\u9635", "\u8be5\u6570\u636e")
+
+
+def _matrix_aliases() -> Tuple[str, ...]:
+    """Natural alternatives used when one term would otherwise repeat too often."""
+    return (
+        (t("assembly.source_current_matrix"), t("assembly.matrix_alias_total_abundance"), t("assembly.matrix_alias_this_data"))
+    )
 
 
 def cap_term_density(text: str, term: str, cap: int = DENSITY_CAP, state: Optional[Dict[str, int]] = None) -> str:
@@ -1168,7 +1801,7 @@ def cap_term_density(text: str, term: str, cap: int = DENSITY_CAP, state: Option
         if counter["n"] <= cap:
             out.append(term)
         else:
-            out.append(MATRIX_ALIASES[(counter["n"] - cap - 1) % len(MATRIX_ALIASES)])
+            out.append(_matrix_aliases()[(counter["n"] - cap - 1) % len(_matrix_aliases())])
         pos = match.end()
     out.append(text[pos:])
     return "".join(out)
@@ -1178,18 +1811,17 @@ def _reader_asset_label(name: str) -> str:
     """Reader-facing name for an evidence asset, derived from the existing label map."""
     differential = re.match(r"differential_(.+)\.csv$", name)
     if differential:
-        return "差异检验结果表（%s）" % differential.group(1)
+        return t("assembly.asset_differential") % differential.group(1)
     if name.startswith("candidate_exclusion_trace"):
-        return "候选排除记录"
+        return t("assembly.asset_candidate_exclusion")
     if name.startswith("contrast_concordance"):
-        return "对比一致性表"
+        return t("assembly.asset_contrast_concordance")
     if name.startswith("stratified_contrast_summary"):
-        return "分层对比摘要表"
-    for pattern, label in FILE_LABELS:
+        return t("assembly.asset_stratified_summary")
+    for pattern, label in _file_labels():
         if re.search(pattern, name):
             return label
     return name.replace(".csv", "")
-
 
 
 def _stratified_lines(run):
@@ -1207,17 +1839,16 @@ def _stratified_lines(run):
     named = [r for r in rows if str(r.get("level") or "").strip()]
     if not named:
         return out
-    out += ["### 分层对比摘要", ""]
-    out.append("| 对比 | 分层变量 | 层 | 第一臂 n | 第二臂 n | 检验蛋白 | 通过筛选 | 结论 |")
+    out += [t("assembly.heading_stratified_summary"), ""]
+    out.append(t("assembly.header_stratified"))
     out.append("|---|---|---|---:|---:|---:|---:|---|")
     for row in named[:10]:
         out.append("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
             _cell(row.get("contrast")), _cell(row.get("stratifier")), _table_cell(row.get("level"), 120),
             _fmt(row.get("n_a")), _fmt(row.get("n_b")), _fmt(row.get("tested_proteins")),
             _fmt(row.get("n_sig")), _table_cell(row.get("verdict"), 80)))
-    out += ["", "分层结果按单个分层变量分别分组，不等于同时控制多个变量；主结论仍以主模型为准。", ""]
+    out += ["", t("assembly.stratified_scope_note"), ""]
     return out
-
 
 DESIGN_TOKENS = {"sampleinfo", "filename", "batch", "cluster", "label", "type1", "type2",
                  "intact", "permeable", "fresh", "frozen", "pg", "hela", "bortezomib",
@@ -1288,18 +1919,17 @@ def _exclusion_lines(run, limit=6, seen=None):
         if not name or status != "absent" or name.lower() in tokens:
             continue
         counted[(name, str(row.get("reason") or "").strip()[:60])] += 1
-    out = ["### 候选排除轨迹", "",
-           "下列候选在进入统计前被排除，原因按来源表逐条记录；未检出不等于样本中不存在。", ""]
+    out = [t("assembly.heading_exclusion_trace"), "",
+           t("assembly.exclusion_trace_intro"), ""]
     if seen is not None:
         seen['done'] = True
     if not counted:
-        out += ["本轮记录中不含蛋白级排除：被记录的未解析符号为分组与实验设计术语（例如分组名、样本表列名），"
-                "不是蛋白候选，因此本节不提供候选层面的排除结论。", ""]
+        out += [t("assembly.exclusion_trace_no_protein_level"), ""]
         return out
-    out += ["| 候选 | 记录原因 | 记录数 |", "|---|---|---:|"]
+    out += [t("assembly.header_exclusion_trace"), "|---|---|---:|"]
     for (name, reason), count in counted.most_common(limit):
         out.append("| %s | %s | %d |" % (_cell(name), _cell(reason), count))
-    out += ["", "排除记录数统计的是记录条数，不是蛋白数量。", ""]
+    out += ["", t("assembly.exclusion_count_note"), ""]
     return out
 
 
@@ -1319,7 +1949,7 @@ def _reader_prob(value):
     except Exception:
         return _cell(value)
     if number == 0:
-        return "小于 1e-300"
+        return t("assembly.prob_less_than")
     return "%.3g" % number
 
 
@@ -1345,15 +1975,18 @@ def _reader_note(raw: Any) -> str:
     text = str(raw or "").strip()
     match = re.fullmatch(r"query size (\d+) < (\d+): no test performed", text)
     if match:
-        return ("该方向进入检验的蛋白只有 %s 个，少于最少 %s 个的要求，因此本轮未执行该检验"
-                "（保留未执行状态，未用替代方法补算）。" % (match.group(1), match.group(2)))
+        return (t("assembly.reader_note_too_few") % (match.group(1), match.group(2)))
     if re.fullmatch(r"q<=0\.05", text):
-        return "该对比没有可检验的条目。"
+        return t("assembly.reader_note_no_testable_entry")
     return _cell(text)
 
 
-DOSE_DIRECTION_LABELS = {"falling with dose": "随剂量下降", "rising with dose": "随剂量上升",
-                         "flat": "无单调趋势", "no trend": "无单调趋势", "flat with dose": "随剂量不单调"}
+def _dose_direction_labels() -> Dict[str, str]:
+    """Recorded dose-direction token -> reader wording."""
+    return (
+        {"falling with dose": t("assembly.dose_falling"), "rising with dose": t("assembly.dose_rising"),
+        "flat": t("assembly.dose_no_monotonic_trend"), "no trend": t("assembly.dose_no_monotonic_trend"), "flat with dose": t("assembly.dose_flat_with_dose")}
+    )
 
 
 def _dose_direction_text(raw: Any, rho: Any = None) -> str:
@@ -1367,12 +2000,12 @@ def _dose_direction_text(raw: Any, rho: Any = None) -> str:
         value = None
     if value is not None:
         if value > 0:
-            return "随剂量上升"
+            return t("assembly.dose_rising")
         if value < 0:
-            return "随剂量下降"
-        return "无单调趋势（ρ=0）"
+            return t("assembly.dose_falling")
+        return t("assembly.dose_flat_zero_rho")
     text = str(raw or "").strip()
-    return DOSE_DIRECTION_LABELS.get(text.lower(), text or "方向未记录")
+    return _dose_direction_labels().get(text.lower(), text or t("assembly.direction_not_recorded"))
 
 
 def _dose_step_text(raw):
@@ -1395,9 +2028,9 @@ def _dose_trend_lines(run):
     modules = [row for row in rows if str(row.get("level")) == "module"]
     proteins = [row for row in rows if str(row.get("level")) == "protein"]
     skipped = [row for row in rows if str(row.get("note") or "").strip()]
-    out = ["### 剂量趋势检验（Spearman）", ""]
+    out = [t("assembly.heading_dose_trend"), ""]
     if modules:
-        out += ["| 药物 | 分层 | 模块 | 样本数 | 剂量步 | ρ | p | q(BH) | 方向 |",
+        out += [t("assembly.header_dose_module_steps"),
                 "|---|---|---|---:|---|---:|---:|---:|---|"]
         for row in modules:
             out.append("| %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
@@ -1423,22 +2056,19 @@ def _dose_trend_lines(run):
                                   for stratum, value in sorted(per_stratum.items()))
                 out += _note_once(
                     "dose_flip",
-                    "模块方向翻转的解释：%s 的 %s 模块在剂量轴上并不单调（%s），两个分层的方向相反且都未达 q≤0.05，"
-                    "因此高低剂量差值的符号相反应登记为未解释的观察，而不是单一机制的结论。"
+                    t("assembly.dose_flip_note_long")
                     % (drug, name, detail),
-                    "模块方向翻转：%s 的 %s 模块在分层间符号相反（%s），均未达 q≤0.05；"
-                    "按未解释的观察登记，不解释为单一机制。" % (drug, name, detail))
+                    t("assembly.dose_flip_note_short") % (drug, name, detail))
                 out.append("")
     if proteins:
         significant = [row for row in proteins if str(row.get("significant")) == "yes"]
         usable = [row for row in proteins if str(row.get("rho") or "").strip()]
-        out.append("蛋白水平：每个药物 × 分层单独检验并各自做 BH 校正，共检验 %d 个蛋白，其中 %d 个在 q≤0.05 下"
-                   "呈单调剂量趋势。" % (len(proteins), len(significant)))
+        out.append(t("assembly.dose_protein_summary") % (len(proteins), len(significant)))
         top = sorted(usable, key=lambda row: (float(row.get("q_value") or 1),
                                               -abs(float(row.get("rho") or 0))))[:6]
         if top:
             out.append("")
-            out += ["| 蛋白 | 药物 | 分层 | 样本数 | ρ | p | q(BH) |", "|---|---|---|---:|---:|---:|---:|"]
+            out += [t("assembly.header_dose_protein"), "|---|---|---|---:|---:|---:|---:|"]
             for row in top:
                 out.append("| %s | %s | %s | %s | %s | %s | %s |" % (
                     _cell(row.get("name")), _cell(row.get("drug")), _cell(row.get("stratum")),
@@ -1446,11 +2076,10 @@ def _dose_trend_lines(run):
                     _reader_prob(row.get("q_value"))))
         out.append("")
     for row in skipped:
-        out.append("注：%s / %s %s" % (_cell(row.get("drug")), _cell(row.get("stratum")),
+        out.append(t("assembly.note_drug_stratum") % (_cell(row.get("drug")), _cell(row.get("stratum")),
                                       _reader_note(row.get("note"))))
         out.append("")
-    out.append("剂量趋势以样本为观测单位（对照、低剂量、高剂量三步，分池与单细胞分层各自检验）；"
-               "模块分数只作方向性佐证，不能替代蛋白水平的趋势检验。")
+    out.append(t("assembly.dose_scope_note"))
     out.append("")
     return out
 
@@ -1483,11 +2112,15 @@ def _query_rule_text(definition):
     """Reader-facing form of the measured screening rule behind a significant-set query."""
     match = re.search(r"adj\.P<=\s*([0-9.]+).*?\|logFC\|>=\s*([0-9.]+)", str(definition or ""))
     if match:
-        return "adj.P\u2264%s \u4e14 |logFC|\u2265%s" % (match.group(1), match.group(2))
+        return t("assembly.threshold_design") % (match.group(1), match.group(2))
     return _cell(definition)
 
 
-DIRECTION_LABELS = {"upregulated": "\u4e0a\u8c03", "downregulated": "\u4e0b\u8c03"}
+def _direction_labels() -> Dict[str, str]:
+    """Internal direction token -> reader wording for the enrichment tables."""
+    return (
+        {"upregulated": t("assembly.direction_upregulated"), "downregulated": t("assembly.direction_downregulated")}
+    )
 
 
 def _is_fallback_query(row: Dict[str, Any]) -> bool:
@@ -1500,13 +2133,13 @@ def _fallback_contrast_text(rows, index) -> str:
     parts = []
     for name in sorted({str(row.get("contrast") or "") for row in rows}):
         subset = [row for row in rows if str(row.get("contrast") or "") == name]
-        sizes = _size_range(_fallback_significant_sizes(subset)) or "未记录"
-        query_sizes = _size_range([row.get("query_size") for row in subset]) or "未记录"
+        sizes = _size_range(_fallback_significant_sizes(subset)) or t("assembly.not_recorded")
+        query_sizes = _size_range([row.get("query_size") for row in subset]) or t("assembly.not_recorded")
         arms = _arm_labels_for(name, index)
         label = name
         if len(arms) == 2:
-            label = "%s（%s 较高 / %s 较高）" % (name, arms[0], arms[1])
-        parts.append("%s：该对比显著集 %s 个蛋白，兜底查询集 n=%s" % (label, sizes, query_sizes))
+            label = t("assembly.fallback_contrast_label") % (name, arms[0], arms[1])
+        parts.append(t("assembly.fallback_contrast_item") % (label, sizes, query_sizes))
     return "；".join(parts)
 
 
@@ -1527,42 +2160,39 @@ def _ora_query_scope_lines(tested, shown, index) -> List[str]:
         per_direction = {}
         for row in tested:
             arms = _arm_labels_for(row.get("contrast"), index)
-            label = DIRECTION_LABELS.get(str(row.get("direction")), _cell(row.get("direction")))
+            label = _direction_labels().get(str(row.get("direction")), _cell(row.get("direction")))
             if len(arms) == 2:
-                label = "%s 较高" % (arms[0] if str(row.get("direction")) == "upregulated"
+                label = t("assembly.arm_higher") % (arms[0] if str(row.get("direction")) == "upregulated"
                                     else arms[1])
             per_direction.setdefault(label, set()).add(str(row.get("query_size")))
         sizes = "、".join("%s n=%s" % (label, "、".join(sorted(values)))
                           for label, values in sorted(per_direction.items()))
-        return ["本小节的查询集为各对比中通过显著阈值的蛋白（%s）：%s。" % (rule, sizes)]
+        return [t("assembly.ora_scope_significant") % (rule, sizes)]
     if len(fallback_rows) == len(tested):
         # every contrast in this file fell back, so the dataset-wide wording is the accurate one
-        lead = ("本小节的查询集为按 |logFC| 取前 10%% 的蛋白（本小节所列条目的查询集 n=%s，"
-                "全部被检验的查询集 n=%s），"
+        lead = (t("assembly.ora_scope_fallback_lead")
                 % (_size_range([row.get("query_size") for row in shown]),
                    _size_range([row.get("query_size") for row in tested])))
         significant_sizes = _size_range(_fallback_significant_sizes(fallback_rows))
         if significant_sizes:
-            lead += "因本数据集通过显著阈值的蛋白仅 %s 个、不足以做标准的过表征分析。" % significant_sizes
+            lead += t("assembly.ora_fallback_reason_count") % significant_sizes
         else:
-            lead += "因本数据集通过显著阈值的蛋白过少，不足以做标准的过表征分析。"
-        lead += "下列 q 值描述的是该查询集的富集情况，不等同于差异蛋白的富集显著性。"
+            lead += t("assembly.ora_fallback_reason_too_few")
+        lead += t("assembly.query_scope_single")
         return [lead]
     # both kinds of query are in play: describe each scope instead of generalising one of them
     lines = []
     if shown_significant:
-        lines.append("本小节所列条目来自两类查询集，须按对比分别理解。第一类使用显著集（%s），"
-                     "本节所列条目的查询集 n=%s。"
+        lines.append(t("assembly.ora_mixed_scope_lead")
                      % (rule, _size_range([row.get("query_size") for row in shown_significant])
-                        or "未记录"))
+                        or t("assembly.not_recorded")))
     else:
-        lines.append("本小节的查询集不是一个统一口径，须按对比分别理解：本节所列条目均来自兜底查询集。")
+        lines.append(t("assembly.ora_mixed_scope_all_fallback"))
     scope_rows = shown_fallback or fallback_rows
-    lines.append("兜底查询集用于该对比显著集过小的情形：%s；本节所列兜底条目查询集 n=%s。"
+    lines.append(t("assembly.fallback_query_scope")
                  % (_fallback_contrast_text(scope_rows, index),
-                    _size_range([row.get("query_size") for row in scope_rows]) or "未记录"))
-    lines.append("下列 q 值只描述各自查询集的富集情况，不等同于差异蛋白的富集显著性；"
-                 "某一对比的显著蛋白数不适用于整个数据集。")
+                    _size_range([row.get("query_size") for row in scope_rows]) or t("assembly.not_recorded")))
+    lines.append(t("assembly.query_scope_two_classes"))
     return lines
 
 
@@ -1573,19 +2203,19 @@ def _enrichment_ora_lines(run, index: Optional[Dict[str, Any]] = None):
         return []
     tested = [row for row in rows if str(row.get("p_value") or "").strip()]
     skipped = [row for row in rows if not str(row.get("p_value") or "").strip()]
-    out = ["### \u6b63\u5f0f\u5bcc\u96c6\u68c0\u9a8c\uff08\u8d85\u51e0\u4f55\uff0c\u80cc\u666f=\u672c\u6b21\u68c0\u6d4b\u5230\u7684\u86cb\u767d\uff09", ""]
+    out = [t("assembly.heading_ora_background"), ""]
     if tested:
         shown = sorted(tested, key=lambda item: float(item.get("p_value") or 1))[:12]
         out += _ora_query_scope_lines(tested, shown, index)
         out.append("")
-        out += ["| \u5bf9\u6bd4 | \u65b9\u5411 | \u5e93 | \u901a\u8def | \u547d\u4e2d | \u901a\u8def\u5728\u80cc\u666f\u4e2d | \u67e5\u8be2\u96c6 | p | q(BH) |",
+        out += [t("assembly.header_ora"),
                 "|---|---|---|---|---:|---:|---:|---:|---:|"]
         for row in shown:
             # R17: name the arm the direction belongs to instead of a bare up/down label
             arms = _arm_labels_for(row.get("contrast"), index)
-            direction_label = DIRECTION_LABELS.get(str(row.get("direction")), row.get("direction"))
+            direction_label = _direction_labels().get(str(row.get("direction")), row.get("direction"))
             if len(arms) == 2:
-                direction_label = "%s 较高" % (arms[0] if str(row.get("direction")) == "upregulated"
+                direction_label = t("assembly.arm_higher") % (arms[0] if str(row.get("direction")) == "upregulated"
                                               else arms[1])
             out.append("| %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
                 _cell(row.get("contrast")),
@@ -1594,23 +2224,21 @@ def _enrichment_ora_lines(run, index: Optional[Dict[str, Any]] = None):
                 _cell(row.get("term")), _fmt(row.get("hits")), _fmt(row.get("term_size_in_background")),
                 _fmt(row.get("query_size")), _reader_prob(row.get("p_value")), _reader_prob(row.get("q_value"))))
         background = _fmt(tested[0].get("background_size"))
-        note = ("\u80cc\u666f\u96c6\u4e3a\u672c\u6b21\u5206\u6790\u5b9e\u9645\u68c0\u6d4b\u5230\u7684\u86cb\u767d\u7684\u57fa\u56e0\u7b26\u53f7\uff08\u53bb\u91cd\u540e N=%s\uff09\uff1ap \u4e3a\u8d85\u51e0\u4f55\u5c3e\u6982\u7387\uff0c"
-                "q \u4e3a\u540c\u4e00\u6b21\u67e5\u8be2\u5185\u5168\u90e8\u88ab\u68c0\u9a8c\u6761\u76ee\u7684 BH \u6821\u6b63\u3002" % background)
+        note = (t("assembly.ora_background_note") % background)
         # R17: the background set and the tested matrix are different counts, and the report says so
         # instead of leaving two numbers that look like a contradiction.
         matrix_proteins = _first_record(read_json(Path(run) / "processed_proteins" / "limma_summary.json",
                                                   {}) or {}).get("n_proteins")
         if matrix_proteins is not None and str(_fmt(matrix_proteins)) != str(background):
-            note += ("\u8be5\u80cc\u666f\u96c6\u6309\u672c\u6b21\u5b9e\u9645\u68c0\u6d4b\u5230\u7684\u86cb\u767d\u5bf9\u5e94\u7684\u57fa\u56e0\u7b26\u53f7\u53bb\u91cd\u540e\u7edf\u8ba1\uff08\u540c\u4e00\u57fa\u56e0\u7684\u591a\u884c\u6298\u53e0\u4e3a\u4e00\u6761\uff09\uff0c"
-                     "\u56e0\u6b64\u4e0e\u7edf\u8ba1\u68c0\u9a8c\u6240\u7528\u77e9\u9635\u7684\u86cb\u767d\u884c\u6570 %s \u4e0d\u540c\uff1b\u4e24\u4e2a\u6570\u5b57\u53e3\u5f84\u4e0d\u540c\uff0c\u5f15\u7528\u65f6\u5199\u660e\u6307\u54ea\u4e00\u4e2a\u3002" % _fmt(matrix_proteins))
+            note += (t("assembly.ora_background_vs_matrix_note") % _fmt(matrix_proteins))
         out += ["", note, ""]
     for row in skipped[:3]:
         arms = _arm_labels_for(row.get("contrast"), index)
-        direction_label = DIRECTION_LABELS.get(str(row.get("direction")), row.get("direction"))
+        direction_label = _direction_labels().get(str(row.get("direction")), row.get("direction"))
         if len(arms) == 2:
-            direction_label = "%s 较高" % (arms[0] if str(row.get("direction")) == "upregulated"
+            direction_label = t("assembly.arm_higher") % (arms[0] if str(row.get("direction")) == "upregulated"
                                           else arms[1])
-        out.append("注：%s / %s %s" % (_cell(row.get("contrast")), _cell(direction_label),
+        out.append(t("assembly.note_drug_stratum") % (_cell(row.get("contrast")), _cell(direction_label),
                                       _reader_note(row.get("note"))))
         out.append("")
     return out
@@ -1621,9 +2249,9 @@ def _concordance_lines(run, limit=None):
     import csv as _csv
     path = Path(run) / "evaluation_evidence_ext" / "contrast_concordance.csv"
     if not path.exists():
-        return ["### 对比一致性", "",
-                "本数据集未产出对比一致性表：源分析中没有满足条件的可比较对比对，因此不提供跨对比重叠或一致性结论。",
-                "该缺口是分析设计的边界，不是结果缺失。", ""]
+        return [t("assembly.heading_contrast_concordance"), "",
+                t("assembly.concordance_absent"),
+                t("assembly.concordance_gap_note"), ""]
     try:
         with path.open(encoding="utf-8-sig") as fh:
             rows = list(_csv.DictReader(fh))
@@ -1631,17 +2259,17 @@ def _concordance_lines(run, limit=None):
         return []
     if not rows:
         return []
-    out = ["### 对比一致性", "",
-           "| 对比 A | 对比 B | 共享蛋白 | 效应相关 | 显著重叠 | Fisher p |",
+    out = [t("assembly.heading_contrast_concordance"), "",
+           t("assembly.header_concordance"),
            "|---|---|---:|---:|---:|---:|"]
     shown = rows if limit is None else rows[:limit]
     for row in shown:
         out.append("| %s | %s | %s | %s | %s | %s |" % (
             _cell(row.get("contrast_a")), _cell(row.get("contrast_b")), _cell(row.get("shared_proteins")),
             _fmt(row.get("spearman_logfc")), _fmt(row.get("overlap_sig")), _fmt(row.get("fisher_p"))))
-    coverage = ("本表列出源表中的全部 %d 对比较。" % len(rows)) if len(shown) == len(rows) else (
-        "本表按源表顺序列出前 %d 对（共 %d 对）。" % (len(shown), len(rows)))
-    out += ["", coverage, "相关性描述两个对比的效应分布关系，不构成显著性检验。", ""]
+    coverage = (t("assembly.concordance_coverage_all") % len(rows)) if len(shown) == len(rows) else (
+        t("assembly.concordance_coverage_capped") % (len(shown), len(rows)))
+    out += ["", coverage, t("assembly.concordance_correlation_note"), ""]
     return out
 
 
@@ -1657,49 +2285,55 @@ def _enrichment_boundary_lines(run, has_terms):
         return []
     state, _payload = _overlap_state(run)
     if state == "missing":
-        body = ("本数据集未产出预定义基因集的重叠富集文件，因此本报告不提供通路层面结论；"
-                "这是该项分析未执行，不是分析执行后没有结果。")
+        body = (t("assembly.enrichment_boundary_missing"))
     elif state == "unparsable":
-        body = ("本数据集的重叠富集文件存在但无法解析，因此本报告不使用其内容，也不据此写通路结论；"
-                "这是读取状态，不是结果缺失。")
+        body = (t("assembly.enrichment_boundary_unparsable"))
     elif state == "empty":
-        body = ("本数据集在当前富集配置下未产出可用条目（预定义基因集的重叠结果为空），"
-                "故不提供通路层面结论；这是分析能力边界，不是结果缺失，也不引入替代性通路推测。")
+        body = (t("assembly.enrichment_boundary_empty"))
     else:
-        body = ("本数据集的重叠富集文件含有条目，但没有条目能对应到本报告的核心对比，"
-                "因此本节不给出通路层面结论；这是对比覆盖边界，不是结果缺失。")
-    return ["### 富集边界说明", "",
+        body = (t("assembly.enrichment_boundary_other_contrasts"))
+    return [t("assembly.heading_enrichment_boundary"), "",
             body, ""]
 
 
-CONFIDENCE_LABELS = {"high": "高", "moderate": "中", "low": "低"}
-EVIDENCE_SOURCE_LABELS = {"current_matrix": "本次分析的数据矩阵", "analyzed_matrix": "本次分析的数据矩阵",
-                          "dataset_provided": "数据集提供", "user_provided": "用户提供",
-                          "auto_inferred": "系统自动推断", "inferred": "系统自动推断",
-                          "offline_enrichment": "离线富集结果", "external_annotation": "外部注释",
-                          "analysis_design": "分析设计"}
+def _confidence_labels() -> Dict[str, str]:
+    """Recorded confidence level -> reader wording."""
+    return (
+        {"high": t("assembly.confidence_high"), "moderate": t("assembly.confidence_moderate"), "low": t("assembly.confidence_low")}
+    )
+
+
+def _evidence_source_labels() -> Dict[str, str]:
+    """Recorded evidence-source token -> reader wording."""
+    return (
+        {"current_matrix": t("assembly.source_current_matrix"), "analyzed_matrix": t("assembly.source_current_matrix"),
+        "dataset_provided": t("assembly.source_dataset_provided"), "user_provided": t("assembly.source_user_provided"),
+        "auto_inferred": t("assembly.source_auto_inferred"), "inferred": t("assembly.source_auto_inferred"),
+        "offline_enrichment": t("assembly.source_offline_enrichment"), "external_annotation": t("assembly.external_annotation"),
+        "analysis_design": t("assembly.analysis_design")}
+    )
 
 
 def _evidence_source_label(value: Any) -> str:
     text = str(value or "").strip()
-    return EVIDENCE_SOURCE_LABELS.get(text, text or "未记录")
+    return _evidence_source_labels().get(text, text or t("assembly.not_recorded"))
 
 
 def _confidence_label(value: Any) -> str:
     text = str(value or "").strip()
-    return CONFIDENCE_LABELS.get(text.lower(), text or "未记录")
+    return _confidence_labels().get(text.lower(), text or t("assembly.not_recorded"))
 
 
 def _direction_phrase(direction: Any, groups) -> str:
     """Translate the internal direction token into the reader-facing group names."""
     text = str(direction or "").strip()
-    first = _cell(groups[0]) if groups and groups[0] else "第一臂"
-    second = _cell(groups[1]) if groups and len(groups) > 1 and groups[1] else "第二臂"
+    first = _cell(groups[0]) if groups and groups[0] else t("assembly.arm_first")
+    second = _cell(groups[1]) if groups and len(groups) > 1 and groups[1] else t("assembly.arm_second")
     if text.startswith("up_in_group_a"):
-        return "%s 中较高" % first
+        return t("assembly.arm_higher_in") % first
     if text.startswith("down_in_group_a"):
-        return "%s 中较高" % second
-    return text or "方向未记录"
+        return t("assembly.arm_higher_in") % second
+    return text or t("assembly.direction_not_recorded")
 
 
 def _arm_labels_for(name: Any, index: Optional[Dict[str, Any]] = None) -> List[str]:
@@ -1734,17 +2368,19 @@ def _read_evidence_rows(path: Path) -> List[Dict[str, Any]]:
         return []
 
 
-FIGURE_TITLES = {
-    "qc_sample_overview": "样本与缺失率 QC",
-    "pca": "PCA 样本结构",
-    "umap": "UMAP 样本结构",
-    "heatmap": "差异蛋白热图",
-    "differential_summary_barplot": "差异蛋白数量概览",
-    "mechanism_enrichment_dotplot": "机制富集 dotplot",
-    "mechanism_top_protein_group_means": "核心蛋白组均值图",
-    "protein_contrast_bubble": "候选蛋白对比气泡图",
-    "key_protein_overview": "关键蛋白总览",
-}
+def _figure_title_map() -> Dict[str, str]:
+    """Plot type -> the title the report prints for that figure."""
+    return {
+        "qc_sample_overview": t("assembly.figure_qc_sample_title"),
+        "pca": t("assembly.figure_qc_title"),
+        "umap": t("assembly.figure_umap_title"),
+        "heatmap": t("assembly.figure_heatmap_title"),
+        "differential_summary_barplot": t("assembly.figure_differential_bar_title"),
+        "mechanism_enrichment_dotplot": t("assembly.figure_enrichment_dotplot_title"),
+        "mechanism_top_protein_group_means": t("assembly.figure_group_means_title"),
+        "protein_contrast_bubble": t("assembly.figure_bubble_title"),
+        "key_protein_overview": t("assembly.figure_key_protein_title"),
+    }
 
 
 def _pca_numbers(run: Path):
@@ -1789,7 +2425,7 @@ def _pca_numbers(run: Path):
                     groups[str(row.get("FileName") or "")] = str(row.get("Cluster") or "")
         per_group = {}
         for index, name in enumerate(samples):
-            key = groups.get(name) or groups.get(name.replace(".raw", "")) or "未分组"
+            key = groups.get(name) or groups.get(name.replace(".raw", "")) or t("assembly.pca_ungrouped")
             per_group.setdefault(key, []).append(float(scores[index, 0]))
         return {"pc1": float(variance[0]) * 100.0, "pc2": float(variance[1]) * 100.0,
                 "group_pc1": {key: float(_np.mean(val)) for key, val in per_group.items()}}
@@ -1807,7 +2443,7 @@ def _figure_reference_lines(run: Path, index: Dict[str, Any]) -> List[str]:
     for record in records:
         by_type.setdefault(str(record.get("plot_type") or ""), []).append(record)
     params = (records[0].get('params') or {}) if records else {}
-    thresholds = "adj.P<0.05 且 |logFC|>0.25（BH 校正）"
+    thresholds = t("assembly.figure_threshold")
     top_n = _fmt(params.get('top_n_proteins'))
     lines: List[str] = []
     number = 0
@@ -1821,23 +2457,23 @@ def _figure_reference_lines(run: Path, index: Dict[str, Any]) -> List[str]:
             continue
         number += 1
         meta = grouped[0].get("caption_metadata") or {}
-        title = FIGURE_TITLES.get(plot_type, plot_type)
+        title = _figure_title_map().get(plot_type, plot_type)
         if plot_type == "qc_sample_overview":
-            conclusion = ("平均每样本检出 %s 个蛋白，未注释 %s 个；分组规模与缺失率见「数据与预处理」。"
+            conclusion = (t("assembly.figure_qc_conclusion")
                           % (_fmt(meta.get("n_proteins")), _fmt(meta.get("n_unannotated"))))
         elif plot_type == "pca":
             pca = _pca_numbers(Path(run))
             if pca:
                 ranked = sorted(pca["group_pc1"].items(), key=lambda item: item[1])
-                conclusion = ("PC1 解释 %.1f%%、PC2 解释 %.1f%% 的方差；PC1 分组均值从最低的 %s（%.2f）到最高的 %s（%.2f），说明分组在 PC1 方向存在整体位移。"
+                conclusion = (t("assembly.figure_pca_conclusion")
                               % (pca["pc1"], pca["pc2"], ranked[0][0], ranked[0][1],
                                  ranked[-1][0], ranked[-1][1]))
             else:
-                conclusion = "线性降维用于检查分组分离与离群样本（解释率未记录）。"
+                conclusion = t("assembly.figure_pca_conclusion_missing")
         elif plot_type == "umap":
-            conclusion = "与 PCA 同一输入的二维投影，用于交叉检查分组分离与离群样本。"
+            conclusion = t("assembly.figure_umap_conclusion")
         elif plot_type == "heatmap":
-            conclusion = "取信息量最高的前 %s 个特征（阈值 %s）展示样本间分布。" % (top_n, thresholds)
+            conclusion = t("assembly.figure_heatmap_conclusion") % (top_n, thresholds)
         elif plot_type == "differential_summary_barplot":
             # R17: the bar counts follow each source table's own sign, so the figure says which arm
             # "up" means; without this the figure and the body read as a contradiction.
@@ -1846,41 +2482,40 @@ def _figure_reference_lines(run: Path, index: Dict[str, Any]) -> List[str]:
             if len(inverted) == 1:
                 arms = _arm_labels_for(inverted[0].get("source_contrast"), index)
                 if len(arms) == 2:
-                    direction_note = ("该图按源差异表 %s 的符号绘制：上调＝%s 较高，下调＝%s 较高；"
-                                      "正文按「%s」叙述时符号相反。"
+                    direction_note = (t("assembly.figure_bar_direction_note_single")
                                       % (inverted[0].get("source_contrast"), arms[0], arms[1],
                                          inverted[0].get("display_contrast")))
             elif inverted:
-                direction_note = "该图按各对比源差异表的符号绘制，与正文显示方向的对应关系见各任务小节表注。"
-            conclusion = ("%s 个对比共 %s 个蛋白通过筛选（上调 %s、下调 %s，阈值 %s）。%s"
+                direction_note = t("assembly.figure_bar_direction_note_plural")
+            conclusion = (t("assembly.figure_bar_conclusion")
                           % (_fmt(meta.get("n_contrasts")), _fmt(meta.get("n_sig")),
                              _fmt(meta.get("n_up")), _fmt(meta.get("n_down")), thresholds,
                              direction_note))
         elif plot_type == "mechanism_enrichment_dotplot":
-            conclusion = "离线富集条目按方向提示展示，未经多重检验校正；条目数见「富集方向提示」小节。"
+            conclusion = t("assembly.figure_enrichment_dotplot_conclusion")
         elif plot_type == "mechanism_top_protein_group_means":
-            conclusion = "代表蛋白组的分组均值；逐条数值与差值见「模块分组分数」表，模块分数无 FDR，只作方向性证据。"
+            conclusion = t("assembly.figure_group_means_conclusion")
         elif plot_type == "protein_contrast_bubble":
-            conclusion = "候选蛋白在各对比中的方向与效应量；逐条数值见「候选蛋白逐对比统计」表。"
+            conclusion = t("assembly.figure_bubble_conclusion")
         else:
-            conclusion = "各对比通过筛选的蛋白及其效应量；逐条数值见「对比级证据摘要」表。"
-        lines.append("- 图%d %s：%s" % (number, title, conclusion))
+            conclusion = t("assembly.figure_key_protein_conclusion")
+        lines.append(t("assembly.figure_line") % (number, title, conclusion))
     volcanos = by_type.get("volcano") or []
     if volcanos:
         if len(volcanos) == 1:
-            lines.append("- 图%d 逐对比火山图（阈值 %s）：" % (number + 1, thresholds))
+            lines.append(t("assembly.volcano_range_one") % (number + 1, thresholds))
         else:
-            lines.append("- 图%d–%d 逐对比火山图（阈值 %s）：" % (number + 1, number + len(volcanos), thresholds))
+            lines.append(t("assembly.volcano_range_many") % (number + 1, number + len(volcanos), thresholds))
         for record in volcanos:
             meta = record.get("caption_metadata") or {}
             contrast = str(record.get("file_name") or "").replace("_volcano_plot.png", "")
             arms = _arm_labels_for(contrast, index)
             if len(arms) == 2:
-                lines.append("  - %s：通过筛选 %s 个（%s 较高 %s、%s 较高 %s；按该差异表自身符号）"
+                lines.append(t("assembly.volcano_row_with_arms")
                              % (contrast, _fmt(meta.get("n_sig")), arms[0], _fmt(meta.get("n_up")),
                                 arms[1], _fmt(meta.get("n_down"))))
             else:
-                lines.append("  - %s：通过筛选 %s 个（上调 %s、下调 %s）"
+                lines.append(t("assembly.volcano_row_plain")
                              % (contrast, _fmt(meta.get("n_sig")), _fmt(meta.get("n_up")),
                                 _fmt(meta.get("n_down"))))
     return lines
@@ -1908,14 +2543,14 @@ def _evidence_table_lines(run: Path, index: Dict[str, Any]) -> List[str]:
     contrast_rows = [row for row in _read_evidence_rows(folder / "core_story_evidence.csv")
                      if str(row.get("row_type") or "").strip() == "contrast"]
     if contrast_rows:
-        out += ["### 对比级证据摘要", "",
-                "| 任务 | 对比 | 第一臂 | 第二臂 | 通过筛选蛋白数 | 第一臂中较高 | 第二臂中较高 | 证据来源 | 置信度 |",
+        out += [t("assembly.heading_contrast_evidence"), "",
+                t("assembly.header_contrast_evidence"),
                 "|---|---|---|---|---:|---:|---:|---|---|"]
         boundary = ""
         for row in contrast_rows:
             groups = groups_for(row.get("display_contrast"))
-            first = _cell(row.get("group_a") or (groups[0] if groups else "第一臂"))
-            second = _cell(row.get("group_b") or (groups[1] if len(groups) > 1 else "第二臂"))
+            first = _cell(row.get("group_a") or (groups[0] if groups else t("assembly.arm_first")))
+            second = _cell(row.get("group_b") or (groups[1] if len(groups) > 1 else t("assembly.arm_second")))
             out.append("| %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
                 _cell(row.get("claim_title")), _cell(row.get("display_contrast")), first, second,
                 _fmt(row.get("n_sig")), _fmt(row.get("n_up_display_group_a")),
@@ -1925,7 +2560,7 @@ def _evidence_table_lines(run: Path, index: Dict[str, Any]) -> List[str]:
             if not boundary and str(row.get("boundary") or "").strip():
                 boundary = str(row.get("boundary")).strip()
         if boundary:
-            out += ["", "边界：%s" % boundary]
+            out += ["", t("assembly.evidence_boundary_line") % boundary]
         out.append("")
 
     candidate_rows = _read_evidence_rows(folder / "candidate_protein_evidence.csv")
@@ -1940,8 +2575,8 @@ def _evidence_table_lines(run: Path, index: Dict[str, Any]) -> List[str]:
                 continue
             seen.add(key)
             unique.append(row)
-        out += ["### 候选蛋白逐对比统计", "",
-                "| 候选 | 匹配蛋白 | 对比 | 方向 | logFC | P 值 | 校正 P 值 | 缺失率 | 证据来源 |",
+        out += [t("assembly.heading_candidate_stats"), "",
+                t("assembly.header_candidate_stats"),
                 "|---|---|---|---|---:|---:|---:|---:|---|"]
         source_contrasts = set()
         for row in unique:
@@ -1950,11 +2585,11 @@ def _evidence_table_lines(run: Path, index: Dict[str, Any]) -> List[str]:
             direction_cell = _cell(_direction_phrase(row.get("direction"), groups))
             # R17: internal presence enums become reader wording; the state itself is unchanged.
             if str(row.get("contrast") or "").strip() == "matrix_presence_only":
-                contrast_cell = "未进入统计检验"
+                contrast_cell = t("assembly.not_entered_statistical_test")
             if str(row.get("direction") or "").strip() == "not_detected_in_available_matrix":
-                direction_cell = "在可用矩阵中未检出"
+                direction_cell = t("assembly.not_detected_in_matrix")
             if str(row.get("direction") or "").strip() == "symbol_not_matched_in_available_matrix":
-                direction_cell = "未建立符号映射（不等同于未检出）"
+                direction_cell = t("assembly.evidence_symbol_not_mapped")
             if "_vs_" in str(row.get("contrast") or ""):
                 source_contrasts.add(str(row.get("contrast")))
             out.append("| %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
@@ -1963,12 +2598,11 @@ def _evidence_table_lines(run: Path, index: Dict[str, Any]) -> List[str]:
                 _fmt(row.get("logFC")), _fmt(row.get("P.Value")), _fmt(row.get("adj.P.Val")),
                 _fmt(row.get("missing_rate")),
                 _cell(_evidence_source_label(row.get("evidence_source")))))
-        note = "每一行是一个候选蛋白在一个对比中的统计结果；未列出的候选不在候选清单内。"
+        note = t("assembly.candidate_rows_note")
         if len(unique) != len(candidate_rows):
-            note += ("本表按候选、对比、方向与统计量完全相同的行折叠后共 %d 行（源表 %d 行，重复 %d 行）；"
-                     "这里的计数单位是行，不是蛋白个数。"
+            note += (t("assembly.candidate_fold_note")
                      % (len(unique), len(candidate_rows), len(candidate_rows) - len(unique)))
-        note += "筛选口径只使用校正后 P 值（adj.P.Val）；原始 P 值列出仅供核对，不参与筛选。"
+        note += t("assembly.candidate_screening_scope_note")
         out += ["", note, ""]
         display_names = {str(rec.get("display_contrast")) for rec in index["contrasts"]}
         source_map = {str(rec.get("source_contrast")): str(rec.get("display_contrast"))
@@ -1983,23 +2617,21 @@ def _evidence_table_lines(run: Path, index: Dict[str, Any]) -> List[str]:
             arms = _arm_labels_for(source, index)
             out += _note_once(
                 "source_direction_%s" % source,
-                "本表逐行按该行「对比」列的方向给符号：以 %s 行为例，正值表示 %s 较高；"
-                "同一对比在正文中按反向写法「%s」叙述时符号相反，两者是同一个对比。"
-                % (source, arms[0] if arms else "第一臂", source_map[source]),
-                "本表符号方向按各行「对比」列（与正文反向写法「%s」同义）。" % source_map[source])
+                t("assembly.candidate_source_direction_long")
+                % (source, arms[0] if arms else t("assembly.arm_first"), source_map[source]),
+                t("assembly.candidate_source_direction_short") % source_map[source])
             out.append("")
         if others:
             out += _note_once(
                 "other_contrasts_%s" % "_".join(others[:2]),
-                "本表还包含报告任务小节之外的对比（%s）：这些行按各自差异表自身的符号给出，"
-                "正值表示该行「对比」列中前一组较高。" % "、".join(others),
-                "本表另含任务小节之外的对比（%s），符号按各行「对比」列。" % "、".join(others))
+                t("assembly.candidate_other_contrasts_long") % "、".join(others),
+                t("assembly.candidate_other_contrasts_short") % "、".join(others))
             out.append("")
 
     module_rows = _read_evidence_rows(folder / "curated_module_group_summary.csv")
     if module_rows:
-        out += ["### 模块分组分数", "",
-                "| 模块 | 分组或差值 | 样本数 | 平均分 | 中位数 | 匹配基因数 | 成员基因（匹配） |",
+        out += [t("assembly.heading_module_scores"), "",
+                t("assembly.header_module_scores"),
                 "|---|---|---:|---:|---:|---:|---|"]
         for row in module_rows:
             label = str(row.get("group") or "").replace("_minus_", " − ")
@@ -2011,24 +2643,26 @@ def _evidence_table_lines(run: Path, index: Dict[str, Any]) -> List[str]:
         out += [""]
         out += _note_once(
             "module_no_fdr",
-            "模块分数是成员蛋白评分的分组汇总，没有 FDR，只能作为方向性证据，不能当作显著富集。",
-            "模块分数无 FDR，只作方向性证据（口径见「结论边界与方法局限」）。")
+            t("assembly.module_no_fdr_long"),
+            t("assembly.module_no_fdr_short"))
         out.append("")
     return out
+
+
 def _asset_lines(run: Path, index: Dict[str, Any]) -> List[str]:
     # Reader-facing index: labels plus where to check the numbers. Internal file names stay out of
     # the reader-facing document; the delivered evidence bundle keeps them for reproduction.
-    lines = ["| 资产 | 在何处复核 |", "|---|---|"]
+    lines = [t("assembly.header_asset_pointer"), "|---|---|"]
     def _pointer_for(name: str) -> str:
         if "candidate_exclusion_trace" in name:
-            return "见本报告「候选排除轨迹」"
+            return t("assembly.pointer_exclusion_trace")
         if "contrast_concordance" in name:
-            return "见本报告「对比一致性」"
+            return t("assembly.pointer_concordance")
         if "stratified" in name:
-            return "见本报告「分层对比摘要」"
+            return t("assembly.pointer_stratified")
         if name.endswith(".csv") or name.endswith(".json"):
-            return "见本报告「证据表（逐条）」"
-        return "见随报告交付的图册与图注"
+            return t("assembly.pointer_evidence_tables")
+        return t("assembly.pointer_figures")
 
     index_pointer = (("evaluation_evidence/*.csv", None),
                      ("evaluation_evidence_ext/*.csv", None),
@@ -2049,26 +2683,25 @@ def _asset_lines(run: Path, index: Dict[str, Any]) -> List[str]:
     presence_only = any(str(row.get("contrast") or "").strip() == "matrix_presence_only"
                         for row in _read_evidence_rows(Path(run) / "evaluation_evidence"
                                                        / "candidate_protein_evidence.csv"))
-    other_note = ("并包含未进入统计检验的记录" if presence_only
-                  else "不含未进入统计检验的候选（这类候选只在附录单独列出）")
-    lines += ["", "候选蛋白索引共 %d 个「对比 × 蛋白组」组合：%d 个已在上文对应任务中列出%s"
+    other_note = (t("assembly.absence_note_includes_presence_only") if presence_only
+                  else t("assembly.absence_note_excludes_presence_only"))
+    lines += ["", t("assembly.asset_candidate_index")
               % (n_cand, n_cand - len(rest_candidates),
-                 "；其余 %d 个见下表。" % len(rest_candidates) if rest_candidates else "，此处不再重复。"),
-              "（该计数按对比与蛋白组去重；「证据表（逐条）」的候选蛋白表另按方向与统计量去重，%s，"
-              "因此两者行数不同，不是同一口径。）" % other_note]
+                 t("assembly.more_records_suffix") % len(rest_candidates) if rest_candidates else t("assembly.no_further_repeat")),
+              t("assembly.asset_count_scope_note") % other_note]
     if rest_candidates:
         lines += [""] + _candidate_block({"candidates": rest_candidates}, index, index["conditions"], limit=None)
-    lines += ["", "模块记录共 %d 条：%d 条已在上文对应任务中列出%s"
+    lines += ["", t("assembly.asset_module_index")
               % (n_mod, n_mod - len(rest_modules),
-                 "；其余 %d 条见下表。" % len(rest_modules) if rest_modules else "，此处不再重复。")]
+                 t("assembly.more_module_records_suffix") % len(rest_modules) if rest_modules else t("assembly.no_further_repeat"))]
     if rest_modules:
         lines += [""] + _module_block({"modules": rest_modules}, index, limit=None)
     # Internal evidence IDs and file names stay out of the reader-facing document; each line points
     # at the section that carries the same records in reader-readable form.
-    lines += ["", "证据条目的复核入口："]
-    lines.append("- 对比级证据：%d 条，逐条数值见「对比级证据摘要」表。" % len(index["contrasts"]))
-    lines.append("- 候选蛋白记录：%d 条，逐条数值见「候选蛋白逐对比统计」表。" % len(index["candidates"]))
-    lines.append("- 模块记录：%d 条，逐条数值见「模块分组分数」表。" % len(index["modules"]))
+    lines += ["", t("assembly.asset_evidence_entry_points")]
+    lines.append(t("assembly.asset_contrast_records") % len(index["contrasts"]))
+    lines.append(t("assembly.asset_candidate_records") % len(index["candidates"]))
+    lines.append(t("assembly.asset_module_records") % len(index["modules"]))
     return lines
 
 
@@ -2079,24 +2712,24 @@ def _serialisable_index(index: Dict[str, Any]) -> Dict[str, Any]:
             "modules": [{"key": list(key), **value} for key, value in index["modules"].items()],
             "duplicates": index["duplicates"]}
 
-
 # --------------------------------------------------------------------------- run evidence binding
 # Every quantitative claim depends on parameters the run either recorded or did not. This block reads
 # them from the run artifacts only. A parameter the run never wrote down stays 未记录; the assembler
 # does not re-read the report prose to fill it, and never keeps whichever reading flatters the text.
-NOT_RECORDED = "未记录"
 
-MATRIX_STAGE_FILES = (
-    ("交付矩阵（未经步骤命名）", "processed_proteins/ProQuant_Normalized.csv"),
-    ("批次标定后矩阵", "processed_proteins/ProteinQuant_ComBat.csv"),
-    ("过滤后矩阵（统计检验所用）", "processed_proteins/ProteinQuant_Filtered.csv"),
-)
+
+def _matrix_stage_files() -> Tuple[Tuple[str, str], ...]:
+    """Reader label and relative path of each matrix stage on the run chain."""
+    return (
+        (t("assembly.stage_delivered_matrix"), "processed_proteins/ProQuant_Normalized.csv"),
+        (t("assembly.stage_combat_matrix"), "processed_proteins/ProteinQuant_ComBat.csv"),
+        (t("assembly.stage_filtered_matrix"), "processed_proteins/ProteinQuant_Filtered.csv"),
+    )
 
 # Key tokens that describe a handling *policy*. "non_missing_fraction" is a level, not a policy, and
 # must never be presented as the missing-value treatment.
 MISSING_KEYS = ("imput", "missing_policy", "missing_handling", "missing_value", "missing_code",
                 "fillna", "nan_policy", "detection_policy", "missing_treatment")
-
 
 ANNOTATION_PREFIXES = ("pg.", "unnamed", "index", "id", "protein", "gene", "uniprot", "accession")
 
@@ -2150,8 +2783,8 @@ def _missing_declaration(*nodes) -> Tuple[str, str]:
             continue
         for key, value in node.items():
             if any(token in str(key).lower() for token in MISSING_KEYS):
-                return _fmt(value), "运行记录 %s" % key
-    return NOT_RECORDED, ""
+                return _fmt(value), t("assembly.source_run_record") % key
+    return t("assembly.not_recorded"), ""
 
 
 def _qc_stage_rows(run: Path) -> List[Dict[str, Any]]:
@@ -2182,40 +2815,39 @@ def read_run_evidence(run: Path) -> Dict[str, Any]:
     cond = read_conditions(run)
     items: List[Dict[str, Any]] = []
 
-    def add(item, value, source, status="已记录", note=""):
+    def add(item, value, source, status=t("assembly.status_recorded"), note=""):
         items.append({"item": item, "value": _fmt(value), "source": source, "status": status,
                       "note": note})
 
-    add("输入矩阵状态", matrix.get("matrix_state"),
+    add(t("assembly.item_input_matrix_state"), matrix.get("matrix_state"),
         "parameters.json → analysis_design.matrix.matrix_state")
     if matrix.get("non_missing_fraction") is not None:
-        add("输入矩阵非缺失比例", "%.4f" % float(matrix["non_missing_fraction"]),
+        add(t("assembly.item_non_missing_fraction"), "%.4f" % float(matrix["non_missing_fraction"]),
             "parameters.json → analysis_design.matrix.non_missing_fraction",
-            note="该比例在原始交付矩阵上统计，与过滤后矩阵不同一阶段")
+            note=t("assembly.note_non_missing_fraction_stage"))
     stages = []
-    for label, rel in MATRIX_STAGE_FILES:
+    for label, rel in _matrix_stage_files():
         shape = _csv_shape(run / rel)
         if shape:
-            stages.append("%s：%d 蛋白 × %d 样本" % (label, shape["rows"], shape["cols"]))
-    add("运行链路上的矩阵阶段", "；".join(stages) or NOT_RECORDED,
-        "运行目录中的矩阵文件行数与列数（行=蛋白，列=样本）",
-        status="已记录" if stages else NOT_RECORDED)
+            stages.append(t("assembly.matrix_stage_shape") % (label, shape["rows"], shape["cols"]))
+    add(t("assembly.item_matrix_stages"), "；".join(stages) or t("assembly.not_recorded"),
+        t("assembly.source_matrix_shapes"),
+        status=t("assembly.status_recorded") if stages else t("assembly.not_recorded"))
     if first.get("n_proteins") is not None:
-        add("统计检验所用矩阵规模", "%s 个蛋白（每个对比）" % _fmt(first.get("n_proteins")),
+        add(t("assembly.item_matrix_size_tested"), t("assembly.proteins_per_contrast") % _fmt(first.get("n_proteins")),
             "limma_summary.json → n_proteins")
 
     scale_bits = []
     if matrix.get("looks_logged") is not None:
-        scale_bits.append("数值范围形似对数尺度=%s" % matrix.get("looks_logged"))
+        scale_bits.append(t("assembly.field_looks_logged") % matrix.get("looks_logged"))
     if matrix.get("needs_log_transform") is not None:
-        scale_bits.append("需要对数变换=%s" % matrix.get("needs_log_transform"))
+        scale_bits.append(t("assembly.field_needs_log_transform") % matrix.get("needs_log_transform"))
     if matrix.get("already_processed") is not None:
-        scale_bits.append("输入已处理=%s" % matrix.get("already_processed"))
-    add("尺度与变换（记录字段）", "；".join(scale_bits) or NOT_RECORDED,
+        scale_bits.append(t("assembly.field_already_processed") % matrix.get("already_processed"))
+    add(t("assembly.item_scale_and_transform"), "；".join(scale_bits) or t("assembly.not_recorded"),
         "parameters.json → analysis_design.matrix.looks_logged / needs_log_transform / already_processed",
-        status="部分记录" if scale_bits else NOT_RECORDED,
-        note="记录的是对输入的判断字段；实际执行了哪一步变换、检验空间属于哪种尺度都未记录，"
-             "因此与「数据与预处理」的尺度推断不矛盾也不互相支持")
+        status=t("assembly.status_partially_recorded") if scale_bits else t("assembly.not_recorded"),
+        note=t("assembly.note_scale_flags_only"))
 
     # R28: the design metadata holds only inferred flags. The actions the pipeline actually executed
     # are written by the matrix-building step, so the two are reported as separate items and an absent
@@ -2227,73 +2859,73 @@ def read_run_evidence(run: Path) -> Dict[str, Any]:
         filt = transform.get("protein_filtering") or {}
         transform_source = str(transform.get("record_source")
                                or "processed_proteins/matrix_transform_record.json")
-        derived_note = ("该记录由本次运行的执行记录派生（%s），不是该步骤直接写出的独立文件。"
+        derived_note = (t("assembly.transform_record_derived_note")
                         % transform_source) if transform.get("derived") else ""
         if "applied" in imp:
-            add("本轮实际执行的缺失填补",
-                ("已执行：%s%s" % (imp.get("method") or "方法未记录",
-                                  ("，填补 %s 个取值" % imp.get("n_values_imputed"))
+            add(t("assembly.item_imputation_executed_actual"),
+                (t("assembly.executed_colon_two") % (imp.get("method") or t("assembly.method_not_recorded"),
+                                  (t("assembly.imputed_values_suffix") % imp.get("n_values_imputed"))
                                   if imp.get("n_values_imputed") not in (None, "") else ""))
-                if imp.get("applied") else "未执行",
+                if imp.get("applied") else t("assembly.status_not_executed"),
                 "%s → imputation" % transform_source, note=derived_note)
         if "applied" in logt:
-            add("本轮实际执行的对数变换",
-                ("已执行：%s" % (logt.get("form") or "形式未记录")) if logt.get("applied")
-                else ("未记录（记录中的规则：%s）" % (logt.get("recorded_rule") or "未记录")
-                      if logt.get("applied") is None else "未执行"),
+            add(t("assembly.item_log_transform_executed"),
+                (t("assembly.executed_colon") % (logt.get("form") or t("assembly.form_not_recorded"))) if logt.get("applied")
+                else (t("assembly.not_recorded_rule") % (logt.get("recorded_rule") or t("assembly.not_recorded"))
+                      if logt.get("applied") is None else t("assembly.status_not_executed")),
                 "%s → log2_transform" % transform_source,
                 note=("；".join(part for part in (
                     logt.get("applied_basis") or "",
-                    "parameters.json 的 needs_log_transform 是对输入的推断，两者不是同一件事",
+                    t("assembly.note_needs_log_transform"),
                     derived_note) if part)))
         if filt:
-            add("本轮实际执行的蛋白过滤",
-                "%s；保留蛋白 %s 个" % (filt.get("rule") or NOT_RECORDED,
+            add(t("assembly.item_protein_filtering_executed"),
+                t("assembly.protein_filtering_text") % (filt.get("rule") or t("assembly.not_recorded"),
                                       _fmt(filt.get("n_proteins_retained"))),
                 "%s → protein_filtering" % transform_source)
     else:
-        add("本轮实际执行的矩阵变换", NOT_RECORDED,
+        add(t("assembly.item_matrix_transform_executed"), t("assembly.not_recorded"),
             "processed_proteins/matrix_transform_record.json",
-            status=NOT_RECORDED,
-            note="缺少该记录只说明执行动作未记录，不能推断为未执行")
+            status=t("assembly.not_recorded"),
+            note=t("assembly.note_transform_record_absent"))
     if matrix.get("numeric_min") is not None and matrix.get("numeric_max") is not None:
-        add("输入矩阵数值范围", "%s 至 %s" % (_fmt(matrix.get("numeric_min")),
+        add(t("assembly.item_input_numeric_range"), t("assembly.range_generic") % (_fmt(matrix.get("numeric_min")),
                                           _fmt(matrix.get("numeric_max"))),
             "parameters.json → analysis_design.matrix.numeric_min / numeric_max")
 
     missing_value, missing_source = _missing_declaration(matrix, diff, design, first)
-    add("缺失值处理（统计口径）", missing_value, missing_source or "运行记录 · 分析设计与差异分析记录",
-        status="已记录" if missing_source else NOT_RECORDED,
-        note="与下一行的插补状态是两个不同问题：这里问统计检验如何对待缺失观测，那里问分析矩阵是否被填补")
+    add(t("assembly.item_missing_value_handling"), missing_value, missing_source or t("assembly.source_run_records_design"),
+        status=t("assembly.status_recorded") if missing_source else t("assembly.not_recorded"),
+        note=t("assembly.note_imputation_versus_missing"))
 
-    add("设计来源", _evidence_source_label(design.get("source")),
+    add(t("assembly.field_design_source"), _evidence_source_label(design.get("source")),
         "parameters.json → analysis_design.source")
-    add("分组与标识列", "；".join(
-        part for part in ("分组列=%s" % _fmt(cond.get("group_col")),
-                          "样本 ID 列=%s" % _fmt(cond.get("sample_id_col")),
-                          "批次列=%s" % _fmt(cond.get("batch_col")),
-                          "个体/实验单位列=%s" % _fmt(cond.get("pair_col"))) if part),
+    add(t("assembly.field_group_and_id_cols"), "；".join(
+        part for part in (t("assembly.field_group_col") % _fmt(cond.get("group_col")),
+                          t("assembly.field_sample_id_col") % _fmt(cond.get("sample_id_col")),
+                          t("assembly.field_batch_col") % _fmt(cond.get("batch_col")),
+                          t("assembly.field_pair_col") % _fmt(cond.get("pair_col"))) if part),
         "parameters.json → analysis_design.group_col / sample_id_col / batch_col / pair_col")
     contrasts = cond.get("contrasts") or []
     contrast_names = [str(c.get("name")) for c in contrasts if c.get("name")]
     if contrasts:
-        shown = "；".join(contrast_names[:3]) + (("；其余 %d 个对比见运行配置中的对比清单" % (len(contrast_names) - 3)) if len(contrast_names) > 3 else "")
-        add("分析设计中的对比（%d 个）" % len(contrasts), shown or NOT_RECORDED,
+        shown = "；".join(contrast_names[:3]) + ((t("assembly.more_contrasts_suffix") % (len(contrast_names) - 3)) if len(contrast_names) > 3 else "")
+        add(t("assembly.item_contrasts_in_design") % len(contrasts), shown or t("assembly.not_recorded"),
             "parameters.json → analysis_design.differential.contrasts")
     covariates = design.get("covariates")
     if covariates is not None:
-        add("协变量", "；".join(str(c) for c in covariates) if covariates else "无",
+        add(t("assembly.field_covariates"), "；".join(str(c) for c in covariates) if covariates else t("assembly.none_value"),
             "parameters.json → analysis_design.covariates")
 
-    add("统计模型（记录原文）", first.get("method"),
-        "limma_summary.json → method", status="已记录" if first.get("method") else NOT_RECORDED)
+    add(t("assembly.item_statistical_model_raw"), first.get("method"),
+        "limma_summary.json → method", status=t("assembly.status_recorded") if first.get("method") else t("assembly.not_recorded"))
     if first.get("statistical_backend"):
         # the raw backend name and the library error string are developer-facing; the reader only
         # needs to know that the standard pipeline was unavailable and which implementation ran
         backend_raw = str(first.get("statistical_backend"))
-        backend = ("内置回退实现（运行环境缺少 R/rpy2，标准流程未启用）"
+        backend = (t("assembly.backend_internal_fallback")
                    if "fallback" in backend_raw.lower() else backend_raw)
-        add("统计后端", backend, "limma_summary.json → statistical_backend / fallback_reason")
+        add(t("assembly.field_statistical_backend"), backend, "limma_summary.json → statistical_backend / fallback_reason")
     unit_records = [rec.get("unit_sensitivity") for rec in limma.values()
                     if isinstance(rec, dict) and isinstance(rec.get("unit_sensitivity"), dict)]
     if unit_records:
@@ -2311,21 +2943,19 @@ def read_run_evidence(run: Path) -> Dict[str, Any]:
                                 for label in ((u.get("unit_exclusion") or {}).get("pooled_source") or [])
                                 + ((u.get("unit_exclusion") or {}).get("unconfirmed_source") or [])})
         if unit_done:
-            span = ("%d–%d" % (min(unit_shared), max(unit_shared))) if unit_shared else NOT_RECORDED
-            unit_value = ("以%s为分析单位（来源：%s）：%d 个对比中 %d 个可做个体级检验（两臂共同单位 %s 个）；"
-                          "按 FDR 口径合计 %d 条通过，按联合口径（FDR 且 |效应| > %s）合计 %d 条通过；"
-                          "%d 个蛋白行因有效单位不足标为未检验。"
-                          % ("／".join(unit_names) or NOT_RECORDED, "、".join(unit_sources) or NOT_RECORDED,
+            span = ("%d–%d" % (min(unit_shared), max(unit_shared))) if unit_shared else t("assembly.not_recorded")
+            unit_value = (t("assembly.unit_layer_digest")
+                          % ("／".join(unit_names) or t("assembly.not_recorded"), "、".join(unit_sources) or t("assembly.not_recorded"),
                              len(unit_records), len(unit_done), span, unit_pass_fdr,
-                             "／".join(unit_thresholds) or NOT_RECORDED, unit_pass_joint, unit_not_tested))
-            unit_status = "已记录"
+                             "／".join(unit_thresholds) or t("assembly.not_recorded"), unit_pass_joint, unit_not_tested))
+            unit_status = t("assembly.status_recorded")
         else:
-            unit_value = "已检查实验单位结构，%d 个对比均不满足个体级检验条件。" % len(unit_records)
-            unit_status = "部分记录"
+            unit_value = t("assembly.unit_all_blocked") % len(unit_records)
+            unit_status = t("assembly.status_partially_recorded")
         unit_blocked = [u for u in unit_records if str(u.get("status")) != "completed" and u.get("reasons")]
         unit_notes = []
         if unit_excluded:
-            unit_notes.append("混合来源／未确认来源单位单列并排除在独立个体之外：%s（按标签语义事先判定）。"
+            unit_notes.append(t("assembly.unit_excluded_note_digest")
                               % "、".join(_cell(x) for x in unit_excluded))
         if unit_blocked:
             unique_reasons = []
@@ -2333,33 +2963,33 @@ def read_run_evidence(run: Path) -> Dict[str, Any]:
                 text = _unit_reason_zh(record)
                 if text not in unique_reasons:
                     unique_reasons.append(text)
-            unit_notes.append("未做个体级检验的原因：%s。" % "；".join(unique_reasons[:2]))
-        unit_notes.append("观察级检验仍是参照估计，个体级与观察级的估计目标不同。")
-        add("个体结构敏感性分析", unit_value, "limma_summary.json → unit_sensitivity",
+            unit_notes.append(t("assembly.unit_blocked_reasons") % "；".join(unique_reasons[:2]))
+        unit_notes.append(t("assembly.unit_reference_note_short"))
+        add(t("assembly.item_unit_sensitivity"), unit_value, "limma_summary.json → unit_sensitivity",
             status=unit_status, note="".join(unit_notes))
     if first.get("n_samples_group_a") is not None and first.get("n_samples_group_b") is not None:
-        first_name = contrast_names[0] if contrast_names else NOT_RECORDED
-        add("每组样本数（%s）" % first_name,
-            "第一臂 %s vs 第二臂 %s" % (_fmt(first.get("n_samples_group_a")),
+        first_name = contrast_names[0] if contrast_names else t("assembly.not_recorded")
+        add(t("assembly.item_samples_per_group") % first_name,
+            t("assembly.samples_two_arms_named") % (_fmt(first.get("n_samples_group_a")),
                                     _fmt(first.get("n_samples_group_b"))),
             "limma_summary.json → n_samples_group_a / n_samples_group_b")
 
-    add("多重校正方法", diff.get("fdr_method"),
+    add(t("assembly.field_fdr_method"), diff.get("fdr_method"),
         "parameters.json → analysis_design.differential.fdr_method",
-        status="已记录" if diff.get("fdr_method") else NOT_RECORDED)
+        status=t("assembly.status_recorded") if diff.get("fdr_method") else t("assembly.not_recorded"))
     if thresholds_used:
-        add("实际生效阈值",
-            "校正 P≤%s 且 |效应量|≥%s" % (_fmt(thresholds_used.get("adj_p")),
+        add(t("assembly.field_effective_threshold"),
+            t("assembly.threshold_adj_p_and_effect") % (_fmt(thresholds_used.get("adj_p")),
                                       _fmt(thresholds_used.get("abs_logFC"))),
             "limma_summary.json → sanity_checks.thresholds_used")
     elif diff.get("p_thresh") is not None and diff.get("logfc_thresh") is not None:
-        add("设计阈值",
-            "校正 P≤%s 且 |效应量|≥%s" % (_fmt(diff.get("p_thresh")), _fmt(diff.get("logfc_thresh"))),
+        add(t("assembly.field_design_threshold"),
+            t("assembly.threshold_adj_p_and_effect") % (_fmt(diff.get("p_thresh")), _fmt(diff.get("logfc_thresh"))),
             "parameters.json → analysis_design.differential.p_thresh / logfc_thresh")
     if sanity.get("n_significant") is not None:
-        first_name = contrast_names[0] if contrast_names else NOT_RECORDED
-        add("运行记录中的通过筛选数（%s）" % first_name,
-            "%s（较高 %s / 较低 %s）" % (_fmt(sanity.get("n_significant")), _fmt(sanity.get("n_up")),
+        first_name = contrast_names[0] if contrast_names else t("assembly.not_recorded")
+        add(t("assembly.item_n_significant_from_run") % first_name,
+            t("assembly.n_significant_split") % (_fmt(sanity.get("n_significant")), _fmt(sanity.get("n_up")),
                                      _fmt(sanity.get("n_down"))),
             "limma_summary.json → sanity_checks.n_significant / n_up / n_down")
 
@@ -2371,30 +3001,29 @@ def read_run_evidence(run: Path) -> Dict[str, Any]:
     imputation = sorted({str(row.get("imputation_applied")) for row in qc_rows
                          if row.get("imputation_applied") not in (None, "")})
     if input_missing:
-        add("原始交付矩阵的平均缺失率（分组）",
+        add(t("assembly.item_missing_rate_raw_by_group"),
             _range_text([min(input_missing), max(input_missing)]),
-            "分组组成与质控表 → input_mean_missing_rate")
+            t("assembly.source_qc_input_missing"))
     if analysed_missing:
-        add("本轮分析矩阵的平均缺失率（分组）",
+        add(t("assembly.item_missing_rate_analysed_by_group"),
             _range_text([min(analysed_missing), max(analysed_missing)]),
-            "分组组成与质控表 → analysed_mean_missing_rate")
+            t("assembly.source_qc_analysed_missing"))
     _transform_imp = read_matrix_transform_record(run)
     _imp = (_transform_imp.get("imputation") or {}) if isinstance(_transform_imp, dict) else {}
     if imputation or _imp.get("applied") is not None:
         # R28: the QC flag is written before the matrix is imputed; when the execution record has an
         # answer it wins, and a conflict between the two is stated instead of silently resolved.
-        qc_text = "；".join(imputation) or "未记录"
+        qc_text = "；".join(imputation) or t("assembly.not_recorded")
         if _imp.get("applied") is True:
-            value = ("已执行（%s）；分组组成与质控表中的 imputation_applied=%s 与执行记录不同，"
-                     "以执行记录为准并登记该冲突" % (_imp.get("method") or "方法未记录", qc_text))
+            value = (t("assembly.imputation_conflict_note") % (_imp.get("method") or t("assembly.method_not_recorded"), qc_text))
         elif _imp.get("applied") is False:
-            value = "未执行"
+            value = t("assembly.status_not_executed")
         else:
             value = qc_text
-        add("是否执行插补", value,
+        add(t("assembly.item_imputation_executed"), value,
             "processed_proteins/matrix_transform_record.json → imputation"
-            if _imp.get("applied") is not None else "分组组成与质控表 → imputation_applied",
-            note="分析矩阵缺失率为 0 时按此字段判读，不等于全部蛋白被检出")
+            if _imp.get("applied") is not None else t("assembly.source_qc_imputation"),
+            note=t("assembly.note_imputation_flag_scope"))
     return {"items": items, "conditions": cond, "limma_first": first, "design_source": design.get("source"),
             "input_missing_rate": [min(input_missing), max(input_missing)] if input_missing else None,
             "analysed_missing_rate": [min(analysed_missing), max(analysed_missing)] if analysed_missing else None,
@@ -2405,9 +3034,9 @@ def _run_method_summary_lines(run: Path, cond: Dict[str, Any], evidence_data: Di
     """Three reader-facing lines: which matrix was tested, which model ran, which numbers are bound."""
     lines: List[str] = []
     stage_text = next((x["value"] for x in evidence_data["items"]
-                       if x["item"] == "运行链路上的矩阵阶段"), "")
-    tested = next((part.strip() for part in str(stage_text).split("；") if "过滤后" in part),
-                  NOT_RECORDED)
+                       if x["item"] == t("assembly.item_matrix_stages")), "")
+    tested = next((part.strip() for part in str(stage_text).split("；") if t("assembly.stage_marker_filtered") in part),
+                  t("assembly.not_recorded"))
     analysed = evidence_data.get("analysed_missing_rate")
     raw = evidence_data.get("input_missing_rate")
     if raw and analysed:
@@ -2416,78 +3045,82 @@ def _run_method_summary_lines(run: Path, cond: Dict[str, Any], evidence_data: Di
         _transform = read_matrix_transform_record(run)
         _imp = (_transform.get("imputation") or {}) if isinstance(_transform, dict) else {}
         if _imp.get("applied") is True:
-            imputation_text = "；分析矩阵按执行记录做过缺失填补（%s）" % (_imp.get("method") or "方法未记录")
+            imputation_text = t("assembly.imputation_done_suffix") % (_imp.get("method") or t("assembly.method_not_recorded"))
         elif _imp.get("applied") is False:
-            imputation_text = "；执行记录显示未做缺失填补"
+            imputation_text = t("assembly.imputation_not_done_suffix")
         else:
-            imputation_text = "；缺失填补状态未记录，不能写成未执行"
-        lines.append("- 检验所用矩阵与缺失口径：统计检验在%s上完成；原始交付矩阵的平均缺失率 %s，"
-                     "本轮分析矩阵 %s%s。" % (tested, _range_text(raw), _range_text(analysed),
+            imputation_text = t("assembly.imputation_unknown_suffix")
+        lines.append(t("assembly.tested_matrix_and_missing") % (tested, _range_text(raw), _range_text(analysed),
                                           imputation_text))
     else:
-        lines.append("- 检验所用矩阵：%s；缺失口径%s（运行记录中没有分阶段缺失统计）。"
-                     % (tested, NOT_RECORDED))
-    lines.append("- 统计模型、多重校正、筛选条件与各参数的记录位置见「运行参数与证据绑定」；"
-                 "本节只给摘要，完整声明集中在该小节，此处不重复。")
+        lines.append(t("assembly.tested_matrix_plain")
+                     % (tested, t("assembly.not_recorded")))
+    lines.append(t("assembly.method_summary_pointer"))
     return lines
 
 
 def _range_text(bounds) -> str:
     low, high = bounds[0], bounds[1]
-    return "%.4f" % low if low == high else "%.4f 至 %.4f" % (low, high)
-
+    return "%.4f" % low if low == high else t("assembly.range_two_values") % (low, high)
 
 # Record locators are rendered in reader language; the machine keys stay in the JSON sidecar so a
 # reviewer can still find the exact field. Longest keys first, so a specific rule wins over a general one.
-RECORD_LABELS = (
-    ("parameters.json → analysis_design.matrix.", "运行配置 · 分析设计 · 矩阵 · "),
-    ("parameters.json → analysis_design.differential.", "运行配置 · 分析设计 · 差异分析 · "),
-    ("parameters.json → analysis_design.", "运行配置 · 分析设计 · "),
-    ("parameters.json → ", "运行配置 · "),
-    ("limma_summary.json → sanity_checks.", "差异分析记录 · 记录字段 · "),
-    ("limma_summary.json → ", "差异分析记录 · "),
-    ("analysis_design", "分析设计"),
-    ("limma_summary", "差异分析记录"),
-    ("parameters.json", "运行配置"),
-)
-FIELD_LABELS = (
-    ("looks_logged / needs_log_transform / already_processed", "尺度判断字段"),
-    ("statistical_backend / fallback_reason", "统计后端与回退原因"),
-    ("n_samples_group_a / n_samples_group_b", "各组样本数"),
-    ("n_significant / n_up / n_down", "通过筛选数"),
-    ("group_col / sample_id_col / batch_col", "分组与标识列"),
-    ("p_thresh / logfc_thresh", "设计阈值"),
-    ("numeric_min / numeric_max", "数值范围"),
-    ("non_missing_fraction", "非缺失比例"),
-    ("thresholds_used", "生效阈值"),
-    ("input_mean_missing_rate", "原始矩阵平均缺失率"),
-    ("analysed_mean_missing_rate", "分析矩阵平均缺失率"),
-    ("imputation_applied", "是否插补"),
-    ("matrix_state", "矩阵状态"),
-    ("fdr_method", "多重校正方法"),
-    ("n_proteins", "检验蛋白数"),
-    ("contrasts", "对比清单"),
-    ("covariates", "协变量"),
-    ("method", "统计方法"),
-    ("source", "设计来源"),
-)
+
+
+def _record_labels() -> Tuple[Tuple[str, str], ...]:
+    """Machine record locator -> the reader wording for that location, longest key first."""
+    return (
+        ("parameters.json → analysis_design.matrix.", t("assembly.record_parameters_design_matrix")),
+        ("parameters.json → analysis_design.differential.", t("assembly.record_parameters_design_differential")),
+        ("parameters.json → analysis_design.", t("assembly.record_parameters_design")),
+        ("parameters.json → ", t("assembly.record_parameters_dot")),
+        ("limma_summary.json → sanity_checks.", t("assembly.record_limma_sanity")),
+        ("limma_summary.json → ", t("assembly.record_limma_dot")),
+        ("analysis_design", t("assembly.analysis_design")),
+        ("limma_summary", t("assembly.record_limma")),
+        ("parameters.json", t("assembly.record_parameters")),
+    )
+
+
+def _field_labels() -> Tuple[Tuple[str, str], ...]:
+    """Machine field name -> the reader wording for that field."""
+    return (
+        ("looks_logged / needs_log_transform / already_processed", t("assembly.field_scale_flags")),
+        ("statistical_backend / fallback_reason", t("assembly.field_statistical_backend_and_reason")),
+        ("n_samples_group_a / n_samples_group_b", t("assembly.field_n_per_group")),
+        ("n_significant / n_up / n_down", t("assembly.field_pass_count")),
+        ("group_col / sample_id_col / batch_col", t("assembly.field_group_and_id_cols")),
+        ("p_thresh / logfc_thresh", t("assembly.field_design_threshold")),
+        ("numeric_min / numeric_max", t("assembly.field_numeric_range")),
+        ("non_missing_fraction", t("assembly.field_non_missing_fraction_short")),
+        ("thresholds_used", t("assembly.field_threshold_used")),
+        ("input_mean_missing_rate", t("assembly.field_input_mean_missing")),
+        ("analysed_mean_missing_rate", t("assembly.field_analysed_missing_rate")),
+        ("imputation_applied", t("assembly.field_imputation_applied")),
+        ("matrix_state", t("assembly.field_matrix_state")),
+        ("fdr_method", t("assembly.field_fdr_method")),
+        ("n_proteins", t("assembly.field_tested_proteins")),
+        ("contrasts", t("assembly.field_contrasts")),
+        ("covariates", t("assembly.field_covariates")),
+        ("method", t("assembly.field_statistical_method")),
+        ("source", t("assembly.field_design_source")),
+    )
 
 
 def _reader_source_label(source: str) -> str:
     text = str(source or "").strip()
     if not text:
-        return NOT_RECORDED
-    for key, label in FIELD_LABELS:
+        return t("assembly.not_recorded")
+    for key, label in _field_labels():
         text = text.replace(key, label)
-    for key, label in RECORD_LABELS:
+    for key, label in _record_labels():
         text = text.replace(key, label)
     return text.replace(" → ", " · ")
 
 
 def _run_evidence_binding_lines(evidence_data: Dict[str, Any]) -> List[str]:
-    lines = ["下表逐项列出本节数值所依赖的运行参数及其记录位置；" 
-             "运行记录未写入的参数标记为「未记录」，不按报告措辞补写，也不选择更有利的读法。", "",
-             "| 项目 | 取值 | 记录位置 | 状态 |", "|---|---|---|---|"]
+    lines = [t("assembly.evidence_binding_intro"), "",
+             t("assembly.header_evidence_binding"), "|---|---|---|---|"]
     for item in evidence_data["items"]:
         note = ("；%s" % item["note"]) if item.get("note") else ""
         lines.append("| %s | %s | %s | %s%s |" % (_cell(item["item"]), _cell(item["value"]),
@@ -2515,7 +3148,7 @@ def _joint_filter_findings(run: Path, index: Dict[str, Any],
     """
     import csv as _csv
     declared = threshold_text(cond)
-    connector = "或" if "或" in declared else "且"
+    connector = t("assembly.connector_or") if t("assembly.connector_or") in declared else t("assembly.connector_and")
     p_thresh, effect_thresh = cond.get("p_thresh"), cond.get("logfc_thresh")
     out: Dict[str, Dict[str, Any]] = {}
     if p_thresh is None or effect_thresh is None:
@@ -2555,7 +3188,7 @@ def _joint_filter_findings(run: Path, index: Dict[str, Any],
                     ok_e = eff is not None and abs(eff) >= float(effect_thresh)
                     n_p += 1 if ok_p else 0
                     n_e += 1 if ok_e else 0
-                    n_joint += 1 if (ok_p and ok_e if connector == "且" else (ok_p or ok_e)) else 0
+                    n_joint += 1 if (ok_p and ok_e if connector == t("assembly.connector_and") else (ok_p or ok_e)) else 0
         except Exception:  # noqa: BLE001
             out[key] = {"status": "unreadable", "connector": connector}
             continue
@@ -2564,17 +3197,16 @@ def _joint_filter_findings(run: Path, index: Dict[str, Any],
                     "declared_n_sig": rec.get("n_sig"), "table": path.name}
     return out
 
-
-HIGH_WORDS = ("较高", "更高", "偏高", "上调", "升高", "较高表达")
-LOW_WORDS = ("较低", "更低", "偏低", "下调", "降低", "较低表达")
+HIGH_WORDS = ("较高", "更高", "偏高", t("assembly.direction_upregulated"), "升高", "较高表达")
+LOW_WORDS = ("较低", "更低", "偏低", t("assembly.direction_downregulated"), "降低", "较低表达")
 DIRECTION_WORDS = HIGH_WORDS + LOW_WORDS
-NEGATION_WORDS = ("不", "未", "无", "非", "尚未", "没有")
+NEGATION_WORDS = ("不", "未", t("assembly.none_value"), "非", "尚未", "没有")
 # naming *which* matrix the statement is about is the binding the check asks for; a sentence that
 # names neither a matrix nor a stage is the only case worth a hint.
 STAGE_MARKERS = ("原始", "过滤", "插补", "矩阵", "质控", "本次", "本报告")
 DETECTION_WORDS = ("未检出", "未检测", "完全不存在", "未被检出", "未鉴定")
 # A sentence that states the absence of a number is itself a boundary statement, not an unbound claim.
-DETECTION_EXCLUSIONS = ("未给出", "未提供", "未记录", "未纳入", "没有给出", "不给出", "未在当前",
+DETECTION_EXCLUSIONS = ("未给出", "未提供", t("assembly.not_recorded"), "未纳入", "没有给出", "不给出", "未在当前",
                         "无法确认", "不适用")
 UNAVAILABLE_PAT = re.compile(r"未[^。；]{0,16}(给出|提供|记录|纳入|统计|报告|包含|覆盖|获得)")
 
@@ -2635,8 +3267,8 @@ def _model_claim_findings(index: Dict[str, Any], model_texts: List[Dict[str, Any
                 if UNAVAILABLE_PAT.search(sentence):
                     continue
                 coverage["stage_checked"] += 1
-                findings.append({"rule": "STAGE", "severity": "提示",
-                                 "detail": "检出/缺失陈述未写明数据阶段，无法对应到运行记录中的具体矩阵",
+                findings.append({"rule": "STAGE", "severity": t("assembly.severity_hint"),
+                                 "detail": t("assembly.finding_stage_unclear"),
                                  "quote": sentence[:120]})
                 break
         if contrast is None or len(groups) < 2:
@@ -2667,34 +3299,33 @@ def _model_claim_findings(index: Dict[str, Any], model_texts: List[Dict[str, Any
                 if distance > 20:
                     continue
                 phrase = _direction_label(cand, groups)
-                if phrase == "方向未判定" or " 较高" not in phrase:
+                if phrase == t("assembly.direction_undetermined") or t("assembly.arm_higher_suffix") not in phrase:
                     continue
-                high_arm = phrase.split(" 较高")[0]
+                high_arm = phrase.split(t("assembly.arm_higher_suffix"))[0]
                 low_arm = next((g for g in groups if g != high_arm), None)
                 if low_arm is None:
                     continue
                 expected = high_arm if word in HIGH_WORDS else low_arm
                 coverage["direction_checked"] += 1
                 if arm != expected:
-                    findings.append({"rule": "DIR", "severity": "提示",
-                                     "detail": "方向句写出的较高/较低组与差异表记录的方向不同：表中记为 %s"
+                    findings.append({"rule": "DIR", "severity": t("assembly.severity_hint"),
+                                     "detail": t("assembly.finding_direction_mismatch")
                                                % phrase,
                                      "quote": sentence[:160], "entity": symbol,
                                      "contrast": contrast.get("display_contrast")})
                 break
     return findings, coverage
 
-
 # R17: a sentence that denies evidence the run actually produced is a locator, never a rewrite.
 UNAVAILABLE_TOPICS = (
-    ("样本数", ("样本数", "观测数", "每组样本", "样本量")),
-    ("缺失率", ("缺失率", "缺失比例", "缺失统计")),
-    ("分层对比", ("分层", "亚组", "分层统计")),
-    ("正式富集检验", ("正式富集", "富集检验", "超几何", "通路富集", "ORA")),
-    ("通路富集条目", ("富集", "通路")),
-    ("剂量趋势", ("剂量趋势", "趋势检验", "spearman")),
-    ("对比一致性", ("对比一致性", "跨对比一致性")),
-    ("降维与图件", ("降维", "pca", "umap", "图册", "火山图", "降维坐标")),
+    (t("assembly.topic_sample_count"), (t("assembly.topic_sample_count"), "观测数", "每组样本", "样本量")),
+    (t("assembly.topic_missing_rate"), (t("assembly.topic_missing_rate"), "缺失比例", "缺失统计")),
+    (t("assembly.topic_stratified"), ("分层", "亚组", "分层统计")),
+    (t("assembly.topic_formal_enrichment"), ("正式富集", "富集检验", "超几何", "通路富集", "ORA")),
+    (t("assembly.topic_pathway_terms"), ("富集", "通路")),
+    (t("assembly.topic_dose_trend"), (t("assembly.topic_dose_trend"), "趋势检验", "spearman")),
+    (t("assembly.topic_contrast_concordance"), (t("assembly.topic_contrast_concordance"), "跨对比一致性")),
+    (t("assembly.topic_dimensionality_and_figures"), ("降维", "pca", "umap", "图册", "火山图", "降维坐标")),
 )
 
 
@@ -2704,24 +3335,24 @@ def available_evidence_topics(run: Path, index: Optional[Dict[str, Any]] = None)
     evidence = (index or {}).get("run_evidence") or read_run_evidence(run)
     first = evidence.get("limma_first") or {}
     topics = {
-        "样本数": "已计算" if first.get("n_samples_group_a") is not None
-                  or first.get("n_samples_group_b") is not None else "未记录",
-        "缺失率": "已计算" if evidence.get("input_missing_rate")
-                  or evidence.get("analysed_missing_rate") else "未记录",
+        t("assembly.topic_sample_count"): t("assembly.status_computed") if first.get("n_samples_group_a") is not None
+                  or first.get("n_samples_group_b") is not None else t("assembly.not_recorded"),
+        t("assembly.topic_missing_rate"): t("assembly.status_computed") if evidence.get("input_missing_rate")
+                  or evidence.get("analysed_missing_rate") else t("assembly.not_recorded"),
     }
     stratified = _ext_csv_rows(run, "stratified_contrast_summary.csv")
-    topics["分层对比"] = "已计算" if any(str(row.get("level") or "").strip() for row in stratified) else "未计算"
+    topics[t("assembly.topic_stratified")] = t("assembly.status_computed") if any(str(row.get("level") or "").strip() for row in stratified) else t("assembly.status_not_computed")
     ora = _ext_csv_rows(run, "enrichment_ora.csv")
-    topics["正式富集检验"] = "已计算" if any(str(row.get("p_value") or "").strip() for row in ora) else "未计算"
+    topics[t("assembly.topic_formal_enrichment")] = t("assembly.status_computed") if any(str(row.get("p_value") or "").strip() for row in ora) else t("assembly.status_not_computed")
     overlap = run / "enrichment_results" / "go_kegg_reactome_results.json"
-    topics["通路富集条目"] = "已计算" if overlap.exists() else "未计算"
-    topics["剂量趋势"] = "已计算" if _ext_csv_rows(run, "dose_trend.csv") else "未计算"
-    topics["对比一致性"] = "已计算" if _ext_csv_rows(run, "contrast_concordance.csv") else "未计算"
+    topics[t("assembly.topic_pathway_terms")] = t("assembly.status_computed") if overlap.exists() else t("assembly.status_not_computed")
+    topics[t("assembly.topic_dose_trend")] = t("assembly.status_computed") if _ext_csv_rows(run, "dose_trend.csv") else t("assembly.status_not_computed")
+    topics[t("assembly.topic_contrast_concordance")] = t("assembly.status_computed") if _ext_csv_rows(run, "contrast_concordance.csv") else t("assembly.status_not_computed")
     try:
         figures = sorted(path.name for path in (run / "visualize_results").glob("*.png"))
     except Exception:  # noqa: BLE001
         figures = []
-    topics["降维与图件"] = "已计算" if figures else "未计算"
+    topics[t("assembly.topic_dimensionality_and_figures")] = t("assembly.status_computed") if figures else t("assembly.status_not_computed")
     return topics
 
 
@@ -2741,18 +3372,17 @@ def _unavailable_claim_findings(run: Path, index: Dict[str, Any], model_texts: L
             continue
         lowered = sentence.lower()
         for topic, patterns in UNAVAILABLE_TOPICS:
-            if topics.get(topic) != "已计算":
+            if topics.get(topic) != t("assembly.status_computed"):
                 continue
             if any(pattern in lowered for pattern in patterns):
                 total += 1
                 if len(findings) < limit:
                     findings.append({
-                        "rule": "G7", "severity": "提示", "topic": topic,
+                        "rule": "G7", "severity": t("assembly.severity_hint"), "topic": topic,
                         "owner": item.get("owner"),
                         # reader-facing and short: the note locates the conflict without repeating the
                         # sentence and without naming any internal request artefact
-                        "detail": "核对提示：正文称「%s」类证据未提供或未执行，但本次运行已产出该类证据"
-                                  "（数值见对应表格与「运行参数与证据绑定」）；此处只标记位置，不修改原句。"
+                        "detail": t("assembly.finding_unavailable_detail")
                                   % topic})
                 break
     return findings, total
@@ -2765,10 +3395,9 @@ def _qc_binding_finding(evidence_data: Dict[str, Any]) -> Optional[Dict[str, Any
         return None
     if analysed[1] > 0 or evidence_data.get("imputation") == ["True"]:
         return None
-    return {"rule": "QC", "severity": "提示",
-            "detail": "本轮分析矩阵的平均缺失率为 %.4f 且运行记录未执行插补（imputation_applied=%s），"
-                      "与原始交付矩阵的平均缺失率 %.4f 至 %.4f 不同一阶段；引用缺失/检出数值时应写明阶段"
-                      % (analysed[0], "；".join(evidence_data.get("imputation") or [NOT_RECORDED]),
+    return {"rule": "QC", "severity": t("assembly.severity_hint"),
+            "detail": t("assembly.finding_qc_stage")
+                      % (analysed[0], "；".join(evidence_data.get("imputation") or [t("assembly.not_recorded")]),
                          raw[0], raw[1])}
 
 
@@ -2783,9 +3412,7 @@ def declared_mismatch(info: Dict[str, Any]) -> bool:
 
 
 def _joint_note_line(rec: Dict[str, Any], info: Dict[str, Any]) -> str:
-    return ("核对提示：按本报告声明的联合筛选条件（%s 连接）在差异表上复算得到 %d 行通过，"
-            "与本对比汇总的 %s 不一致（只满足校正 P 的 %d 行、只满足效应阈值的 %d 行；"
-            "最小校正 P=%s）；请核对筛选口径与数据阶段。"
+    return (t("assembly.finding_joint_mismatch")
             % (info.get("connector"), info.get("n_joint"), _fmt(info.get("declared_n_sig")),
                info.get("n_pass_p"), info.get("n_pass_effect"), _fmt(info.get("min_adj_p"))))
 
@@ -2795,16 +3422,15 @@ def _consistency_note_lines(checks: Dict[str, Any], limit: int = 6) -> List[str]
     findings = checks.get("findings") or []
     if not findings:
         return []
-    lines = ["本节列出运行记录之间、以及正文与表格之间需要核对的口径差异，共 %d 条；"
-             "提示只指出位置与依据，不修改任何数值或结论。" % len(findings), ""]
+    lines = [t("assembly.consistency_note_intro") % len(findings), ""]
     for item in findings[:limit]:
         detail = str(item.get("detail") or "")
         quote = item.get("quote")
         if quote:
-            detail = "%s（相关原文：%s）" % (detail, quote)
+            detail = t("assembly.quote_note") % (detail, quote)
         lines.append("- %s" % detail)
     if len(findings) > limit:
-        lines.append("- 另有 %d 条同类提示未在正文展开。" % (len(findings) - limit))
+        lines.append(t("assembly.more_hints") % (len(findings) - limit))
     return lines
 
 
@@ -2819,8 +3445,8 @@ def run_consistency_checks(run: Path, index: Dict[str, Any], cond: Dict[str, Any
         key = str(rec.get("display_contrast"))
         info = joint.get(key) or {}
         if info.get("status") != "ok":
-            findings.append({"rule": "G1", "severity": "提示",
-                             "detail": "%s 的差异表不可解析（%s），筛选与计数无法核对"
+            findings.append({"rule": "G1", "severity": t("assembly.severity_hint"),
+                             "detail": t("assembly.unparsable_diff_table")
                                        % (key, info.get("status")),
                              "contrast": key})
             continue
@@ -2832,10 +3458,8 @@ def run_consistency_checks(run: Path, index: Dict[str, Any], cond: Dict[str, Any
         except (TypeError, ValueError):
             continue
         if declared_n != info["n_joint"]:
-            findings.append({"rule": "G1", "severity": "提示", "contrast": key,
-                             "detail": "按报告自己声明的联合条件（%s 连接，列 %s / %s）在差异表上复算得到 "
-                                       "%d 行，与本对比汇总的 %d 不一致；"
-                                       "其中仅满足校正 P 的有 %d 行、仅满足效应阈值的有 %d 行、最小校正 P=%s"
+            findings.append({"rule": "G1", "severity": t("assembly.severity_hint"), "contrast": key,
+                             "detail": t("assembly.finding_joint_mismatch_detailed")
                                        % (info["connector"], info["p_col"], info["effect_col"],
                                           info["n_joint"], declared_n, info["n_pass_p"],
                                           info["n_pass_effect"], _fmt(info.get("min_adj_p")))})
@@ -2860,12 +3484,12 @@ def run_consistency_checks(run: Path, index: Dict[str, Any], cond: Dict[str, Any
     for item in findings:
         summary[item["rule"]] = summary.get(item["rule"], 0) + 1
     return {"joint_filter": joint, "findings": findings, "summary": summary, "coverage": coverage,
-            "n_findings": len(findings), "mode": "提示（不阻断，不改变结论）",
+            "n_findings": len(findings), "mode": t("assembly.checks_mode"),
             # R21: these findings mark places worth looking at. They are not a quality score and are
             # not part of any acceptance total, and they never rewrite a scientific conclusion -
             # G7 was measured to raise false positives on sentences that state a real limitation.
             "diagnostic_only": True,
-            "not_a_metric": "提示条数不得用作性能计数、验收总分或改进指标；只用于定位。"}
+            "not_a_metric": t("assembly.checks_not_a_metric")}
 
 
 def _contrast_pointer(title: str, index: Dict[str, Any]) -> str:
@@ -2882,8 +3506,7 @@ def _contrast_pointer(title: str, index: Dict[str, Any]) -> str:
         names = {str(rec.get("claim_id") or ""), str(rec.get("display_contrast") or ""),
                  str(rec.get("source_contrast") or "")}
         if text in names:
-            return ("说明：本小节讨论的对比与「任务%d：%s」相同，标题沿用模型给出的对比标识；"
-                    "两节数值来自同一张差异表，表格方向见各表标题后的方向标注，正文按模型原句保留。"
+            return (t("assembly.contrast_pointer_note")
                     % (order, rec.get("claim_title") or rec.get("display_contrast")))
     return ""
 
@@ -2918,22 +3541,22 @@ def assemble(run: Path, sections: Dict[str, Any]) -> Dict[str, Any]:
                 continue
             if any(line.strip().startswith("|") for line in text.splitlines()):
                 continue  # model tables are replaced by deterministic tables; recorded in the ledger
-            text = cap_term_density(text, "\u5f53\u524d\u77e9\u9635", DENSITY_CAP, density_state)
+            text = cap_term_density(text, t("assembly.current_matrix"), DENSITY_CAP, density_state)
             body.append(text)
             body.append("")
             model_paragraphs.append({"owner": owner, "sha12": sha12(text), "chars": len(text),
                                      "evidence_ids": evidence_ids or []})
             model_texts.append({"owner": owner, "text": text, "evidence_ids": evidence_ids or []})
 
-    body.append("## 0. 关键结论速览")
+    body.append(t("assembly.heading_key_conclusions"))
     body.append("")
     add_model_lines(sections.get("key_summary") or [], "key_summary")
     if not sections.get("key_summary"):
-        body += ["（模型未提供速览，以下为确定性事实）",
-                 "- 本轮共 %d 个核心对比，证据文件见文末清单。" % len(plan["tasks"]), ""]
+        body += [t("assembly.key_summary_absent"),
+                 t("assembly.core_contrast_count") % len(plan["tasks"]), ""]
 
     body += _stratified_lines(run)
-    body.append("## 1. 数据与预处理")
+    body.append(t("assembly.heading_data"))
     body.append("")
     body += _data_section(run, cond, run_evidence)
     body.append("")
@@ -2944,7 +3567,7 @@ def assemble(run: Path, sections: Dict[str, Any]) -> Dict[str, Any]:
     merged_alias_sections: List[Dict[str, Any]] = []
     for task in plan["tasks"]:
         rec = task["contrast"]
-        body.append("## %d. 任务%d：%s" % (heading, task["order"], rec.get("claim_title") or rec.get("display_contrast")))
+        body.append(t("assembly.heading_task") % (heading, task["order"], rec.get("claim_title") or rec.get("display_contrast")))
         body.append("")
         model_tasks, route = _match_task_sections(sections, rec)
         if model_tasks:
@@ -2986,22 +3609,20 @@ def assemble(run: Path, sections: Dict[str, Any]) -> Dict[str, Any]:
                 display = str(rec.get("display_contrast") or "")
                 arms = rec.get("groups") or []
                 flipped = [label for label in labels if _reversed_arms(label, display)]
-                note = ("注：模型原文把同一对比写成 %d 个平级小节（%s）；本节按对比合并，"
-                        "内容按原顺序全部保留（未删减）。本报告统一按「%s」坐标读数"
+                note = (t("assembly.merged_alias_note")
                         % (len(labels), "、".join(_cell(label) for label in labels), _cell(display)))
                 if len(arms) >= 2 and arms[0]:
-                    note += "（正值表示 %s 较高）" % _cell(arms[0])
+                    note += t("assembly.positive_means") % _cell(arms[0])
                 note += "。"
                 if flipped:
-                    note += ("其中 %s 的臂序与本节坐标相反，其句内正负号与本节表格相反；"
-                             "引用这些句子的数值时以本节表格的方向为准。"
+                    note += (t("assembly.merged_flipped_note")
                              % "、".join(_cell(label) for label in flipped))
                 else:
-                    note += "各小节的对比标识臂序与本节坐标一致。"
+                    note += t("assembly.merged_note_aligned")
                 body.append(note)
                 body.append("")
         else:
-            body += ["（本轮标准对比未匹配到模型小节：该对比按确定性事实呈现。）", ""]
+            body += [t("assembly.task_section_unmatched"), ""]
         body += _exclusion_lines(run, seen=exclusion_state)
         body.append(_verdict_line(task, cond))
         body.append("")
@@ -3015,7 +3636,7 @@ def assemble(run: Path, sections: Dict[str, Any]) -> Dict[str, Any]:
     for task in sections.get("tasks") or []:
         if id(task) in matched:
             continue
-        title = str(task.get("match") or "").strip() or "未命名小节"
+        title = str(task.get("match") or "").strip() or t("assembly.unbound_section_default")
         body.append("## %d. %s" % (heading, title))
         body.append("")
         pointer = _contrast_pointer(title, index)
@@ -3030,55 +3651,55 @@ def assemble(run: Path, sections: Dict[str, Any]) -> Dict[str, Any]:
     body += _concordance_lines(run)
     body += _dose_trend_lines(run)
     body += _enrichment_ora_lines(run, index=index)
-    body += _enrichment_boundary_lines(run, any("富集方向提示" in line for line in body))
+    body += _enrichment_boundary_lines(run, any(t("assembly.enrichment_hint_heading") in line for line in body))
     figure_lines = _figure_reference_lines(run, index)
     if figure_lines:
-        body.append("## %d. 图表与文字结论" % heading)
+        body.append(t("assembly.heading_figures") % heading)
         body.append("")
-        body.append("图件以「图号 + 标题 + 文字结论」在正文中给出，图不可见时信息仍可读。")
+        body.append(t("assembly.figures_narrative_note"))
         body.append("")
         body += figure_lines
         body.append("")
         heading += 1
     evidence_tables = _evidence_table_lines(run, index)
     if evidence_tables:
-        body.append("## %d. 证据表（逐条）" % heading)
+        body.append(t("assembly.heading_evidence_tables") % heading)
         body.append("")
         body += evidence_tables
         heading += 1
     checks = run_consistency_checks(run, index, cond, model_texts, joint=joint_filter)
-    body.append("## %d. 运行参数与证据绑定" % heading)
+    body.append(t("assembly.heading_run_parameters") % heading)
     body.append("")
     body += _run_evidence_binding_lines(run_evidence)
     body.append("")
     note_lines = _consistency_note_lines(checks)
     if note_lines:
-        body.append("### 口径与一致性说明")
+        body.append(t("assembly.heading_consistency_note"))
         body.append("")
         body += note_lines
         body.append("")
     heading += 1
-    body.append("## %d. 总结与启发式推测" % heading)
+    body.append(t("assembly.heading_summary") % heading)
     body.append("")
     add_model_lines(sections.get("summary") or [], "summary")
     heading += 1
-    body.append("## %d. 可复核资产清单" % heading)
+    body.append(t("assembly.heading_assets") % heading)
     body.append("")
     body += _asset_lines(run, index)
     heading += 1
-    body.append("## %d. 结论边界与方法局限" % heading)
+    body.append(t("assembly.heading_boundary") % heading)
     body.append("")
     add_model_lines(sections.get("boundary") or [], "boundary_model")
     if sections.get("extra"):
         # content the assembler could not bind to a section must still be visible to a reader
-        body.append("### 其他说明（未能绑定到任务小节的内容）")
+        body.append(t("assembly.heading_extra_unbound"))
         body.append("")
         add_model_lines(sections.get("extra") or [], "extra_unbound")
-    body += ["- 以上结论只对当前分析矩阵成立；模块分数不替代单蛋白 FDR 或正式富集检验。",
-             "- 离线富集结果只在 FDR 显著时作为显著富集，其余只能作为探索性提示。",
-             "- 外部注释只作背景说明，不作为当前矩阵的直接证据。",
-             "- 未提供富集结果与未执行富集分析是两种不同状态，报告按实际情况分别写明。",
-             "- 表内数值来自本轮分析的确定性表格；正文解释与表格同源，任何数值以表格为准。", ""]
+    body += [t("assembly.boundary_matrix_only"),
+             t("assembly.boundary_offline_enrichment"),
+             t("assembly.boundary_external_annotation"),
+             t("assembly.boundary_enrichment_states"),
+             t("assembly.boundary_table_values"), ""]
 
     report = "\n".join(body).rstrip() + "\n"
     ledger = _content_ledger_v3(blocks, report, model_paragraphs, index)
@@ -3088,7 +3709,7 @@ def assemble(run: Path, sections: Dict[str, Any]) -> Dict[str, Any]:
                    "hash_normalisation": REPORT_HASH_NORMALISATION,
                    "hash_stage": "assembly (re-bind after any later revision)",
                    "joint_filter": joint_filter, "consistency_checks": checks,
-                   "note": "运行记录与主张绑定的机器可读副本；正文只呈现其中面向读者的部分"}
+                   "note": t("assembly.binding_note")}
         (Path(run) / "report_evidence_binding.json").write_text(
             json.dumps(binding, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     except Exception:  # noqa: BLE001
@@ -3112,7 +3733,7 @@ def assemble(run: Path, sections: Dict[str, Any]) -> Dict[str, Any]:
         "run_evidence": run_evidence["items"],
         "run_evidence_status": {"n_items": len(run_evidence["items"]),
                                 "not_recorded": sum(1 for x in run_evidence["items"]
-                                                    if x["status"] != "已记录"),
+                                                    if x["status"] != t("assembly.status_recorded")),
                                 "imputation": run_evidence["imputation"],
                                 "input_missing_rate": run_evidence["input_missing_rate"],
                                 "analysed_missing_rate": run_evidence["analysed_missing_rate"]},
@@ -3134,31 +3755,38 @@ def _content_ledger(blocks: List[Dict[str, Any]], report: str, model_paragraphs:
             unmatched = sorted({t for t in tokens if t not in report})[:10]
             if unmatched:
                 disposition = "replaced_with_unmatched_content"
-                reason = "模型表格由确定性表替代，但以下数值未在成品中出现，需人工确认：%s" % ", ".join(unmatched)
+                reason = t("assembly.ledger_table_missing") % ", ".join(unmatched)
             else:
-                disposition, reason = "replaced_by_deterministic_table", "模型表格数值均可在成品中找到"
+                disposition, reason = "replaced_by_deterministic_table", t("assembly.ledger_table_all_found")
             ledger.append({"index": block["index"], "heading": block["heading"], "kind": block["kind"],
                            "sha12": block["sha12"], "chars": block["chars"],
                            "disposition": disposition, "reason": reason,
                            "unmatched_tokens": unmatched})
             continue
         elif block["sha12"] in kept:
-            disposition, reason = "preserved", "逐字保留"
+            disposition, reason = "preserved", t("assembly.ledger_preserved")
         else:
-            disposition, reason = "dropped", "未进入成品（需人工确认）"
+            disposition, reason = "dropped", t("assembly.ledger_dropped")
         ledger.append({"index": block["index"], "heading": block["heading"], "kind": block["kind"],
                        "sha12": block["sha12"], "chars": block["chars"],
                        "disposition": disposition, "reason": reason})
     return ledger
 
-
 # --------------------------------------------------- request-side evidence index (R17, production)
-REQUEST_INDEX_TITLE = "## 本轮可用事实清单（由运行工件直接生成，与最终报告表格同源）"
-REQUEST_INDEX_INTRO = (
-    "本清单只列本次运行实际产出的证据。状态含义：已计算=可以直接引用并给出数值；"
-    "未计算=本轮没有产出，不得据此写结论；无法使用=产出为空或不可读，必须按边界说明处理。"
-    "报告引用数值时必须与本清单一致：标注「已计算」的内容不得写成「未提供 / 未包含 / 未产出」，"
-    "标注「未计算」的内容不得写成已完成的分析结果。")
+
+
+def _request_index_title() -> str:
+    """Heading of the request-side fact list."""
+    return (
+        t("assembly.request_index_title")
+    )
+
+
+def _request_index_intro() -> str:
+    """How the request-side fact list is meant to be read."""
+    return (
+        t("assembly.request_index_intro")
+    )
 
 
 def _table_cell(value: Any, limit: int = 120) -> str:
@@ -3175,7 +3803,7 @@ def _figure_titles(run: Path, index: Dict[str, Any], limit: int = 60) -> List[st
     titles: List[str] = []
     for line in _figure_reference_lines(run, index):
         text = str(line).strip().lstrip("-").strip()
-        match = re.match(r"(图\d+)\s*([^：:]*)", text)
+        match = re.match(t("assembly.figure_line_parse_re"), text)
         if match:
             conclusion = text[match.end():].lstrip("：: ").strip()
             titles.append(("%s %s：%s" % (match.group(1), match.group(2).strip(), conclusion))[:220])
@@ -3184,7 +3812,7 @@ def _figure_titles(run: Path, index: Dict[str, Any], limit: int = 60) -> List[st
             pngs = sorted(p.name for p in (Path(run) / "visualize_results").glob("*.png"))
         except Exception:  # noqa: BLE001
             pngs = []
-        titles = ["（图册文件）%s" % name for name in pngs[:limit]]
+        titles = [t("assembly.figure_file_fallback") % name for name in pngs[:limit]]
     return titles[:limit]
 
 
@@ -3232,7 +3860,6 @@ def _matrix_shape_of(path: Path) -> Dict[str, float]:
     if low is None:
         return {}
     return {"min": low, "max": high}
-
 
 _TRANSFORM_RECORD_CACHE: Dict[str, Dict[str, Any]] = {}
 
@@ -3298,26 +3925,26 @@ def read_matrix_transform_record(run: Path) -> Dict[str, Any]:
             expected_ceiling = 0.0
         log2_applied = bool(expected_ceiling and analysed["max"] <= expected_ceiling
                             and analysed["max"] < raw["max"])
-        basis = ("分析矩阵最大值 %s，过滤后原始矩阵最大值 %s（log2(x+1) 后的上界约 %s）"
+        basis = (t("assembly.transform_basis")
                  % (_fmt(analysed["max"]), _fmt(raw["max"]), _fmt(expected_ceiling)))
     built = {
         "record_type": "matrix_transform_record",
-        "record_source": "run_events.jsonl 的 combat_calibration 工具结果（派生，不是该步骤直接写出）",
+        "record_source": t("assembly.transform_record_derived_source"),
         "derived": True,
         "stage": "protein_quant_combat_calibration",
         "input": {"protein_quant_file": Path(str(inputs.get("protein_quant_file") or "")).name,
                   "protein_rows": inputs.get("initial_protein_rows"),
                   "samples": inputs.get("initial_samples")},
-        "protein_filtering": {"rule": "非缺失比例 >= %s（%s）" % (_fmt(filt.get("reproducibility_cutoff")),
-                                                                 filt.get("filtering_strategy") or "未记录"),
+        "protein_filtering": {"rule": t("assembly.filtering_rule") % (_fmt(filt.get("reproducibility_cutoff")),
+                                                                 filt.get("filtering_strategy") or t("assembly.not_recorded")),
                               "reproducibility_cutoff": filt.get("reproducibility_cutoff"),
                               "strategy": filt.get("filtering_strategy"),
                               "n_proteins_retained": filt.get("number_of_proteins_after_filtering")},
         "imputation": {"applied": bool("half-min" in method.lower()),
-                       "method": method or "未记录"},
+                       "method": method or t("assembly.not_recorded")},
         "log2_transform": {"applied": log2_applied,
                            "form": "log2(x+1)",
-                           "recorded_rule": method or "未记录",
+                           "recorded_rule": method or t("assembly.not_recorded"),
                            "applied_basis": basis},
         "batch_correction": {"combat_success": bool(batch.get("combat_success")),
                              "new_batch_correction_applied": bool(batch.get("new_batch_correction_applied")),
@@ -3423,11 +4050,11 @@ def _unit_layer_index(run: Path, index: Dict[str, Any],
             blocked_reason = _unit_reason_zh(unit)
         estimand = ""
         if route == "within_unit_paired":
-            estimand = "个体内均值差（同一实验单位在两臂都有观测）"
+            estimand = t("assembly.estimand_within_unit_observed")
         elif route == "between_unit_independent":
-            estimand = "个体间均值差（每条臂只使用只在该臂观测的独立个体）"
+            estimand = t("assembly.estimand_between_unit_independent")
         elif status != "completed":
-            estimand = "无可识别的个体内或个体间估计目标"
+            estimand = t("assembly.estimand_none")
         exclusion = unit.get("unit_exclusion") or {}
         excluded = sorted(set(exclusion.get("pooled_source") or [])
                           | set(exclusion.get("unconfirmed_source") or []))
@@ -3455,7 +4082,7 @@ def _unit_layer_index(run: Path, index: Dict[str, Any],
             "in_task_list": in_task_list,
             "direction": unit.get("direction"),
             "status": status,
-            "status_zh": "已完成个体级敏感性分析" if status == "completed" else "不可估计，未做个体级检验",
+            "status_zh": t("assembly.unit_status_completed") if status == "completed" else t("assembly.unit_status_blocked"),
             "estimand": estimand,
             "analysis_unit": unit.get("analysis_unit"),
             "unit_source": _unit_source_label(unit.get("unit_column_source")),
@@ -3516,14 +4143,14 @@ def build_request_evidence_index(run: Path) -> Dict[str, Any]:
               "model": _table_cell(first.get("method"), 80),
               "fdr": _fmt((design.get("differential") or {}).get("fdr_method")),
               "threshold": "", "samples": "", "missing_raw": "", "missing_analysed": "",
-              "imputation": "；".join(evidence.get("imputation") or []) or NOT_RECORDED}
-    stage_text = next((x["value"] for x in evidence["items"] if x["item"] == "运行链路上的矩阵阶段"), "")
+              "imputation": "；".join(evidence.get("imputation") or []) or t("assembly.not_recorded")}
+    stage_text = next((x["value"] for x in evidence["items"] if x["item"] == t("assembly.item_matrix_stages")), "")
     params["matrix_stage"] = _table_cell(stage_text, 200)
     if thresholds:
-        params["threshold"] = "校正 P≤%s 且 |效应量|≥%s" % (_fmt(thresholds.get("adj_p")),
+        params["threshold"] = t("assembly.threshold_adj_p_and_effect") % (_fmt(thresholds.get("adj_p")),
                                                           _fmt(thresholds.get("abs_logFC")))
     if first.get("n_samples_group_a") is not None and first.get("n_samples_group_b") is not None:
-        params["samples"] = "%s / %s（两臂样本数；按运行记录中第一个对比）" % (
+        params["samples"] = t("assembly.samples_two_arms") % (
             _fmt(first.get("n_samples_group_a")), _fmt(first.get("n_samples_group_b")))
     if evidence.get("input_missing_rate"):
         params["missing_raw"] = _range_text(evidence["input_missing_rate"])
@@ -3542,8 +4169,7 @@ def build_request_evidence_index(run: Path) -> Dict[str, Any]:
                 rows_n = sum(1 for _ in reader)
             have = [name for name in ("PC1", "PC2", "PC3") if name in head]
             if have:
-                dimred = ("逐样本 %s 坐标已在 processed_proteins/qc_metrics.csv 给出（%d 行）；"
-                          "UMAP 二维坐标为未产出坐标，不要写成缺少全部降维坐标。"
+                dimred = (t("assembly.dimred_note")
                           % ("、".join(have), rows_n))
     except Exception:  # noqa: BLE001
         dimred = ""
@@ -3558,24 +4184,23 @@ def build_request_evidence_index(run: Path) -> Dict[str, Any]:
         _filt = transform.get("protein_filtering") or {}
         if _imp.get("applied") is not None:
             if _imp.get("applied"):
-                params["imputation"] = "已执行（%s%s）" % (
-                    _imp.get("method") or "方法未记录",
-                    ("，填补 %s 个取值" % _imp.get("n_values_imputed"))
+                params["imputation"] = t("assembly.executed_parens_two") % (
+                    _imp.get("method") or t("assembly.method_not_recorded"),
+                    (t("assembly.imputed_values_suffix") % _imp.get("n_values_imputed"))
                     if _imp.get("n_values_imputed") not in (None, "") else "")
             else:
-                params["imputation"] = "未执行"
+                params["imputation"] = t("assembly.status_not_executed")
         if _log.get("applied") is not None:
-            params["log2_transform"] = ("已执行（%s）" % (_log.get("form") or "形式未记录")
-                                        if _log.get("applied") else "未执行")
+            params["log2_transform"] = (t("assembly.executed_parens_one") % (_log.get("form") or t("assembly.form_not_recorded"))
+                                        if _log.get("applied") else t("assembly.status_not_executed"))
         if _filt:
-            params["protein_filtering"] = "%s；保留蛋白 %s 个" % (
-                _filt.get("rule") or NOT_RECORDED, _fmt(_filt.get("n_proteins_retained")))
+            params["protein_filtering"] = t("assembly.protein_filtering_text") % (
+                _filt.get("rule") or t("assembly.not_recorded"), _fmt(_filt.get("n_proteins_retained")))
         params["transform_record_source"] = _table_cell(str(transform.get("record_source") or ""), 140)
     else:
-        params["imputation"] = NOT_RECORDED
-        params["log2_transform"] = NOT_RECORDED
-        params["transform_record_source"] = ("运行记录没有矩阵变换的完整记录：不能把「未记录」写成「未执行」，"
-                                             "也不能写成已经执行")
+        params["imputation"] = t("assembly.not_recorded")
+        params["log2_transform"] = t("assembly.not_recorded")
+        params["transform_record_source"] = (t("assembly.note_transform_record_absent_request"))
     data["parameters"] = params
 
     for rec in index["contrasts"]:
@@ -3621,7 +4246,7 @@ def build_request_evidence_index(run: Path) -> Dict[str, Any]:
                                         "note": _table_cell(row.get("note"), 60)}
                                        for row in shown_stratified]}
     if not named:
-        data["not_computed"].append("分层对比摘要（源表没有带分层的行）")
+        data["not_computed"].append(t("assembly.not_computed_stratified"))
 
     overlap: Dict[str, Any] = {}
     # R21/F2: the request fact list and the report read the same file through the same resolver, and
@@ -3641,9 +4266,9 @@ def build_request_evidence_index(run: Path) -> Dict[str, Any]:
                 node = buckets.get(database) or {}
                 per_db[database] = {direction: len(node.get(direction) or {})
                                     for direction in ("upregulated", "downregulated")}
-                for direction, label in (("upregulated", "上调方向"), ("downregulated", "下调方向")):
+                for direction, label in (("upregulated", t("assembly.enrichment_up_direction")), ("downregulated", t("assembly.enrichment_down_direction"))):
                     if len(arms) == 2:
-                        label = "%s 较高" % (arms[0] if direction == "upregulated" else arms[1])
+                        label = t("assembly.arm_higher") % (arms[0] if direction == "upregulated" else arms[1])
                     terms = [(str(term), str(genes).split("/"))
                              for genes, term in (node.get(direction) or {}).items()]
                     terms.sort(key=lambda item: (-len(item[1]), item[0]))
@@ -3652,18 +4277,17 @@ def build_request_evidence_index(run: Path) -> Dict[str, Any]:
                                       "term": _table_cell(term, 80), "seed": len(members),
                                       "members": _table_cell(", ".join(members[:6]), 120)})
             total = sum(sum(counts.values()) for counts in per_db.values())
-            overlap[contrast] = {"status": "已计算" if total else "有效空结果（该对比无条目）",
+            overlap[contrast] = {"status": t("assembly.status_computed") if total else t("assembly.enrichment_status_valid_empty_contrast"),
                                  "terms": total, "file_contrast": view.get("matched_key") or "",
                                  "reversed": bool(view.get("reversed")),
                                  "per_database": per_db, "top_terms": picks}
     data["overlap"] = overlap
     if overlap_state == "unparsable":
-        data["not_computed"].append("预定义基因集的重叠富集（文件存在但解析失败——这是读取状态，"
-                                    "不是未产出）")
+        data["not_computed"].append(t("assembly.not_computed_overlap_unparsable"))
     elif overlap_state == "empty":
-        data["not_computed"].append("预定义基因集的重叠富集（文件存在但是空对象）")
+        data["not_computed"].append(t("assembly.not_computed_overlap_empty"))
     elif overlap_state == "missing":
-        data["not_computed"].append("预定义基因集的重叠富集（本次运行没有该文件：分析未执行）")
+        data["not_computed"].append(t("assembly.not_computed_overlap_missing"))
 
     ora_rows = _ext_csv_rows(run, "enrichment_ora.csv")
     tested = [row for row in ora_rows if str(row.get("p_value") or "").strip()]
@@ -3691,7 +4315,7 @@ def build_request_evidence_index(run: Path) -> Dict[str, Any]:
         significant_rows = [row for row in tested if not _is_fallback_query(row)]
         classes = []
         if significant_rows:
-            classes.append({"kind": "显著集",
+            classes.append({"kind": t("assembly.kind_significant_set"),
                             "rule": _table_cell(significant_rows[0].get("query_definition"), 160),
                             "rows": len(significant_rows),
                             "query_sizes": _size_range([row.get("query_size")
@@ -3699,7 +4323,7 @@ def build_request_evidence_index(run: Path) -> Dict[str, Any]:
                             "contrasts": sorted({str(row.get("contrast") or "")
                                                  for row in significant_rows})[:8]})
         if fallback_rows:
-            classes.append({"kind": "兜底集（该对比显著集过小时按 |logFC| 取前 10%）",
+            classes.append({"kind": t("assembly.kind_fallback_set"),
                             "rows": len(fallback_rows),
                             "significant_set_sizes": _size_range(_fallback_significant_sizes(fallback_rows)),
                             "query_sizes": _size_range([row.get("query_size") for row in fallback_rows]),
@@ -3707,7 +4331,7 @@ def build_request_evidence_index(run: Path) -> Dict[str, Any]:
                                                  for row in fallback_rows})[:8]})
         data["ora"]["query_classes"] = classes
     else:
-        data["not_computed"].append("正式富集检验（超几何 ORA）")
+        data["not_computed"].append(t("assembly.not_computed_ora"))
 
     dose_rows = _ext_csv_rows(run, "dose_trend.csv")
     if dose_rows:
@@ -3733,13 +4357,13 @@ def build_request_evidence_index(run: Path) -> Dict[str, Any]:
                                                  for row in dose_rows
                                                  if str(row.get("note") or "").strip()})[:4]}
     else:
-        data["not_computed"].append("剂量趋势检验（Spearman）")
+        data["not_computed"].append(t("assembly.not_computed_dose_trend"))
 
     concordance_rows = _ext_csv_rows(run, "contrast_concordance.csv")
     data["concordance"] = {"pairs": len(concordance_rows),
-                           "status": "已计算" if concordance_rows else "无法使用"}
+                           "status": t("assembly.status_computed") if concordance_rows else t("assembly.status_unusable")}
     if not concordance_rows:
-        data["not_computed"].append("对比一致性（源分析未产出可比较的对比对）")
+        data["not_computed"].append(t("assembly.not_computed_concordance"))
 
     trace_rows = _ext_csv_rows(run, "candidate_exclusion_trace.csv")
     if trace_rows:
@@ -3750,13 +4374,13 @@ def build_request_evidence_index(run: Path) -> Dict[str, Any]:
                            and str(row.get("candidate")).strip().lower() not in tokens})
     else:
         excluded = []
-        data["not_computed"].append("候选排除轨迹")
-    data["exclusion"] = {"excluded": excluded, "status": "已计算" if trace_rows else "未计算"}
+        data["not_computed"].append(t("assembly.asset_candidate_exclusion_trace"))
+    data["exclusion"] = {"excluded": excluded, "status": t("assembly.status_computed") if trace_rows else t("assembly.status_not_computed")}
 
     titles = _figure_titles(run, index)
     data["figures"] = {"count": len(titles), "titles": titles[:24]}
     if not titles:
-        data["not_computed"].append("图册与图注（visualize_results 未产出可引用图件）")
+        data["not_computed"].append(t("assembly.not_computed_figures"))
     return data
 
 
@@ -3764,45 +4388,45 @@ def format_request_evidence_index(data: Dict[str, Any]) -> str:
     """Render the shared evidence index as the request-side markdown block."""
     params = data.get("parameters") or {}
 
-    def status(value: Any, ok: str = "已计算") -> str:
-        return ok if str(value or "").strip() else "未计算"
+    def status(value: Any, ok: str = t("assembly.status_computed")) -> str:
+        return ok if str(value or "").strip() else t("assembly.status_not_computed")
 
-    lines = [REQUEST_INDEX_TITLE, "", REQUEST_INDEX_INTRO, "", "### 数据与预处理", "",
-             "| 项目 | 数值或状态 | 状态 |", "|---|---|---|",
-             "| 运行链路上的矩阵阶段 | %s | %s |" % (_table_cell(params.get("matrix_stage"), 200),
+    lines = [_request_index_title(), "", _request_index_intro(), "", t("assembly.heading_data_preprocessing"), "",
+             t("assembly.header_request_item"), "|---|---|---|",
+             t("assembly.row_matrix_stage") % (_table_cell(params.get("matrix_stage"), 200),
                                                   status(params.get("matrix_stage"))),
-             "| 统计检验所用矩阵规模 | %s 个蛋白 | %s |" % (params.get("tested_proteins"),
+             t("assembly.row_matrix_size") % (params.get("tested_proteins"),
                                                         status(params.get("tested_proteins"))),
-             "| 每组样本数 | %s | %s |" % (_table_cell(params.get("samples"), 120),
+             t("assembly.row_samples_per_group") % (_table_cell(params.get("samples"), 120),
                                          status(params.get("samples"))),
-             "| 原始交付矩阵的平均缺失率 | %s | %s |" % (params.get("missing_raw"),
+             t("assembly.row_missing_rate_raw") % (params.get("missing_raw"),
                                                     status(params.get("missing_raw"))),
-             "| 本轮分析矩阵的平均缺失率 | %s | %s |" % (params.get("missing_analysed"),
+             t("assembly.row_missing_rate_analysed") % (params.get("missing_analysed"),
                                                     status(params.get("missing_analysed"))),
-             "| 缺失值填补（按本轮实际执行记录） | %s | %s |" % (
-                 params.get("imputation") or "未记录", status(params.get("imputation"), "已记录")),
-             "| 对数变换（按本轮实际执行记录） | %s | %s |" % (
-                 params.get("log2_transform") or "未记录", status(params.get("log2_transform"), "已记录")),
-             "| 蛋白过滤（按本轮实际执行记录） | %s | %s |" % (
-                 params.get("protein_filtering") or "未记录",
-                 status(params.get("protein_filtering"), "已记录")),
-             "| 变换记录的来源 | %s | 元数据 |" % _table_cell(
-                 params.get("transform_record_source") or "未记录", 140),
-             "| 统计模型 | %s | %s |" % (params.get("model"), status(params.get("model"), "已记录")),
-             "| 多重校正 | %s | %s |" % (params.get("fdr"), status(params.get("fdr"), "已记录")),
-             "| 实际生效阈值 | %s | %s |" % (params.get("threshold"),
-                                          status(params.get("threshold"), "已记录")),
-             "| 逐样本降维坐标 | %s | %s |" % (params.get("dimred") or "未记录",
-                                            status(params.get("dimred"), "已计算")),
+             t("assembly.row_imputation") % (
+                 params.get("imputation") or t("assembly.not_recorded"), status(params.get("imputation"), t("assembly.status_recorded"))),
+             t("assembly.row_log2_transform") % (
+                 params.get("log2_transform") or t("assembly.not_recorded"), status(params.get("log2_transform"), t("assembly.status_recorded"))),
+             t("assembly.row_protein_filtering") % (
+                 params.get("protein_filtering") or t("assembly.not_recorded"),
+                 status(params.get("protein_filtering"), t("assembly.status_recorded"))),
+             t("assembly.row_transform_record_source") % _table_cell(
+                 params.get("transform_record_source") or t("assembly.not_recorded"), 140),
+             t("assembly.row_statistical_model") % (params.get("model"), status(params.get("model"), t("assembly.status_recorded"))),
+             t("assembly.row_fdr") % (params.get("fdr"), status(params.get("fdr"), t("assembly.status_recorded"))),
+             t("assembly.row_effective_threshold") % (params.get("threshold"),
+                                          status(params.get("threshold"), t("assembly.status_recorded"))),
+             t("assembly.row_dimred_coordinates") % (params.get("dimred") or t("assembly.not_recorded"),
+                                            status(params.get("dimred"), t("assembly.status_computed"))),
              ""]
     if data.get("contrasts"):
-        lines += ["### 核心对比（task_id 与本节一致）", "",
-                  "| task_id | 对比 | 两臂 | 通过筛选 | 第一臂较高 | 第二臂较高 | 方向写法 |",
+        lines += [t("assembly.heading_core_contrasts"), "",
+                  t("assembly.header_task_id_contrast"),
                   "|---|---|---|---:|---:|---:|---|"]
         for rec in data["contrasts"]:
-            direction = "按 %s" % rec.get("display_contrast")
+            direction = t("assembly.request_direction_by") % rec.get("display_contrast")
             if rec.get("inverted"):
-                direction = "按 %s（源差异表 %s 符号相反）" % (rec.get("display_contrast"),
+                direction = t("assembly.request_direction_by_inverted") % (rec.get("display_contrast"),
                                                            rec.get("source_contrast"))
             lines.append("| %s | %s | %s | %s | %s | %s | %s |" % (
                 rec.get("task_id"), rec.get("display_contrast"), rec.get("arms"),
@@ -3811,18 +4435,15 @@ def format_request_evidence_index(data: Dict[str, Any]) -> str:
     unit_layer = data.get("unit_layer") or {}
     unit_items = list(unit_layer.get("contrasts") or [])
     if unit_items:
-        lines += ["### 实验单位层（个体结构敏感性分析，已计算）", "",
-                  "本节数值来自正式分析路径的单位层敏感性分析，覆盖本轮 %s 个对比（可做个体级检验 %s 个、"
-                  "不可估计 %s 个）。它以个体均值计权，与以单个观测计权的观察级检验估计目标不同，"
-                  "两套数值不可直接互换，也不可互相替代。"
+        lines += [t("assembly.heading_unit_layer_computed"), "",
+                  t("assembly.unit_layer_intro")
                   % (unit_layer.get("n_contrasts"), unit_layer.get("n_completed"),
                      unit_layer.get("n_blocked")), "",
-                  "| task_id | 本轮任务 | 状态 | 分析单位 | 单位语义来源 | 估计目标 | A/ B/ 共同/ 仅A/ 仅B | "
-                  "检验蛋白/未检验 | FDR口径通过 | 联合口径通过 | 最小校正P |",
+                  t("assembly.header_unit_layer"),
                   "|---|---|---|---|---|---|---|---|---:|---:|---:|"]
         for item in unit_items:
             lines.append("| %s | %s | %s | %s | %s | %s | %s/%s/%s/%s/%s | %s/%s | %s | %s | %s |" % (
-                item.get("task_id"), "是" if item.get("in_task_list") else "否（背景对比）",
+                item.get("task_id"), t("assembly.yes_value") if item.get("in_task_list") else t("assembly.no_background_contrast"),
                 item.get("status_zh"), item.get("analysis_unit"),
                 item.get("unit_source"), item.get("estimand"),
                 _fmt(item.get("n_units_a")), _fmt(item.get("n_units_b")),
@@ -3832,62 +4453,56 @@ def format_request_evidence_index(data: Dict[str, Any]) -> str:
                 _fmt(item.get("n_passing_fdr_only")), _fmt(item.get("n_passing_joint")),
                 _fmt(item.get("min_adj_p_value"))))
         if any(not item.get("in_task_list") for item in unit_items):
-            lines += ["", "标注为「否（背景对比）」的行是本轮分析已算出的其它目标对比；它们只作背景，"
-                          "不得为它们另写任务小节，也不得把它们的通过数并入本节任务。"]
-        lines += ["", "- 效应量列：%s（尺度：%s）；每个已检验蛋白的效应量、标准误与 95%% 置信区间"
-                      "在该对比的单位层表中逐行给出，未通过最小样本条件的行标为未检验且不带 P 值。"
-                      % (unit_layer.get("effect_column") or "未记录",
-                         unit_layer.get("effect_scale") or "未记录")]
+            lines += ["", t("assembly.unit_background_rows_note")]
+        lines += ["", t("assembly.unit_effect_column_note")
+                      % (unit_layer.get("effect_column") or t("assembly.not_recorded"),
+                         unit_layer.get("effect_scale") or t("assembly.not_recorded"))]
         for item in unit_items:
             summary = item.get("effect_summary") or {}
             if not summary:
                 continue
-            lines.append("  - %s：已检验 %s 个蛋白，效应量范围 %s 至 %s（中位 %s）；其中 %s 个蛋白的 "
-                         "95%% 置信区间不跨 0（逐蛋白、未经多重校正）。"
+            lines.append(t("assembly.unit_effect_summary_line")
                          % (item.get("task_id"), _fmt(summary.get("n")),
                             _fmt(summary.get("min")), _fmt(summary.get("max")),
                             _fmt(summary.get("median")), _fmt(summary.get("ci_excludes_zero"))))
         units_excluded = sorted({str(label) for item in unit_items
                                  for label in (item.get("excluded_units") or [])})
         if units_excluded:
-            lines.append("- 已单列并排除在独立个体之外的实验单位：%s（按标签语义事先判定，不按检验结果挑选）。"
+            lines.append(t("assembly.units_excluded_bullet")
                          % "、".join(_cell(x) for x in units_excluded))
         for item in unit_items:
             if item.get("blocked_reason"):
-                lines.append("- 未做个体级检验的对比：%s —— %s" % (item.get("task_id"),
+                lines.append(t("assembly.blocked_contrast_line") % (item.get("task_id"),
                                                                     item.get("blocked_reason")))
-        lines += ["- 引用规则：观察级与单位层各自的通过数只能写进各自小节；单位层不显著不等于「没有差异」，"
-                  "不可估计的对比只能写「无法在本设计下识别该估计目标」。", ""]
+        lines += [t("assembly.unit_citation_rules"), ""]
     else:
-        lines += ["### 实验单位层（个体结构敏感性分析）", "",
-                  "本轮未记录单位层结果（状态：未记录）；不得据此写成「已确认个体间无差异」。", ""]
+        lines += [t("assembly.heading_unit_layer"), "",
+                  t("assembly.unit_layer_absent"), ""]
     strat = data.get("stratified") or {}
     if strat.get("rows"):
-        lines += ["### 分层对比摘要（已计算：%d 行；分层变量：%s）"
-                  % (strat["rows"], "、".join(strat.get("stratifiers") or ["未记录"])),
-                  "", "| 对比 | 层 | 第一臂 n | 第二臂 n | 检验蛋白 | 通过筛选 | 分层判定 | 备注 |",
+        lines += [t("assembly.heading_stratified_computed")
+                  % (strat["rows"], "、".join(strat.get("stratifiers") or [t("assembly.not_recorded")])),
+                  "", t("assembly.header_stratified_request"),
                   "|---|---|---:|---:|---:|---:|---|---|"]
         for row in strat.get("examples") or []:
             lines.append("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
                 row.get("contrast"), row.get("level"), row.get("n_a"), row.get("n_b"),
-                row.get("tested"), row.get("n_sig"), row.get("verdict") or "未记录",
+                row.get("tested"), row.get("n_sig"), row.get("verdict") or t("assembly.not_recorded"),
                 row.get("note") or ""))
         shown = len(strat.get("examples") or [])
         if strat.get("truncated") or strat["rows"] > shown:
             # R21: the listing cap is display metadata. A model read the old wording as a finding
             # and wrote "分层变量包括 Cluster、Type2 及未列出的其余一行" into a reader-facing sentence.
-            lines += ["", "覆盖范围（这是本清单的显示元数据，不是分析结论）：本清单为该源表的节选，"
-                          "列出前 %d 行 / 共 %d 行，其余 %d 行未在本清单列出；节选只影响本清单的展示，"
-                          "不代表分析范围，也不要把「未列出的其余行」写成科学结论。"
+            lines += ["", t("assembly.stratified_coverage_note")
                           % (shown, strat["rows"], max(0, strat["rows"] - shown))]
-        lines += ["", "分层结果按单个变量分别分组，不等于同时控制多个变量；主结论仍以主模型为准。", ""]
+        lines += ["", t("assembly.stratified_scope_note_short"), ""]
     else:
-        lines += ["### 分层对比摘要", "", "本轮未产出分层对比（状态：未计算）。", ""]
+        lines += [t("assembly.heading_stratified_summary"), "", t("assembly.not_computed_stratified_line"), ""]
     overlap = data.get("overlap") or {}
     if overlap:
-        lines += ["### 预定义基因集的重叠富集（探索性，无 FDR/q）", "",
-                  "来源：本次运行 enrichment_results 中的预定义基因集重叠结果；已读取并解析。", "",
-                  "| 对比 | 状态 | 条目数 | 文件中的对比键（臂序） | 各库条目数 |",
+        lines += [t("assembly.heading_overlap_exploratory"), "",
+                  t("assembly.overlap_source_note"), "",
+                  t("assembly.header_overlap"),
                   "|---|---|---:|---|---|"]
         for contrast, info in overlap.items():
             detail = "；".join(
@@ -3895,12 +4510,12 @@ def format_request_evidence_index(data: Dict[str, Any]) -> str:
                 for db, counts in (info.get("per_database") or {}).items())
             lines.append("| %s | %s | %d | %s（%s） | %s |" % (
                 contrast, info.get("status"), info.get("terms"),
-                info.get("file_contrast") or "未记录",
-                "与本对比臂序相反" if info.get("reversed") else "与本对比臂序一致", detail))
+                info.get("file_contrast") or t("assembly.not_recorded"),
+                t("assembly.arm_order_reversed") if info.get("reversed") else t("assembly.arm_order_matches"), detail))
         picks = [pick for info in overlap.values() for pick in (info.get("top_terms") or [])]
         if picks:
-            lines += ["", "报告将按同一规则各取一条（每个数据库每个方向种子基因数最多的一条）：", "",
-                      "| 对比内的条目 | 库 | 方向 | 通路/语义条目 | 该条种子基因数 | 代表成员 |",
+            lines += ["", t("assembly.overlap_pick_rule"), "",
+                      t("assembly.header_overlap_picks"),
                       "|---|---|---|---|---:|---|"]
             for contrast, info in overlap.items():
                 for pick in info.get("top_terms") or []:
@@ -3908,72 +4523,70 @@ def format_request_evidence_index(data: Dict[str, Any]) -> str:
                         contrast, pick.get("database"), pick.get("direction"), pick.get("term"),
                         pick.get("seed"), pick.get("members")))
             lines.append("")
-        lines += ["", "该结果为集合重叠，未经多重检验校正、没有 FDR/q 值，只能作为探索性方向提示；"
-                      "不得写成显著富集。", ""]
+        lines += ["", t("assembly.overlap_exploratory_note"), ""]
     else:
-        state_note = {"missing": "本次运行没有该文件，该项分析未执行",
-                      "unparsable": "文件存在但解析失败（读取状态，不是未产出）",
-                      "empty": "文件存在但是空对象（已执行且无条目）"}.get(
-            str(data.get("overlap_state") or ""), "文件不可用")
-        lines += ["### 预定义基因集的重叠富集", "",
-                  "状态：%s；不得据本项写通路结论，按边界说明处理。" % state_note, ""]
+        state_note = {"missing": t("assembly.overlap_state_missing"),
+                      "unparsable": t("assembly.overlap_state_unparsable"),
+                      "empty": t("assembly.overlap_state_empty")}.get(
+            str(data.get("overlap_state") or ""), t("assembly.overlap_state_unavailable"))
+        lines += [t("assembly.heading_overlap_plain"), "",
+                  t("assembly.overlap_status_line") % state_note, ""]
     ora = data.get("ora") or {}
     if ora:
-        lines += ["### 正式富集检验（超几何）", "",
-                  "- 被检验条目 %s 条，未检验 %s 条" % (ora.get("tested"), ora.get("skipped")),
-                  "- 背景集大小 %s；统计检验所用矩阵蛋白数 %s（两个数字口径不同，引用时写明指哪一个）"
-                  % (ora.get("background") or "未记录", ora.get("matrix_proteins") or "未记录"),
-                  "- 通过 q(BH)≤0.05 的条目：%s 条（已计算；0 表示检验已执行但没有条目通过，不得写成未执行）"
+        lines += [t("assembly.heading_ora_hypergeometric"), "",
+                  t("assembly.ora_tested_counts") % (ora.get("tested"), ora.get("skipped")),
+                  t("assembly.ora_background_sizes")
+                  % (ora.get("background") or t("assembly.not_recorded"), ora.get("matrix_proteins") or t("assembly.not_recorded")),
+                  t("assembly.ora_significant_count")
                   % ora.get("significant"),
                   ""]
         classes = ora.get("query_classes") or []
         if classes:
-            lines += ["- 查询集按对比分两类，引用 q 值时必须写明属于哪一类："]
+            lines += [t("assembly.query_classes_intro")]
             for item in classes:
-                if item.get("kind", "").startswith("显著集"):
-                    lines.append("  - %s：规则 %s；查询集 n=%s；涉及对比 %s"
-                                 % (item.get("kind"), item.get("rule") or "未记录",
-                                    item.get("query_sizes") or "未记录",
-                                    "、".join(item.get("contrasts") or []) or "未记录"))
+                if item.get("kind", "").startswith(t("assembly.kind_significant_set")):
+                    lines.append(t("assembly.ora_class_significant_line")
+                                 % (item.get("kind"), item.get("rule") or t("assembly.not_recorded"),
+                                    item.get("query_sizes") or t("assembly.not_recorded"),
+                                    "、".join(item.get("contrasts") or []) or t("assembly.not_recorded")))
                 else:
-                    lines.append("  - %s：该对比显著集为 %s 个蛋白；兜底查询集 n=%s；涉及对比 %s"
-                                 % (item.get("kind"), item.get("significant_set_sizes") or "未记录",
-                                    item.get("query_sizes") or "未记录",
-                                    "、".join(item.get("contrasts") or []) or "未记录"))
-            lines += ["", "- 不得把某一对比的显著蛋白数写成整个数据集的数字；两类查询集的 q 值不可直接比较。",
+                    lines.append(t("assembly.ora_class_fallback_line")
+                                 % (item.get("kind"), item.get("significant_set_sizes") or t("assembly.not_recorded"),
+                                    item.get("query_sizes") or t("assembly.not_recorded"),
+                                    "、".join(item.get("contrasts") or []) or t("assembly.not_recorded")))
+            lines += ["", t("assembly.query_scope_warning"),
                       ""]
         elif ora.get("query_rule"):
-            lines += ["- 查询集定义：%s" % ora.get("query_rule"), ""]
+            lines += [t("assembly.query_definition_line") % ora.get("query_rule"), ""]
         if ora.get("best"):
-            lines += ["- 下表按 q(BH) 升序列出前 %d 条；被检验条目共 %s 条，其余条目未列出"
-                      "（未列出不等于没有结果）。" % (len(ora["best"]), ora.get("tested")), ""]
-            lines += ["| 库 | 通路 | 命中 | 查询集 | p | q(BH) |", "|---|---|---:|---:|---:|---:|"]
+            lines += [t("assembly.ora_best_cap") % (len(ora["best"]), ora.get("tested")), ""]
+            lines += [t("assembly.header_ora_best"), "|---|---|---:|---:|---:|---:|"]
             for row in ora["best"]:
                 lines.append("| %s | %s | %s | %s | %s | %s |" % (
                     row.get("namespace"), row.get("term"), row.get("hits"), row.get("query_size"),
                     row.get("p"), row.get("q")))
             lines.append("")
         for note in ora.get("skipped_notes") or []:
-            lines.append("- 未执行的检验：%s" % note)
+            lines.append(t("assembly.skipped_test_line") % note)
         lines.append("")
     else:
-        lines += ["### 正式富集检验（超几何）", "", "本轮未产出（状态：未计算）。", ""]
+        lines += [t("assembly.heading_ora_hypergeometric"), "", t("assembly.not_computed_line"), ""]
     dose = data.get("dose") or {}
     if dose:
-        lines += ["### 剂量趋势（Spearman，已计算）", "",
-                  "- 模块级 %s 行、蛋白级 %s 行；蛋白级在 q≤0.05 下呈单调趋势 %s 个；最小 q=%s"
+        lines += [t("assembly.heading_dose_trend_computed"), "",
+                  t("assembly.dose_summary_line")
                   % (dose.get("module_rows"), dose.get("protein_rows"),
-                     dose.get("protein_significant"), dose.get("best_q") or "未记录"),
-                  "- 模块级通过 q≤0.05 的条目：%s 条（已计算；0 表示已计算且无模块级显著结果）"
+                     dose.get("protein_significant"), dose.get("best_q") or t("assembly.not_recorded")),
+                  t("assembly.dose_module_significant")
                   % dose.get("module_significant"),
                   ""]
         for note in dose.get("skipped_notes") or []:
-            lines.append("- 未执行的检验：%s" % note)
+            lines.append(t("assembly.skipped_test_line") % note)
         lines.append("")
         if dose.get("modules"):
-            lines += ["- 下表列出模块级前 %d 行；模块级共 %s 行（完整结果见本轮工件的 dose_trend.csv）。"
+            lines += [t("assembly.dose_module_cap")
                       % (len(dose["modules"]), dose.get("module_rows")), ""]
-            lines += ["| 药物 | 分层 | 模块 | 样本数 | ρ | p | q(BH) |", "|---|---|---|---:|---:|---:|---:|"]
+            lines += [t("assembly.header_dose_module"), "|---|---|---|---:|---:|---:|---:|"]
             for row in dose["modules"]:
                 lines.append("| %s | %s | %s | %s | %s | %s | %s |" % (
                     row.get("drug"), row.get("stratum"), row.get("name"), row.get("n"),
@@ -3981,11 +4594,11 @@ def format_request_evidence_index(data: Dict[str, Any]) -> str:
             lines.append("")
     conc = data.get("concordance") or {}
     excl = data.get("exclusion") or {}
-    lines += ["### 对比一致性与候选排除", "",
-              "- 对比一致性：%s（%s 对比较）" % (conc.get("status"), conc.get("pairs")),
-              "- 候选排除轨迹：%s；被记录为未检出的候选：%s"
+    lines += [t("assembly.heading_concordance_and_exclusion"), "",
+              t("assembly.concordance_line") % (conc.get("status"), conc.get("pairs")),
+              t("assembly.exclusion_trace_line")
               % (excl.get("status"), "、".join(excl.get("excluded") or [])
-                 or "无（记录项为分组与实验设计术语，不是蛋白候选）"),
+                 or t("assembly.exclusion_none")),
               ""]
     figures = data.get("figures") or {}
     # R18: the caption list is a merged, numbered view, so state how many caption entries and how many
@@ -3998,39 +4611,36 @@ def format_request_evidence_index(data: Dict[str, Any]) -> str:
         png_count = 0
     if figures.get("count"):
         listed = list(figures.get("titles") or [])
-        merged = "（一个图注条目可能覆盖同一编号段的多张图）" if png_count > figures["count"] else ""
+        merged = t("assembly.figure_caption_merged") if png_count > figures["count"] else ""
         capped = ""
         if figures["count"] > len(listed):
-            capped = "；此处列出前 %d 条，其余 %d 条未列出" % (len(listed),
+            capped = t("assembly.figure_caption_capped_suffix") % (len(listed),
                                                           figures["count"] - len(listed))
-        lines += ["### 图册（报告按「图号 + 标题 + 文字结论」引用）", "",
-                  "- 图注 %s 条%s；visualize_results 下 PNG %s 个%s：%s"
+        lines += [t("assembly.heading_figure_index"), "",
+                  t("assembly.figure_caption_count")
                   % (figures["count"], merged, png_count, capped, "；".join(listed)),
-                  "- 图题中的数字由本运行的报告流水线从本运行工件计算或读取（其中 PCA 解释率来自对 "
-                  "processed_proteins/ProteinQuant_ComBat.csv 的复算：列均值中心化、缺失以蛋白均值填补）。"
-                  "与源表数值冲突时以源表为准，冲突处须标注需核验，不得直接写成已验证事实。",
+                  t("assembly.figure_number_provenance"),
                   ""]
     else:
-        lines += ["### 图册", "", "本轮未产出可引用图件（状态：未计算）。", ""]
+        lines += [t("assembly.heading_figures_plain"), "", t("assembly.not_computed_figures_line"), ""]
     if data.get("not_computed"):
-        lines += ["### 本轮未计算的证据（不得写成已有结果）", ""]
+        lines += [t("assembly.heading_not_computed"), ""]
         lines += ["- %s" % item for item in data["not_computed"]]
         lines.append("")
     if data.get("task_ids"):
         # R21/F4: the request hands over exactly one task id per scientific task, together with the
         # direction that id stands for; aliases stay valid input, but they are not extra tasks.
-        lines += ["### 可用 task_id（每个对比一个；必须逐字使用）", ""]
+        lines += [t("assembly.heading_task_ids"), ""]
         for rec in data.get("contrasts") or []:
             if not rec.get("task_id"):
                 continue
-            lines.append("- %s：对比 %s；正值表示 %s 较高；源差异表 %s%s"
+            lines.append(t("assembly.task_id_line")
                          % (rec.get("task_id"), rec.get("display_contrast"),
-                            rec.get("positive_means") or "第一臂", rec.get("source_contrast") or "未记录",
-                            "（符号与此相反）" if rec.get("inverted") else ""))
+                            rec.get("positive_means") or t("assembly.arm_first"), rec.get("source_contrast") or t("assembly.not_recorded"),
+                            t("assembly.sign_opposite") if rec.get("inverted") else ""))
         aliases = {task: names for task, names in (data.get("task_aliases") or {}).items() if names}
         if aliases:
-            lines += ["", "输入兼容：同一对比的其它写法（%s）会被识别为同一个任务，"
-                          "它们不是额外任务，不得为它们另写小节。"
+            lines += ["", t("assembly.task_alias_note")
                       % "；".join("%s ≡ %s" % (task, "、".join(names))
                                   for task, names in aliases.items())]
         lines.append("")
@@ -4045,7 +4655,6 @@ def request_evidence_block(run: Path) -> str:
 def request_evidence_index_sha(run: Path) -> str:
     data = build_request_evidence_index(Path(run))
     return sha12(json.dumps(data, ensure_ascii=False, sort_keys=True, default=str))
-
 
 # --------------------------------------------------------------------------- free-text conversion
 STRUCTURED_SCHEMA = ("key_summary: [str]; tasks: [{task_id, question, findings, explanation, "
@@ -4187,19 +4796,22 @@ def sections_from_text(text: str) -> Dict[str, Any]:
                                 "extra": [], "source_text": text}
     for block in blocks:
         heading = block["heading"]
+        # Case-folded copy used only for keyword matching, so one rule recognises both the Chinese
+        # and the English heading; lower() leaves a Chinese heading unchanged.
+        heading_key = heading.lower()
         body = "\n".join(block["lines"]).strip()
         if not body and not heading:
             continue
         paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()]
         if not heading:
             sections["extra"].extend(paragraphs)
-        elif ("速览" in heading) or ("结论" in heading and "边界" not in heading):
+        elif (t("assembly.keyword_overview") in heading_key) or (t("assembly.keyword_conclusion") in heading_key and t("assembly.keyword_boundary") not in heading_key):
             sections["key_summary"].extend(paragraphs)
-        elif "边界" in heading or "局限" in heading:
+        elif t("assembly.keyword_boundary") in heading_key or t("assembly.keyword_limitation") in heading_key:
             sections["boundary"].extend(paragraphs)
-        elif "总结" in heading or "推测" in heading or "讨论" in heading:
+        elif t("assembly.keyword_summary") in heading_key or t("assembly.keyword_inference") in heading_key or t("assembly.keyword_discussion") in heading_key:
             sections["summary"].extend(paragraphs)
-        elif "资产" in heading or "附录" in heading or "清单" in heading:
+        elif t("assembly.keyword_asset") in heading_key or t("assembly.keyword_appendix") in heading_key or t("assembly.keyword_index") in heading_key:
             sections["extra"].extend(paragraphs)
         else:
             sections["tasks"].append({"match": heading, "question": [], "findings": paragraphs,
@@ -4225,7 +4837,6 @@ def hash_text_present(report: str, target_sha: str) -> bool:
             return True
     return False
 
-
 # --------------------------------------------------------------------------- content ledger v2
 NUM_TOKEN = re.compile(r"(?<![A-Za-z0-9.])[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?![0-9])")
 SUBJECT_TOKEN = re.compile(r"\b(?:[A-Z][0-9][A-Z0-9]{4,9}|[OPQ][0-9][A-Z0-9]{3}[0-9])\b")
@@ -4235,19 +4846,19 @@ DISPLAY_KEYS_A = ("显示", "display")
 def _direction_label(record: Dict[str, Any], groups) -> str:
     """Internal direction tokens must never reach the report."""
     token = str(record.get("direction_display") or "").strip().lower()
-    first, second = (list(groups or []) + ["A 组", "B 组"])[:2]
+    first, second = (list(groups or []) + [t("assembly.group_a"), t("assembly.group_b")])[:2]
     if token.startswith("up") or "group_a_higher" in token or token in {"higher_in_group_a"}:
-        return "%s 较高" % first
+        return t("assembly.arm_higher") % first
     if token.startswith("down") or "group_b_higher" in token or token in {"lower_in_group_a"}:
-        return "%s 较高" % second
+        return t("assembly.arm_higher") % second
     display = record.get("logFC_display")
     if isinstance(display, (int, float)):
-        return "%s 较高" % (first if display >= 0 else second)
-    return "方向未判定"
+        return t("assembly.arm_higher") % (first if display >= 0 else second)
+    return t("assembly.direction_undetermined")
 DISPLAY_KEYS = ("显示", "display")
 SOURCE_KEYS = ("源表", "源差异表", "source")
 ADJP_KEYS = ("adj.p", "adj.p.val", "fdr", "q值")
-EFFECT_KEYS = ("logfc", "log2fc", "效应量", "δ", "delta")
+EFFECT_KEYS = ("logfc", "log2fc", t("assembly.field_effect_size"), "δ", "delta")
 
 
 def _contrast_id_of(value, index):

@@ -1,0 +1,17 @@
+[SYNTHETIC SOFTWARE DEMO - NOT STUDY DATA]
+
+This is a hand-written synthetic matrix used only to demonstrate the scProteoAgent report
+language option. It is not data from any published study. The matrix holds 24 proteins and
+12 samples, six Control and six Stimulated, and the sample table gives the group and donor.
+
+[Requested analysis]
+1. Run a quality check first: state the number of proteins, the number of samples, the
+   missingness, and the number of samples in each group.
+2. Compare Stimulated with Control and report effect estimates with their statistical
+   evidence (direction, logFC, P.Value, adj.P.Val).
+3. State whether the samples in this dataset should be treated as independent experimental
+   units.
+4. Close with a short interpretation and state the evidence boundaries of this dataset.
+
+No enrichment analysis and no online knowledge lookup are required for this run.
+

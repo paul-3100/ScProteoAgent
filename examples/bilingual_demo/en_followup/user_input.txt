@@ -1,0 +1,13 @@
+[SYNTHETIC SOFTWARE DEMO - NOT STUDY DATA]
+
+This is a follow-up to a previous run on the same synthetic matrix. Reuse the saved analysis
+design and the saved normalized matrix from that run instead of repeating the preprocessing.
+
+[Requested analysis]
+For the three proteins P00007, P00012 and P00019, report for each one:
+1. the per-sample values in both groups and a short description of their distribution;
+2. the effect of Stimulated relative to Control, with its direction and adjusted p value;
+3. the experimental unit that the estimate is based on.
+
+Finish with a short statement of what this comparison can and cannot support.
+

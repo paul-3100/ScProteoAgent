@@ -32,8 +32,8 @@ never invents numbers. ``figures.md`` / ``figures_preview_local.md`` are slimmed
 图号标题 + 嵌图 + 一行指向 ``figures_captions.md`` (render helpers included here so
 ``main_agent.py`` only orchestrates file writing).
 
-The module is stdlib-only (csv/json/os/re/argparse) so it stays importable in any
-environment, including minimal scoring venvs.
+The module depends only on the standard library plus the sibling ``report_language``
+registry, so it stays importable in any environment, including minimal scoring venvs.
 
 Offline sample on an existing run (writes into a preview directory, never touches
 the accepted run):
@@ -54,6 +54,8 @@ import shutil
 import sys
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from report_language import register, t
+
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 CAPTIONS_FILENAME = "figures_captions.md"
 FIGURES_MD_FILENAME = "figures.md"
@@ -62,35 +64,999 @@ ORIGINAL_FIGURE_MAP_REL = os.path.join("docs", "figure_upgrade_20260904", "origi
 
 CATEGORY_ORDER = ("QC", "Sample structure", "Differential evidence", "Mechanism evidence", "Enrichment evidence")
 
-BOUNDARY_MATRIX = (
-    "current_matrix：图中数字由当前定量矩阵直接计算，可在 run 目录内复现。"
-)
-BOUNDARY_ENRICHMENT = (
-    "offline_enrichment：富集条目来自当前矩阵差异蛋白的离线通路注释，支撑机制解释，"
-    "不构成矩阵内的直接测量或因果证据。"
-)
-BOUNDARY_MIXED = (
-    "current_matrix + offline_enrichment：热图数值来自当前矩阵的组均值 row Z-score，"
-    "蛋白集合来自离线富集通路条目。"
-)
-PAPER_REF_FALLBACK = "本图为 Agent 标准分析图，原论文中没有直接对应的面板（映射基线见 original_figure_map 提取记录）。"
+# ---------------------------------------------------------------------------
+# reader-facing text (zh released verbatim, en opt-in)
+# ---------------------------------------------------------------------------
 
-# Chinese titles for plot types when no explicit title is supplied (CLI default mode).
-PLOT_TYPE_TITLES = {
-    "qc_sample_overview": "样本与缺失率 QC",
-    "pca": "PCA 样本结构",
-    "umap": "UMAP 样本结构",
-    "heatmap": "差异蛋白热图",
-    "differential_summary_barplot": "差异蛋白数量概览",
-    "key_protein_overview": "关键蛋白总览",
-    "protein_contrast_bubble": "候选蛋白对比气泡图",
-    "mechanism_top_protein_group_means": "核心蛋白组均值图",
-    "mechanism_enrichment_dotplot": "机制富集 dotplot",
-    "mechanism_dep_overlap_upset": "差异蛋白重叠 UpSet 图",
-    "mechanism_contrast_evidence": "单对比综合证据面板",
-    "enrichment_bubble": "富集气泡图",
-    "mechanism_pathway_gene_heatmap": "通路基因热图",
+# One flat table of (zh, en) templates. The zh column repeats the released literals
+# character for character, so a zh run still renders the same figures_captions.md;
+# the en column is the added language and never falls back to Chinese. Sentences that
+# interpolate a number, a group or a contrast are assembled in code from the fragments
+# below, which is what keeps every registered zh value a literal of the released file.
+_CAPTIONS = {
+    # ---- shared punctuation (the released zh text uses full-width marks) ----
+    "punct_period": ("。", "."),
+    "punct_semicolon": ("；", "; "),
+    "punct_enum": ("、", ", "),
+    "punct_comma": ("，", ", "),
+    "punct_paren_open": ("（", " ("),
+    "punct_paren_close": ("）", ")"),
+
+    # ---- evidence boundaries (the released BOUNDARY_* module strings) ----
+    "boundary_matrix": (
+        "current_matrix：图中数字由当前定量矩阵直接计算，可在 run 目录内复现。",
+        "current_matrix: the numbers in this figure are computed directly from the current "
+        "quantification matrix and can be reproduced inside the run directory.",
+    ),
+    "boundary_enrichment_a": (
+        "offline_enrichment：富集条目来自当前矩阵差异蛋白的离线通路注释，支撑机制解释，",
+        "offline_enrichment: the enrichment terms come from offline pathway annotation of the "
+        "differential proteins in the current matrix and support mechanistic interpretation, ",
+    ),
+    "boundary_enrichment_b": (
+        "不构成矩阵内的直接测量或因果证据。",
+        "but are neither a direct measurement in the matrix nor causal evidence.",
+    ),
+    "boundary_mixed_a": (
+        "current_matrix + offline_enrichment：热图数值来自当前矩阵的组均值 row Z-score，",
+        "current_matrix + offline_enrichment: the heatmap values are group-mean row Z-scores "
+        "from the current matrix, ",
+    ),
+    "boundary_mixed_b": (
+        "蛋白集合来自离线富集通路条目。",
+        "and the protein set comes from an offline enrichment pathway term.",
+    ),
+    "boundary_extension": (
+        "- extension：启发式推测和后续验证建议只作为可检验假设，不进入图注数字。",
+        "- extension: heuristic inference and suggestions for follow-up validation are "
+        "testable hypotheses only and never enter caption numbers.",
+    ),
+    "paper_ref_fallback": (
+        "本图为 Agent 标准分析图，原论文中没有直接对应的面板（映射基线见 original_figure_map 提取记录）。",
+        "This is a standard Agent analysis figure with no directly corresponding panel in the "
+        "original paper (for the mapping baseline see the original_figure_map extraction record).",
+    ),
+    "paper_ref_prefix": ("对应原论文 ", "Corresponding original-paper panels: "),
+
+    # ---- figure titles ----
+    "title_qc_sample_overview": ("样本与缺失率 QC", "Sample and missingness QC"),
+    "title_pca": ("PCA 样本结构", "PCA sample structure"),
+    "title_umap": ("UMAP 样本结构", "UMAP sample structure"),
+    "title_heatmap": ("差异蛋白热图", "Differential protein heatmap"),
+    "title_differential_summary_barplot": (
+        "差异蛋白数量概览",
+        "Overview of differential protein counts",
+    ),
+    "title_key_protein_overview": ("关键蛋白总览", "Key protein overview"),
+    "title_protein_contrast_bubble": (
+        "候选蛋白对比气泡图",
+        "Candidate protein contrast bubble plot",
+    ),
+    "title_mechanism_top_protein_group_means": (
+        "核心蛋白组均值图",
+        "Group mean abundance of core proteins",
+    ),
+    "title_mechanism_enrichment_dotplot": (
+        "机制富集 dotplot",
+        "Mechanism enrichment dot plot",
+    ),
+    "title_mechanism_dep_overlap_upset": (
+        "差异蛋白重叠 UpSet 图",
+        "UpSet plot of overlapping differential proteins",
+    ),
+    "title_mechanism_contrast_evidence": (
+        "单对比综合证据面板",
+        "Integrated evidence panel for a single contrast",
+    ),
+    "title_enrichment_bubble": ("富集气泡图", "Enrichment bubble plot"),
+    "title_mechanism_pathway_gene_heatmap": (
+        "通路基因热图",
+        "Pathway gene heatmap",
+    ),
+    "volcano_title_suffix": (" 火山图", " volcano plot"),
+    "ce_title_suffix": (" 综合证据面板", " integrated evidence panel"),
+    "pathway_heatmap_title_prefix": ("通路基因热图：", "Pathway gene heatmap: "),
+    "enrichment_bubble_title_suffix": ("富集气泡图", " enrichment bubble plot"),
+    "enrichment_bubble_title_fallback_suffix": (" 富集气泡图", " enrichment bubble plot"),
+    "figure_no_prefix": ("图", "Figure "),
+
+    # ---- QC panel names (the drawn panel titles are English, so en reuses them) ----
+    "qc_panel_detected_proteins": (
+        "检出蛋白面板（Detected Proteins Per Sample）",
+        "Detected Proteins Per Sample",
+    ),
+    "qc_panel_missing_rate": (
+        "缺失率面板（Missing Rate By Cluster）",
+        "Missing Rate By Cluster",
+    ),
+    "qc_panel_sample_counts": (
+        "样本数面板（Sample Count By Cluster）",
+        "Sample Count By Cluster",
+    ),
+    "qc_panel_sample_correlation": (
+        "相关性面板（Sample Correlation）",
+        "Sample Correlation",
+    ),
+
+    # ---- small shared labels ----
+    "unnamed_group": ("未命名分组", "Unnamed group"),
+    "group_col_default": ("分组", "group"),
+    "group_a_default": ("A 组", "group A"),
+    "group_b_default": ("B 组", "group B"),
+    "not_recorded": ("未记录", "not recorded"),
+    "not_recorded_info": (
+        "figure_manifest 未记录该信息。",
+        "figure_manifest does not record this information.",
+    ),
+    "no_threshold_recorded": (
+        "figure_manifest 未记录该图阈值",
+        "figure_manifest records no threshold for this figure",
+    ),
+    "fdr_correction_suffix": (" 校正）", " correction)"),
+    "relative_to": (" 相对 ", " versus "),
+    "direction_upregulated": ("上调", "up-regulated"),
+    "direction_downregulated": ("下调", "down-regulated"),
+    "direction_default": ("对应方向", "the matching direction"),
+    "contrast_default": ("对应对比", "the matching contrast"),
+
+    # ---- sample size / threshold / paper reference / focus genes ----
+    "sample_missing": (
+        "样本量：run 内缺少 group_composition_qc.csv，未记录分组样本数（可在 evaluation_evidence 目录核对）。",
+        "Sample size: group_composition_qc.csv is missing from the run, so per-group sample "
+        "counts were not recorded (check the evaluation_evidence directory).",
+    ),
+    "sample_size_prefix": ("样本量：N=", "Sample size: N = "),
+    "sample_group_col": ("分组列 ", "grouping column: "),
+    "mean_detected_prefix": ("平均每样本检出 ", "mean detected proteins per sample: "),
+    "mean_missing_prefix": ("平均缺失率 ", "mean missing rate: "),
+    "protein_count_suffix": (" 个蛋白", " proteins"),
+    "threshold_label": ("显著性阈值：", "Significance thresholds: "),
+    "threshold_not_recorded": (
+        "显著性阈值：figure_manifest 未记录该图阈值（差异分析默认口径见文档总览）。",
+        "Significance thresholds: figure_manifest records no threshold for this figure "
+        "(see the documentation overview for the differential-analysis defaults).",
+    ),
+    "focus_genes_prefix": ("报告 focus 基因（", "Report focus genes ("),
+    "focus_genes_more": ("等", " and others"),
+    "focus_genes_suffix": ("）可在图中对照追踪。", ") can be traced in the figure."),
+
+    # ---- QC caption ----
+    "qc_interp_base": (
+        "QC 面板给出后续所有差异与模块分析的样本基础",
+        "The QC panels define the sample basis for every later differential and module analysis",
+    ),
+    "qc_total_prefix": ("共 ", "a total of "),
+    "qc_total_suffix": (" 个样本（", " samples ("),
+    "qc_unannotated_prefix": ("另有 ", "a further "),
+    "qc_unannotated_suffix": (
+        " 个样本缺少分组注释，图中统一显示为 Unannotated",
+        " samples lack a group annotation and are shown as Unannotated in the figure",
+    ),
+    "qc_large_n_note": (
+        "样本量超过 600 时检出蛋白面板自动切换为排序折线（附 Q1/中位数/Q3 分位参考线），缺失率散点按固定随机种子抽样",
+        "above 600 samples the detected-protein panel switches to a sorted line plot (with "
+        "Q1/median/Q3 reference lines) and the missing-rate points are subsampled with a "
+        "fixed random seed",
+    ),
+    "qc_panel_detected_line": (
+        "检出蛋白面板（Detected Proteins Per Sample）：每个样本一根柱，柱高为该样本检出蛋白数。",
+        "Detected proteins panel (Detected Proteins Per Sample): one bar per sample, its "
+        "height being the number of proteins detected in that sample.",
+    ),
+    "qc_panel_detected_line_large": (
+        "检出蛋白面板（Detected Proteins Per Sample）：样本按检出蛋白数排序绘制折线，标注 Q1/中位数/Q3 分位参考线与四分位带（样本量较大时替代逐样本柱状图）。",
+        "Detected proteins panel (Detected Proteins Per Sample): samples are drawn as a "
+        "line plot sorted by detected-protein count, with Q1/median/Q3 reference lines and "
+        "an interquartile band (replaces the per-sample bar chart at large sample sizes).",
+    ),
+    "qc_panel_missing_line": (
+        "缺失率面板（Missing Rate By Cluster）：按分组汇总的平均缺失率。",
+        "Missing rate panel (Missing Rate By Cluster): mean missingness summarised by group.",
+    ),
+    "qc_panel_missing_line_large": (
+        "缺失率面板（Missing Rate By Cluster）：按分组汇总的缺失率箱线图，叠加样本散点（样本量较大时散点按固定随机种子抽样，控制图形密度）。",
+        "Missing rate panel (Missing Rate By Cluster): boxplots of missingness summarised by "
+        "group with the sample points overlaid (at large sample sizes the points are "
+        "subsampled with a fixed random seed to control the density).",
+    ),
+    "qc_panel_counts_line": (
+        "样本数面板（Sample Count By Cluster）：各分组样本数。",
+        "Sample count panel (Sample Count By Cluster): number of samples in each group.",
+    ),
+    "qc_panel_correlation_line": (
+        "相关性面板（Sample Correlation）：样本两两 Spearman 相关系数热图，颜色范围 -1 至 1。",
+        "Sample correlation panel (Sample Correlation): heatmap of pairwise Spearman "
+        "correlations between samples, colour scale from -1 to 1.",
+    ),
+    "panel_omitted_prefix": ("面板省略说明：", "Omitted panels: "),
+    "panel_omitted_suffix_qc": (
+        " 因无匹配数据未绘制，不使用占位图。",
+        " were not drawn because no matching data were available; no placeholder panel is used.",
+    ),
+    "qc_reading_a": (
+        "各面板依次回答：每个样本测到多少蛋白、缺失了多少、分组是否均衡、样本间重复性如何；",
+        "The panels answer, in turn, how many proteins each sample yielded, how much is "
+        "missing, whether the groups are balanced and how reproducible the samples are; ",
+    ),
+    "qc_reading_b": (
+        "相关系数越接近 1，两个样本的蛋白图谱越一致。",
+        "the closer the correlation is to 1, the more similar the protein profiles of two samples.",
+    ),
+    "qc_threshold_note": (
+        "统计性质：描述性 QC 汇总，不设显著性阈值。",
+        "Statistical nature: a descriptive QC summary; no significance threshold applies.",
+    ),
+    "qc_statistics": (
+        "描述性统计；相关性面板使用 Spearman 相关系数。",
+        "Descriptive statistics; the correlation panel uses Spearman correlation coefficients.",
+    ),
+
+    # ---- PCA caption ----
+    "pca_interp_prefix": (
+        "PCA 展示 ",
+        "PCA shows the overall separation and dispersion along ",
+    ),
+    "pca_interp_suffix": (
+        " 维度的整体分离与离散程度，为后续各对比差异方向提供矩阵内结构参照。",
+        ", providing an in-matrix structural reference for the direction of the differences "
+        "tested later.",
+    ),
+    "claim_prefix": ("结合主结论「", "Read it together with the main claim, “"),
+    "claim_suffix": ("」阅读。", "”."),
+    "pca_panel_scatter": (
+        "PCA 散点：每个点为一个样本，横轴 PC1、纵轴 PC2，轴标签附各主成分解释方差百分比。",
+        "PCA scatter: one point per sample, PC1 on the x axis and PC2 on the y axis, with "
+        "the explained-variance percentage of each component appended to the axis labels.",
+    ),
+    "pca_panel_groups": (
+        "分组中心与椭圆：同组样本的中心位置与离散范围（按组着色）。",
+        "Group centres and ellipses: centre and spread of the samples of each group, coloured by group.",
+    ),
+    "pca_reading_a": (
+        "点间距离越近表示两个样本的蛋白丰度总模式越相似；颜色对应 ",
+        "The closer two points lie, the more similar the overall protein abundance profiles "
+        "of the two samples; colour encodes the ",
+    ),
+    "pca_reading_b": (
+        " 分组；同组椭圆与异组椭圆重叠越少，组间整体分离越明显。",
+        " grouping; the less the ellipses of one group overlap those of the other groups, the "
+        "clearer the overall separation between groups.",
+    ),
+    "pca_threshold_note": (
+        "降维设置：基于当前矩阵蛋白丰度的方差结构，不设显著性阈值。",
+        "Dimensionality-reduction settings: based on the variance structure of protein "
+        "abundance in the current matrix; no significance threshold applies.",
+    ),
+    "pca_statistics": (
+        "描述性降维（PCA），不涉及假设检验；PC1/PC2 解释方差比例标注于轴标签。",
+        "Descriptive dimensionality reduction (PCA) without hypothesis testing; the "
+        "explained-variance fractions of PC1/PC2 are annotated on the axis labels.",
+    ),
+
+    # ---- UMAP caption ----
+    "umap_interp_prefix": (
+        "UMAP 展示 ",
+        "UMAP shows the neighbourhood structure of the samples across ",
+    ),
+    "umap_interp_suffix": (
+        " 维度样本的邻域结构，可与 PCA 互为对照判断分组结构是否稳健。",
+        ", giving a cross-check against PCA for whether the grouping structure is robust.",
+    ),
+    "umap_panel_scatter": (
+        "UMAP 散点：每个点为一个样本，横轴 UMAP 1、纵轴 UMAP 2，按组着色并附图例。",
+        "UMAP scatter: one point per sample, UMAP 1 on the x axis and UMAP 2 on the y axis, "
+        "coloured by group with a legend.",
+    ),
+    "umap_reading_a": (
+        "相邻点表示蛋白丰度模式相似的样本；颜色对应 ",
+        "Neighbouring points are samples with similar protein abundance profiles; colour "
+        "encodes the ",
+    ),
+    "umap_reading_b": (
+        " 分组；UMAP 保留局部邻域结构，同组点的聚集比全局距离更可比较。",
+        " grouping; UMAP preserves local neighbourhood structure, so the clustering of "
+        "points within a group is more comparable than absolute distances.",
+    ),
+    "umap_threshold_note": (
+        "降维设置：基于当前矩阵蛋白丰度的邻域结构，不设显著性阈值。",
+        "Dimensionality-reduction settings: based on the neighbourhood structure of protein "
+        "abundance in the current matrix; no significance threshold applies.",
+    ),
+    "umap_statistics": (
+        "描述性降维（UMAP），不涉及假设检验。",
+        "Descriptive dimensionality reduction (UMAP) without hypothesis testing.",
+    ),
+
+    # ---- differential protein heatmap ----
+    "heatmap_scale_top_prefix": ("行数为按信息量挑选的 top ", "rows are the top "),
+    "heatmap_scale_top_suffix": (
+        " 个蛋白",
+        " proteins selected by information content",
+    ),
+    "heatmap_scale_all": (
+        "行数为信息量最高的差异蛋白",
+        "rows are the differential proteins with the highest information content",
+    ),
+    "heatmap_panel_prefix": ("聚类热图：", "Clustered heatmap: "),
+    "heatmap_panel_mid": ("，列为样本（按 ", "; columns are samples, grouped by the "),
+    "heatmap_panel_suffix": (" 分组并附列颜色条）。", " grouping, with a column colour bar."),
+    "heatmap_panel_colorbar": (
+        "颜色条：Row Z-score（按蛋白行标准化后的丰度）。",
+        "Colour bar: row Z-score (abundance standardised within each protein row).",
+    ),
+    "heatmap_reading_a": (
+        "红色表示该蛋白在对应样本中丰度高于其跨样本平均水平，蓝色表示低于；",
+        "Red marks a protein that is more abundant in that sample than its cross-sample "
+        "average and blue less abundant; ",
+    ),
+    "heatmap_reading_b": (
+        "列的聚类与颜色条可同时反映分组结构是否在差异蛋白上重现。",
+        "the column clustering and the colour bar together show whether the group structure "
+        "is reproduced among the differential proteins.",
+    ),
+    "heatmap_statistics": (
+        "展示层为 row Z-score（按蛋白行标准化），不涉及组间假设检验。",
+        "The display layer is a row Z-score (standardised within each protein row); no "
+        "between-group hypothesis test is performed.",
+    ),
+    "heatmap_interp_prefix": ("top 差异蛋白在 ", "Abundance structure of the top differential proteins across the "),
+    "heatmap_interp_mid": (
+        " 分组上的丰度结构；行方向（蛋白）与列方向（样本）的聚集",
+        " grouping; the clustering along rows (proteins) and columns (samples) ",
+    ),
+    "heatmap_interp_tail": (
+        "一起说明组间差异是否一致、是否存在混杂亚群。",
+        "together indicates whether the between-group differences are consistent and whether "
+        "a confounding subpopulation is present.",
+    ),
+
+    # ---- volcano caption ----
+    "volcano_count_missing": (
+        "该对比的上下调计数在 figure_manifest 与 core_story_evidence.csv 中均未记录，以图内图例计数为准。",
+        "The up/down counts of this contrast are recorded neither in figure_manifest nor in "
+        "core_story_evidence.csv; the counts in the figure legend are authoritative.",
+    ),
+    "count_sig_prefix": ("显著差异蛋白 ", "Significant differential proteins: "),
+    "count_sig_paren": (" 个（", " ("),
+    "count_source_close": ("）：", "): "),
+    "count_up_label": ("上调 ", "up "),
+    "count_down_label": ("、下调 ", ", down "),
+    "count_direction_prefix": ("（方向为 ", " (direction: "),
+    "count_direction_close": ("）。", ")."),
+    "interp_total_prefix": (" 共 ", ": "),
+    "interp_count_open": (" 个显著差异蛋白（上调 ", " significant differential proteins ("),
+    "interp_count_down": (" / 下调 ", " up / "),
+    "interp_count_close": ("）", " down)"),
+    "interp_up_genes_prefix": ("上调端代表蛋白：", "Representative up-regulated proteins: "),
+    "interp_down_genes_prefix": ("下调端代表蛋白：", "Representative down-regulated proteins: "),
+    "interp_direction_fallback": (
+        "方向与显著性以图内散点和阈值参考线为准",
+        "Direction and significance follow the points and the threshold reference lines in the figure",
+    ),
+    "volcano_panel_points_a": (
+        "散点：每个点为一个蛋白，横轴 log2 Fold Change（",
+        "Points: one point per protein, log2 fold change on the x axis (",
+    ),
+    "volcano_panel_points_b": (
+        "），纵轴 -log10(adj.P.Val)。",
+        ") and -log10(adj.P.Val) on the y axis.",
+    ),
+    "volcano_panel_thresholds": (
+        "阈值参考线：两条竖虚线为 |log2FC| 阈值，一条横虚线为 adj.P.Val 阈值。",
+        "Threshold reference lines: the two vertical dashed lines mark the |log2FC| threshold "
+        "and the horizontal dashed line the adj.P.Val threshold.",
+    ),
+    "volcano_panel_colors": (
+        "配色：红色 Upregulated、蓝色 Downregulated、灰色 Not significant，图例附各类计数。",
+        "Colours: red for Upregulated, blue for Downregulated and grey for Not significant, "
+        "with the count of each class in the legend.",
+    ),
+    "volcano_panel_labels": (
+        "基因标注：每侧标注效应量×显著性评分最高的基因名（adjust_text 防重叠）。",
+        "Gene labels: each side carries the genes with the highest effect-size score times "
+        "significance (adjust_text prevents overlap).",
+    ),
+    "volcano_reading_a": (
+        "右上（红色）为 ",
+        "The upper right (red) holds the proteins increased in ",
+    ),
+    "volcano_reading_b": (
+        " 中升高的蛋白，左上（蓝色）为 ",
+        "; the upper left (blue) holds the proteins decreased in ",
+    ),
+    "volcano_reading_c": (" 中降低的蛋白；", ". "),
+    "volcano_reading_d": (
+        "点越靠上校正后越显著，越靠右/左效应量越大；灰色点不进入候选与富集分析。",
+        "The higher a point, the more significant it is after correction, and the further "
+        "right or left, the larger its effect size; grey points enter neither candidate "
+        "selection nor enrichment analysis.",
+    ),
+    "volcano_statistics_prefix": (
+        "limma 线性模型双侧检验；多重校正 ",
+        "Two-sided tests from the limma linear model; multiple-testing correction: ",
+    ),
+    "volcano_statistics_suffix": (
+        "（adj.P.Val）；效应量为 log2 fold change。",
+        " (adj.P.Val); the effect size is the log2 fold change.",
+    ),
+
+    # ---- differential-count bar chart ----
+    "bar_count_label": (
+        "各对比计数（方向为对比名中 A 组相对 B 组）：",
+        "Counts per contrast (direction: the first group in the contrast name relative to the second): ",
+    ),
+    "bar_count_up": (" 上调 ", ": up "),
+    "bar_count_down": (" / 下调 ", " / down "),
+    "bar_count_missing": (
+        "各对比计数见图中柱上标注数字（figure_manifest 未记录计数元数据）。",
+        "Counts per contrast are given by the numbers annotated on the bars "
+        "(figure_manifest records no count metadata).",
+    ),
+    "bar_interp_base": (
+        "汇总各对比通过阈值的差异数规模",
+        "Scale of the differential counts that pass the thresholds in each contrast",
+    ),
+    "bar_interp_biggest_prefix": (
+        "；差异规模最大的对比为 ",
+        "; the contrast with the largest differential count is ",
+    ),
+    "bar_interp_biggest_mid": ("（", " ("),
+    "bar_interp_biggest_suffix": (" 个显著差异蛋白）", " significant differential proteins)"),
+    "bar_interp_tail": (
+        "，规模差异提示主对比与对照间对比的信号强度不同。",
+        ", indicating that signal strength differs between the primary contrast and the comparators.",
+    ),
+    "bar_panel_bars": (
+        "柱状图：每个对比两根柱，红色 Up（上调蛋白数，向上）、蓝色 Down（下调蛋白数，向下）。",
+        "Bar chart: two bars per contrast, red Up (number of up-regulated proteins, drawn "
+        "upwards) and blue Down (number of down-regulated proteins, drawn downwards).",
+    ),
+    "bar_panel_labels": (
+        "数字标注：柱端标出各方向的确切计数。",
+        "Numeric labels: the exact count of each direction is printed at the end of its bar.",
+    ),
+    "bar_reading_a": (
+        "柱长为该对比同时满足 adj.P.Val 与 |log2FC| 阈值的蛋白数；向上为对比名中 A 组升高、",
+        "Bar length is the number of proteins in that contrast passing both the adj.P.Val and "
+        "the |log2FC| threshold; bars pointing up are proteins higher in the first group "
+        "named in the contrast and ",
+    ),
+    "bar_reading_b": (
+        "向下为 A 组降低；上下规模不对称时说明方向性偏移。",
+        "bars pointing down are those lower in it; an asymmetry between the two indicates a "
+        "directional shift.",
+    ),
+    "bar_threshold_prefix": ("计数口径：adj.P.Val < ", "Count definition: adj.P.Val < "),
+    "bar_threshold_mid": (" 且 |log2FC| ≥ ", " and |log2FC| ≥ "),
+    "bar_threshold_missing": (
+        "计数口径：figure_manifest 未记录该图阈值（差异分析默认口径见文档总览）。",
+        "Count definition: figure_manifest records no threshold for this figure (see the "
+        "documentation overview for the differential-analysis defaults).",
+    ),
+    "bar_statistics_prefix": (
+        "各对比先经 limma 双侧检验 + ",
+        "Each contrast is first tested with the two-sided limma test and corrected by ",
+    ),
+    "bar_statistics_suffix": (
+        " 校正，再计数；本图本身不执行新的检验。",
+        " before the counts are taken; this figure performs no new test itself.",
+    ),
+
+    # ---- key protein overview ----
+    "select_label": ("筛选口径：", "Selection: "),
+    "per_contrast_top_prefix": ("；每对比取评分 top ", "; top "),
+    "per_contrast_top_suffix": (" 个蛋白", " proteins per contrast by score"),
+    "key_protein_interp": (
+        "并排查看各对比显著蛋白的方向与强度：红色 Up、蓝色 Down 两类点分别对应 A 组升高与降低。",
+        "Side-by-side view of the direction and strength of the significant proteins of every "
+        "contrast: red Up and blue Down points mark proteins that are higher and lower in the "
+        "first group of each contrast.",
+    ),
+    "key_panel_points": (
+        "散点：横轴为对比（Contrast，按评分排序），纵轴 log2 Fold Change；红色 Up、蓝色 Down。",
+        "Points: contrasts on the x axis (Contrast, ordered by score) and log2 fold change on "
+        "the y axis; red Up and blue Down.",
+    ),
+    "key_panel_size": (
+        "点大小：-log10(adj.P.Val)，越显著点越大；深灰横线为该对比 log2FC 的中位数。",
+        "Point size: -log10(adj.P.Val), the more significant the larger; the dark grey "
+        "horizontal line is the median log2FC of that contrast.",
+    ),
+    "key_panel_labels": (
+        "基因标注：每对比标注评分最高的若干基因名。",
+        "Gene labels: each contrast is labelled with its highest-scoring genes.",
+    ),
+    "key_reading_a": (
+        "同一对比内，点越高表示该蛋白在 A 组升高越多（Down 相反）；不同对比的横轴位置不可横向比较，",
+        "Within one contrast, a higher point means the protein is more strongly increased in "
+        "the first group (the reverse for Down); x-axis positions of different contrasts are "
+        "not comparable, so ",
+    ),
+    "key_reading_b": (
+        "应以纵轴 log2FC 数值与点大小为准。",
+        "read the y-axis log2FC value and the point size instead.",
+    ),
+    "limma_stats_prefix": (
+        "log2FC 与 adj.P.Val 来自 limma 双侧检验（",
+        "log2FC and adj.P.Val come from the two-sided limma test (",
+    ),
+
+    # ---- candidate protein contrast bubble plot ----
+    "per_contrast_take_prefix": ("每对比取评分 top ", "top "),
+    "per_contrast_take_suffix": (" 个蛋白", " proteins per contrast by score"),
+    "max_proteins_prefix": ("最多展示 ", "at most "),
+    "max_proteins_suffix": (" 个蛋白", " proteins shown"),
+    "bubble_interp_a": (
+        "跨对比并排比较候选蛋白：颜色一致（同为红/蓝）说明方向在对比间稳定，颜色翻转说明方向相反，",
+        "Candidate proteins compared side by side across contrasts: an identical colour (red or "
+        "blue in both) means a stable direction and a flipped colour the opposite direction, "
+        "while ",
+    ),
+    "bubble_interp_b": (
+        "空白表示该蛋白未进入该对比的 top 集合。",
+        "a blank cell means the protein did not enter the top set of that contrast.",
+    ),
+    "bubble_panel_axes": (
+        "气泡图：横轴为对比（Contrast），纵轴为关键蛋白（Key protein）。",
+        "Bubble plot: contrasts on the x axis (Contrast) and key proteins on the y axis (Key protein).",
+    ),
+    "bubble_panel_color": (
+        "颜色通道：log2 Fold Change，红正蓝负，色标以 0 为中心对称。",
+        "Colour channel: log2 fold change, red positive and blue negative, with the colour "
+        "scale centred symmetrically on 0.",
+    ),
+    "bubble_panel_size": (
+        "大小通道：-log10(adj.P.Val)，越显著气泡越大。",
+        "Size channel: -log10(adj.P.Val), the more significant the larger the bubble.",
+    ),
+    "bubble_reading_a": (
+        "横向读一个蛋白跨对比的方向与显著性变化；纵向读一个对比内候选蛋白的组成；",
+        "Read horizontally for the change in direction and significance of one protein across "
+        "contrasts and vertically for the composition of candidate proteins within one "
+        "contrast; ",
+    ),
+    "bubble_reading_b": (
+        "颜色深浅与气泡大小要同时读，避免只按显著性排序。",
+        "colour intensity and bubble size should be read together rather than ranking on "
+        "significance alone.",
+    ),
+
+    # ---- group mean abundance of core proteins ----
+    "module_cross_prefix": (
+        "可与 curated module（",
+        "can be cross-checked against the group means of the curated module (",
+    ),
+    "module_cross_mid": (" 个匹配基因，", " matched genes, "),
+    "module_cross_tail": (
+        "见 evaluation_evidence/curated_module_group_summary.csv）的分组均分交叉验证",
+        "see evaluation_evidence/curated_module_group_summary.csv)",
+    ),
+    "module_cross_plain": (
+        "可与 evaluation_evidence/curated_module_group_summary.csv 的分组均分交叉验证",
+        "can be cross-checked against the group means in "
+        "evaluation_evidence/curated_module_group_summary.csv",
+    ),
+    "top_means_scale_a": ("各对比 adj.P.Val < ", "across contrasts, adj.P.Val < "),
+    "top_means_scale_b": (" 的 top ", " selects the top "),
+    "top_means_scale_c": (" 差异蛋白", " differential proteins"),
+    "top_means_scale_all": ("各对比 top 差异蛋白", "the top differential proteins of each contrast"),
+    "protein_set_label": ("蛋白集合：", "Protein set: "),
+    "top_means_panel_left_prefix": (
+        "左面板 Group Mean Abundance：",
+        "Left panel, Group Mean Abundance: ",
+    ),
+    "top_means_panel_left_mid": (
+        "在各 ",
+        "; the panel shows their mean row Z-score in each ",
+    ),
+    "top_means_panel_left_suffix": (
+        " 分组的平均 row Z-score（颜色 -2.5 至 2.5）。",
+        " group (colour scale -2.5 to 2.5).",
+    ),
+    "top_means_panel_right": (
+        "右面板 Detection Rate：同组蛋白在各分组的检出率（0-100%）。",
+        "Right panel, Detection Rate: detection rate of the same proteins in each group (0-100%).",
+    ),
+    "top_means_reading_a": (
+        "左图颜色越红表示该蛋白在该分组平均丰度越高；右图检出率越低，左图均值受缺失模式的影响越大，",
+        "The redder the colour in the left panel, the higher the mean abundance of that protein "
+        "in that group; the lower the detection rate in the right panel, the more the left-panel "
+        "mean is influenced by the missingness pattern, so ",
+    ),
+    "top_means_reading_b": ("两个面板应同时读取。", "the two panels should be read together."),
+    "top_means_statistics": (
+        "展示层为按蛋白行标准化的组均值 row Z-score 与检出率，不执行新的组间检验；组间差异方向以各对比火山图为准。",
+        "The display layer is the group-mean row Z-score standardised within each protein row "
+        "together with the detection rate, and no new between-group test is performed; the "
+        "direction of between-group differences follows the volcano plot of each contrast.",
+    ),
+    "top_means_interp_prefix": (
+        "候选蛋白按 ",
+        "Direction of the mean abundance of the candidate proteins across the ",
+    ),
+    "top_means_interp_mid": (
+        " 分组的平均丰度方向与检出可靠性；",
+        " grouping and the reliability of their detection; ",
+    ),
+
+    # ---- mechanism enrichment dot plot ----
+    "db_fallback": (
+        "GO/KEGG/Reactome（以 figure_manifest 记录的输入为准）",
+        "GO/KEGG/Reactome (as recorded in the figure_manifest inputs)",
+    ),
+    "dotplot_scale_prefix": ("每个 namespace×对比×方向取 p.adjust 最小的 top ", "the top "),
+    "dotplot_scale_suffix": (" 条目", " terms by smallest p.adjust per namespace × contrast × direction"),
+    "dotplot_scale_all": (
+        "每个 namespace×对比×方向取 p.adjust 最小的 top 条目",
+        "the terms with the smallest p.adjust per namespace × contrast × direction",
+    ),
+    "term_scale_label": ("条目规模：", "Term selection: "),
+    "input_db_label": ("输入数据库：", "Input databases: "),
+    "dotplot_panel_points": (
+        "点图：横轴为对比×方向（Contrast and direction，Up/Down 分列），纵轴为通路条目（namespace: Description）。",
+        "Dot plot: contrast × direction on the x axis (Contrast and direction, with Up and "
+        "Down in separate columns) and pathway terms on the y axis (namespace: Description).",
+    ),
+    "dotplot_panel_size": (
+        "点大小：Count，即该通路内检出的差异数。",
+        "Point size: Count, the number of differential proteins detected in that term.",
+    ),
+    "dotplot_panel_color": (
+        "颜色通道：-log10(FDR)（p.adjust），值越大颜色越亮、校正后越显著。",
+        "Colour channel: -log10(FDR) (p.adjust); a larger value is brighter and more "
+        "significant after correction.",
+    ),
+    "dotplot_reading_a": (
+        "同一通路条目在 Up 与 Down 列同时出现时，可比较其在两个方向的富集强度；",
+        "When the same term appears in both the Up and the Down column, its enrichment "
+        "strength in the two directions can be compared; ",
+    ),
+    "dotplot_reading_b": (
+        "优先阅读 Count 较大且 -log10(FDR) 较高的条目，避免只按单一指标排序。",
+        "prioritise terms with a larger Count and a higher -log10(FDR) rather than ranking on "
+        "a single measure.",
+    ),
+    "dotplot_statistics": (
+        "超几何富集检验（over-representation analysis），BH 校正后报告 p.adjust；点大小为通路内检出差异数（Count）。",
+        "Hypergeometric over-representation analysis with p.adjust reported after BH "
+        "correction; the point size is the number of differential proteins detected in the "
+        "term (Count).",
+    ),
+    "dotplot_interp_a": (
+        "汇总当前矩阵差异蛋白的离线富集证据；条目方向应与对应对比的火山图方向一致阅读，",
+        "Summary of the offline enrichment evidence for the differential proteins of the "
+        "current matrix; the direction of a term should be read together with the direction "
+        "of the matching contrast in its volcano plot, and ",
+    ),
+    "dotplot_interp_b": (
+        "富集结果不改变矩阵内差异蛋白本身的方向与计数。",
+        "enrichment does not change the direction or the count of the differential proteins "
+        "in the matrix itself.",
+    ),
+
+    # ---- enrichment bubble plot ----
+    "bubble_scale_prefix": ("每个对比方向取 p.adjust 最小的 top ", "the top "),
+    "bubble_scale_suffix": (" 条目", " terms by smallest p.adjust per contrast and direction"),
+    "bubble_scale_all": (
+        "每个对比方向取 p.adjust 最小的 top 条目",
+        "the terms with the smallest p.adjust per contrast and direction",
+    ),
+    "source_file_label": ("来源文件：", "Source file: "),
+    "source_file_missing": (
+        "来源文件：figure_manifest 未记录",
+        "Source file: not recorded in figure_manifest",
+    ),
+    "enrich_bubble_panel_axes": (
+        "气泡图：横轴 Rich Factor（通路内检出基因数 / 通路注释基因总数），纵轴为通路条目。",
+        "Bubble plot: Rich Factor on the x axis (genes detected in the term / genes annotated "
+        "to the term) and pathway terms on the y axis.",
+    ),
+    "enrich_bubble_panel_size": (
+        "点大小：Count（通路内检出的差异数）。",
+        "Point size: Count (the number of differential proteins detected in the term).",
+    ),
+    "enrich_bubble_panel_color": (
+        "颜色通道：-log10(adjusted p-value)。",
+        "Colour channel: -log10(adjusted p-value).",
+    ),
+    "enrich_bubble_reading_a": (
+        "越靠右表示该通路在差异蛋白中的占比越高；点越大表示检出差异数越多；",
+        "Further right means a larger share of that pathway among the differential proteins "
+        "and a larger point more differential proteins detected; ",
+    ),
+    "enrich_bubble_reading_b": (
+        "Rich Factor 与 Count 应同时读取，避免高占比但检出数极少的条目被过度解读。",
+        "Rich Factor and Count should be read together so that a term with a high share but "
+        "very few detected proteins is not over-interpreted.",
+    ),
+    "enrich_bubble_statistics": (
+        "超几何富集检验（over-representation analysis），BH 校正后报告 p.adjust。",
+        "Hypergeometric over-representation analysis with p.adjust reported after BH correction.",
+    ),
+    "enrich_bubble_interp_prefix": ("来自 ", "Differential protein set from "),
+    "enrich_bubble_interp_mid": (" 的 ", " for "),
+    "enrich_bubble_interp_tail": ("差异蛋白集；", " differential protein set; "),
+    "enrich_bubble_interp_tail2": (
+        "解释机制方向时应与对应火山图的上下调方向一致阅读。",
+        "the mechanistic direction should be read together with the up/down direction of the "
+        "matching volcano plot.",
+    ),
+
+    # ---- pathway gene heatmap ----
+    "pathway_panel_prefix": ("热图：行为通路「", "Heatmap: rows are the genes of the pathway “"),
+    "pathway_panel_mid": (
+        "」匹配到当前矩阵的基因（Matched pathway genes），列为 ",
+        "” that map to the current matrix (Matched pathway genes); the columns are the ",
+    ),
+    "pathway_panel_suffix": (" 分组。", " groups."),
+    "pathway_panel_color": (
+        "颜色通道：组均值 row Z-score（-2.5 至 2.5），红色为该组平均丰度较高、蓝色较低。",
+        "Colour channel: group-mean row Z-score (-2.5 to 2.5), red for a higher mean "
+        "abundance in that group and blue for a lower one.",
+    ),
+    "pathway_reading_a": (
+        "逐行读取基因在不同分组间的平均丰度方向；同一通路内方向一致的基因越多，",
+        "Read each row for the direction of a gene's mean abundance across the groups; the "
+        "more genes within one pathway agree in direction, ",
+    ),
+    "pathway_reading_b": (
+        "该通路的整体方向越可信。",
+        "the more reliable the overall direction of that pathway.",
+    ),
+    "pathway_set_prefix": ("蛋白集合：通路「", "Protein set: the portion of the “"),
+    "pathway_set_suffix": (
+        "」注释基因中可匹配到当前矩阵的部分（匹配不到的基因不进入热图）。",
+        "” annotated genes that maps to the current matrix (genes that do not map are "
+        "excluded from the heatmap).",
+    ),
+    "pathway_statistics": (
+        "展示层为按蛋白行标准化的组均值 row Z-score，不执行组间检验；通路归属来自离线富集条目。",
+        "The display layer is the group-mean row Z-score standardised within each protein row "
+        "and no between-group test is performed; pathway membership comes from the offline "
+        "enrichment term.",
+    ),
+    "pathway_interp_prefix": ("通路「", "Abundance structure of the genes in the pathway “"),
+    "pathway_interp_mid": ("」内基因在", "” across "),
+    "pathway_interp_all_contrasts": ("各对比", "all contrasts"),
+    "pathway_interp_suffix": ("方向下的平均丰度结构，", ", "),
+    "pathway_interp_tail": (
+        "与对应富集条目配套阅读。",
+        "to be read together with the matching enrichment term.",
+    ),
+
+    # ---- overlapping differential proteins (UpSet) ----
+    "upset_panel_summary": (
+        "UpSet 式汇总：底部条形为各对比的差异数，主区条形为交集/独有蛋白数。",
+        "UpSet-style summary: the bars at the bottom are the differential counts of each "
+        "contrast and the bars of the main area the sizes of the intersections and unique sets.",
+    ),
+    "upset_panel_labels": (
+        "数字标注：各集合的确切蛋白数。",
+        "Numeric labels: the exact protein count of each set.",
+    ),
+    "upset_reading": (
+        "先读底部各对比总量，再读主区：独有集合说明对比特异性，交集说明跨对比共享的差异机制。",
+        "Read the totals per contrast at the bottom first and the main area second: unique sets "
+        "indicate contrast specificity and intersections indicate differential mechanisms "
+        "shared across contrasts.",
+    ),
+    "upset_statistics_prefix": (
+        "基于各对比 limma 双侧检验 + ",
+        "Based on the differential protein sets of each contrast from the two-sided limma "
+        "test plus ",
+    ),
+    "upset_statistics_suffix": (
+        " 校正后的差异蛋白集合，再取交集/差集。",
+        " correction, the intersections and differences are then taken.",
+    ),
+    "upset_interp_a": (
+        "衡量候选机制在各对比间的共享与特异程度；交集大说明机制跨对比稳定，",
+        "Measures how far candidate mechanisms are shared across contrasts or specific to one; "
+        "a large intersection indicates a mechanism that is stable across contrasts and ",
+    ),
+    "upset_interp_b": (
+        "独有集大说明该对比携带独特信号。",
+        "a large unique set that a contrast carries a distinctive signal.",
+    ),
+
+    # ---- single-contrast integrated evidence panel ----
+    "ce_panel_enrichment_terms": ("富集条目子面板", "enrichment term subpanel"),
+    "ce_panel_group_means": ("组均值热图子面板", "group-mean heatmap subpanel"),
+    "ce_panel_volcano": ("火山证据子面板", "volcano evidence subpanel"),
+    "ce_panel_top_proteins": ("核心差异蛋白子面板", "core differential protein subpanel"),
+    "ce_panel_prefix": ("单对比综合证据面板（", "Integrated evidence panel for a single contrast ("),
+    "ce_panel_suffix": (
+        "）：并排展示该对比的差异蛋白方向、组均值与富集要点。",
+        "): side-by-side display of the differential protein direction, the group means and "
+        "the enrichment highlights of that contrast.",
+    ),
+    "ce_panel_consistency": (
+        "各子面板的坐标与颜色含义与对应单图一致（火山/均值/富集）。",
+        "Axes and colour meanings follow the corresponding single-contrast figures "
+        "(volcano / group means / enrichment).",
+    ),
+    "panel_omitted_suffix_ce": (
+        " 因该对比无匹配数据未绘制，不使用灰字占位图。",
+        " were not drawn because this contrast has no matching data; no grey placeholder "
+        "panel is used.",
+    ),
+    "ce_reading_a": (
+        "把同一对比的差异证据与富集解释放进一张图，先读差异方向，再读富集条目；",
+        "The differential evidence and the enrichment interpretation of one contrast are "
+        "combined in a single figure: read the differential direction first and the "
+        "enrichment terms second; ",
+    ),
+    "ce_reading_b": (
+        "两列证据方向冲突时应回到对应单图核对。",
+        "if the two columns of evidence conflict in direction, return to the corresponding "
+        "single-contrast figure to check.",
+    ),
+    "ce_statistics_prefix": ("子图沿用 limma 双侧检验（", "The subpanels reuse the two-sided limma test ("),
+    "ce_statistics_suffix": (
+        " 校正）与超几何富集检验结果，不引入新的检验。",
+        " correction) and the hypergeometric enrichment results; no new test is introduced.",
+    ),
+    "ce_interp_suffix": (
+        " 的差异与机制证据整合视图；与该对比火山图和富集气泡图结论应一致。",
+        ": integrated view of the differential and mechanistic evidence of this contrast; it "
+        "should agree with the conclusions of the matching volcano plot and enrichment bubble plot.",
+    ),
+
+    # ---- generic figure ----
+    "generic_interp": (
+        "本图的面板结构以图内轴标签与图例为准；数字口径见上方阈值行，并与主报告对应任务章节阅读。",
+        "The panel structure of this figure follows its axis labels and legends; the numeric "
+        "definitions are given in the threshold rows above, and the figure should be read "
+        "together with the matching task section of the main report.",
+    ),
+    "manifest_caption_label": ("figure_manifest 记录：", "figure_manifest records: "),
+    "generic_panel_prefix": (
+        "面板结构以图内轴标签与图例为准（figure_manifest 类别：",
+        "The panel structure follows the axis labels and legends in the figure "
+        "(figure_manifest category: ",
+    ),
+    "generic_reading": (
+        "按图内轴标签与图例读取；数值通道与显著性含义见阈值与统计口径行。",
+        "Read from the axis labels and legends in the figure; the meaning of the numeric "
+        "channels and of significance is given in the threshold and statistical rows.",
+    ),
+    "generic_statistics": (
+        "统计口径以生成该图的 plot 函数记录为准（见 figure_manifest.json 该条目）。",
+        "The statistical basis is the record of the plot function that produced the figure "
+        "(see the corresponding entry in figure_manifest.json).",
+    ),
+
+    # ---- figures_captions.md skeleton ----
+    "captions_doc_title_suffix": (" 发表级图注", " publication-grade figure captions"),
+    "captions_doc_intro": (
+        "本文档为每张关键图提供发表级中文图注，由 run 内 `figure_manifest.json`、`analysis_design` 与 `evaluation_evidence` 证据表自动生成；蛋白、通路与统计术语保留英文原文。",
+        "This document gives a publication-grade caption for every key figure, generated "
+        "automatically from `figure_manifest.json`, `analysis_design` and the "
+        "`evaluation_evidence` tables of the run; protein, pathway and statistical terms keep "
+        "their English form.",
+    ),
+    "heading_thresholds_overview": ("## 阈值与统计总览", "## Thresholds and statistics overview"),
+    "heading_boundary_legend": ("## 证据边界图例", "## Evidence boundary legend"),
+    "heading_caption_index": ("## 图注目录", "## Caption index"),
+    "index_header": ("| 图号 | 标题 | 图片文件 |", "| Figure | Title | Image file |"),
+    "label_image_file": ("- 图片文件：", "- Image file: "),
+    "label_panels": ("- 面板说明：", "- Panel description: "),
+    "label_reading": ("- 如何阅读：", "- How to read: "),
+    "label_thresholds": ("- 阈值与样本量：", "- Thresholds and sample size: "),
+    "label_statistics": ("- 统计口径：", "- Statistical basis: "),
+    "label_interpretation": ("- 一句话解读：", "- One-sentence interpretation: "),
+    "label_boundary": ("- 证据边界：", "- Evidence boundary: "),
+    "label_paper_ref": ("- 对应原论文图：", "- Corresponding original-paper figures: "),
+    "brief_title_suffix_default": ("关键图表嵌入版", "key figures, embedded"),
+    "brief_intro_default_a": (
+        "每张图只保留图号、标题与嵌图；逐图的面板说明、阈值、统计口径、解读与证据边界见 ",
+        "Each figure keeps only its number, title and embedded image; the panel description, "
+        "thresholds, statistical basis, interpretation and evidence boundary of each figure "
+        "are in the ",
+    ),
+    "brief_intro_default_b": (
+        "`figures_captions.md` 对应小节。",
+        " section of `figures_captions.md`.",
+    ),
+    "brief_pointer_prefix": ("图注详见 ", "Full caption in "),
+    "local_title_suffix": ("关键图表本机预览版", "key figures, local preview"),
+    "local_intro_a": (
+        "本文件使用本机绝对路径，主要用于解决某些 Markdown 预览器不能解析相对图片路径的问题；",
+        "This file uses absolute local paths, mainly to work around Markdown previewers that "
+        "cannot resolve relative image paths; ",
+    ),
+    "local_intro_b": (
+        "对外发送时优先使用 `figures.md`。逐图图注见 `figures_captions.md`。",
+        "prefer `figures.md` when the document is sent out. Per-figure captions are in "
+        "`figures_captions.md`.",
+    ),
+    # ---- thresholds-and-statistics overview block ----
+    "overview_default_prefix": (
+        "差异分析默认口径：adj.P.Val < ",
+        "Default differential-analysis thresholds: adj.P.Val < ",
+    ),
+    "overview_default_suffix": (
+        " 校正，limma 双侧检验）。",
+        " correction, two-sided limma test).",
+    ),
+    "overview_partial_prefix": (
+        "差异分析默认口径（部分记录）：adj.P.Val < ",
+        "Default differential-analysis thresholds (partially recorded): adj.P.Val < ",
+    ),
+    "overview_partial_suffix": (" 校正）。", " correction)."),
+    "overview_missing": (
+        "差异分析默认口径：analysis_design 未记录阈值，逐图阈值见各图注的阈值行。",
+        "Default differential-analysis thresholds: analysis_design records no threshold; the "
+        "per-figure thresholds are given in the threshold row of each caption.",
+    ),
+    "main_group_col_prefix": ("主分组列：", "Primary grouping column: "),
+    "main_group_col_suffix": ("（来自 analysis_design）。", " (from analysis_design)."),
+    "numbers_source": (
+        "数字来源：figure_manifest.json（含逐图 caption_metadata/params）与 evaluation_evidence 证据表",
+        "Source of the numbers: figure_manifest.json (with the per-figure "
+        "caption_metadata/params) and the evaluation_evidence tables",
+    ),
+    "manifest_time_prefix": ("；manifest 生成时间 ", "; manifest generated at "),
+
 }
+register("captions", _CAPTIONS)
+
+
+def _cap(key: str, **fmt: Any) -> str:
+    """Active-language text for a key of this module's caption registry."""
+    return t("captions." + key, **fmt)
+
+
+def boundary_matrix() -> str:
+    """Evidence boundary for numbers computed from the current matrix."""
+    return _cap("boundary_matrix")
+
+
+def boundary_enrichment() -> str:
+    """Evidence boundary for offline pathway enrichment of matrix proteins."""
+    return _cap("boundary_enrichment_a") + _cap("boundary_enrichment_b")
+
+
+def boundary_mixed() -> str:
+    """Evidence boundary for figures that mix matrix values and enrichment sets."""
+    return _cap("boundary_mixed_a") + _cap("boundary_mixed_b")
+
+
+def paper_ref_fallback() -> str:
+    """Shown when the original-paper figure map holds no panel for a figure."""
+    return _cap("paper_ref_fallback")
+
+
+# The released module exposed the four texts above as strings under these names; the
+# names stay importable but now resolve through the active report language.
+BOUNDARY_MATRIX = boundary_matrix
+BOUNDARY_ENRICHMENT = boundary_enrichment
+BOUNDARY_MIXED = boundary_mixed
+PAPER_REF_FALLBACK = paper_ref_fallback
+
+# plot types that have a caption title, mapped to their registry key (the released
+# PLOT_TYPE_TITLES held the zh titles themselves; the text now resolves per language)
+PLOT_TYPE_TITLES = {
+    "qc_sample_overview": "title_qc_sample_overview",
+    "pca": "title_pca",
+    "umap": "title_umap",
+    "heatmap": "title_heatmap",
+    "differential_summary_barplot": "title_differential_summary_barplot",
+    "key_protein_overview": "title_key_protein_overview",
+    "protein_contrast_bubble": "title_protein_contrast_bubble",
+    "mechanism_top_protein_group_means": "title_mechanism_top_protein_group_means",
+    "mechanism_enrichment_dotplot": "title_mechanism_enrichment_dotplot",
+    "mechanism_dep_overlap_upset": "title_mechanism_dep_overlap_upset",
+    "mechanism_contrast_evidence": "title_mechanism_contrast_evidence",
+    "enrichment_bubble": "title_enrichment_bubble",
+    "mechanism_pathway_gene_heatmap": "title_mechanism_pathway_gene_heatmap",
+}
+
+
+def _plot_title(plot_type: str) -> str:
+    """Caption title of a plot type in the active language ("" when unknown)."""
+    key = PLOT_TYPE_TITLES.get(str(plot_type))
+    return _cap(key) if key else ""
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +1259,7 @@ def load_sample_summary(run_folder: str) -> Dict[str, Any]:
         n_samples = _to_int(row.get("n_samples"))
         if n_samples is None:
             continue
-        group_name = _clean_cell(row.get("group")) or "未命名分组"
+        group_name = _clean_cell(row.get("group")) or _cap("unnamed_group")
         groups.append({"group": group_name, "n": n_samples})
         group_col = group_col or _clean_cell(row.get("group_col"))
         detected = _to_float(row.get("mean_detected_proteins"))
@@ -511,16 +1477,26 @@ def _sample_line(context: Dict[str, Any]) -> str:
     ss = context.get("sample_summary") or {}
     groups = ss.get("groups") or []
     if not groups:
-        return "样本量：run 内缺少 group_composition_qc.csv，未记录分组样本数（可在 evaluation_evidence 目录核对）。"
-    detail = "、".join(f"{g['group']}: {g['n']}" for g in groups)
-    parts = [f"样本量：N={ss.get('n_total')}（{detail}）"]
+        return _cap("sample_missing")
+    detail = _cap("punct_enum").join(f"{g['group']}: {g['n']}" for g in groups)
+    parts = [
+        _cap("sample_size_prefix")
+        + str(ss.get("n_total"))
+        + _cap("punct_paren_open")
+        + detail
+        + _cap("punct_paren_close")
+    ]
     if ss.get("group_col"):
-        parts.append(f"分组列 {ss['group_col']}")
+        parts.append(_cap("sample_group_col") + str(ss["group_col"]))
     if ss.get("mean_detected") is not None:
-        parts.append(f"平均每样本检出 {_fmt_num(ss['mean_detected'])} 个蛋白")
+        parts.append(
+            _cap("mean_detected_prefix")
+            + _fmt_num(ss["mean_detected"])
+            + _cap("protein_count_suffix")
+        )
     if ss.get("mean_missing") is not None:
-        parts.append(f"平均缺失率 {_fmt_pct(ss['mean_missing'])}")
-    return "；".join(parts) + "。"
+        parts.append(_cap("mean_missing_prefix") + _fmt_pct(ss["mean_missing"]))
+    return _cap("punct_semicolon").join(parts) + _cap("punct_period")
 
 
 def _threshold_core(th: Dict[str, Any]) -> str:
@@ -532,24 +1508,33 @@ def _threshold_core(th: Dict[str, Any]) -> str:
         bits.append(f"|log2FC| ≥ {_fmt_num(th['logfc'])}")
     if not bits:
         return ""
-    return f"{'；'.join(bits)}（{th.get('fdr_method', 'BH')} 校正）"
+    return (
+        _cap("punct_semicolon").join(bits)
+        + _cap("punct_paren_open")
+        + str(th.get("fdr_method", "BH"))
+        + _cap("fdr_correction_suffix")
+    )
 
 
 def _threshold_sentence(th: Dict[str, Any]) -> str:
     core = _threshold_core(th)
     if not core:
-        return "显著性阈值：figure_manifest 未记录该图阈值（差异分析默认口径见文档总览）。"
-    return f"显著性阈值：{core}。"
+        return _cap("threshold_not_recorded")
+    return _cap("threshold_label") + core + _cap("punct_period")
 
 
 def _paper_ref_line(file_name: str, context: Dict[str, Any]) -> str:
     hits = (context.get("paper_index") or {}).get(file_name, [])
     if not hits:
-        return PAPER_REF_FALLBACK
+        return paper_ref_fallback()
     parts = []
     for fig_no, qualifier in hits:
-        parts.append(f"{fig_no}（{qualifier}）" if qualifier else fig_no)
-    return "对应原论文 " + "、".join(parts) + "。"
+        parts.append(
+            fig_no + _cap("punct_paren_open") + qualifier + _cap("punct_paren_close")
+            if qualifier
+            else fig_no
+        )
+    return _cap("paper_ref_prefix") + _cap("punct_enum").join(parts) + _cap("punct_period")
 
 
 def _databases_from_inputs(record: Dict[str, Any]) -> List[str]:
@@ -591,13 +1576,19 @@ def _drop_hollow_purpose_parts(parts: Iterable[str]) -> List[str]:
 
 
 # Step 04: QC panel keys emitted by tools.plot_qc_sample_overview
-# (caption_metadata.omitted_panels) and their Chinese panel names.
+# (caption_metadata.omitted_panels), mapped to their registry key
 QC_PANEL_TITLES = {
-    "detected_proteins": "检出蛋白面板（Detected Proteins Per Sample）",
-    "missing_rate": "缺失率面板（Missing Rate By Cluster）",
-    "sample_counts": "样本数面板（Sample Count By Cluster）",
-    "sample_correlation": "相关性面板（Sample Correlation）",
+    "detected_proteins": "qc_panel_detected_proteins",
+    "missing_rate": "qc_panel_missing_rate",
+    "sample_counts": "qc_panel_sample_counts",
+    "sample_correlation": "qc_panel_sample_correlation",
 }
+
+
+def _qc_panel_title(panel_key: str) -> str:
+    """Panel name of an omitted QC panel (falls back to the raw manifest key)."""
+    key = QC_PANEL_TITLES.get(str(panel_key))
+    return _cap(key) if key else str(panel_key)
 
 
 def _caption_qc(file_name: str, title: str, record: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
@@ -607,50 +1598,65 @@ def _caption_qc(file_name: str, title: str, record: Dict[str, Any], context: Dic
     large_n = bool(meta.get("large_n_mode"))
     omitted = [str(x) for x in (meta.get("omitted_panels") or [])]
     groups = ss.get("groups") or []
-    interp_bits = ["QC 面板给出后续所有差异与模块分析的样本基础"]
+    interp_bits = [_cap("qc_interp_base")]
     if groups:
-        detail = "、".join(f"{g['group']}: {g['n']}" for g in groups)
-        interp_bits.append(f"共 {ss.get('n_total')} 个样本（{detail}）")
+        detail = _cap("punct_enum").join(f"{g['group']}: {g['n']}" for g in groups)
+        interp_bits.append(
+            _cap("qc_total_prefix")
+            + str(ss.get("n_total"))
+            + _cap("qc_total_suffix")
+            + detail
+            + _cap("punct_paren_close")
+        )
     if n_unannotated > 0:
-        interp_bits.append(f"另有 {n_unannotated} 个样本缺少分组注释，图中统一显示为 Unannotated")
+        interp_bits.append(
+            _cap("qc_unannotated_prefix")
+            + str(n_unannotated)
+            + _cap("qc_unannotated_suffix")
+        )
     if ss.get("mean_detected") is not None:
-        interp_bits.append(f"平均每样本检出 {_fmt_num(ss['mean_detected'])} 个蛋白")
+        interp_bits.append(
+            _cap("mean_detected_prefix")
+            + _fmt_num(ss["mean_detected"])
+            + _cap("protein_count_suffix")
+        )
     if ss.get("mean_missing") is not None:
-        interp_bits.append(f"平均缺失率 {_fmt_pct(ss['mean_missing'])}")
+        interp_bits.append(
+            _cap("mean_missing_prefix") + _fmt_pct(ss["mean_missing"])
+        )
     if large_n:
-        interp_bits.append("样本量超过 600 时检出蛋白面板自动切换为排序折线（附 Q1/中位数/Q3 分位参考线），缺失率散点按固定随机种子抽样")
+        interp_bits.append(_cap("qc_large_n_note"))
     panels: List[str] = []
     if "detected_proteins" not in omitted:
         if large_n:
-            panels.append("检出蛋白面板（Detected Proteins Per Sample）：样本按检出蛋白数排序绘制折线，标注 Q1/中位数/Q3 分位参考线与四分位带（样本量较大时替代逐样本柱状图）。")
+            panels.append(_cap("qc_panel_detected_line_large"))
         else:
-            panels.append("检出蛋白面板（Detected Proteins Per Sample）：每个样本一根柱，柱高为该样本检出蛋白数。")
+            panels.append(_cap("qc_panel_detected_line"))
     if "missing_rate" not in omitted:
         if large_n:
-            panels.append("缺失率面板（Missing Rate By Cluster）：按分组汇总的缺失率箱线图，叠加样本散点（样本量较大时散点按固定随机种子抽样，控制图形密度）。")
+            panels.append(_cap("qc_panel_missing_line_large"))
         else:
-            panels.append("缺失率面板（Missing Rate By Cluster）：按分组汇总的平均缺失率。")
+            panels.append(_cap("qc_panel_missing_line"))
     if "sample_counts" not in omitted:
-        panels.append("样本数面板（Sample Count By Cluster）：各分组样本数。")
+        panels.append(_cap("qc_panel_counts_line"))
     if "sample_correlation" not in omitted:
-        panels.append("相关性面板（Sample Correlation）：样本两两 Spearman 相关系数热图，颜色范围 -1 至 1。")
+        panels.append(_cap("qc_panel_correlation_line"))
     if omitted:
-        omitted_names = "、".join(QC_PANEL_TITLES.get(key, key) for key in omitted)
-        panels.append(f"面板省略说明：{omitted_names} 因无匹配数据未绘制，不使用占位图。")
+        omitted_names = _cap("punct_enum").join(_qc_panel_title(key) for key in omitted)
+        panels.append(
+            _cap("panel_omitted_prefix") + omitted_names + _cap("panel_omitted_suffix_qc")
+        )
     return {
-        "title": title or PLOT_TYPE_TITLES["qc_sample_overview"],
+        "title": title or _plot_title("qc_sample_overview"),
         "panels": panels,
-        "reading": (
-            "各面板依次回答：每个样本测到多少蛋白、缺失了多少、分组是否均衡、样本间重复性如何；"
-            "相关系数越接近 1，两个样本的蛋白图谱越一致。"
-        ),
+        "reading": _cap("qc_reading_a") + _cap("qc_reading_b"),
         "thresholds": [
-            "统计性质：描述性 QC 汇总，不设显著性阈值。",
+            _cap("qc_threshold_note"),
             _sample_line(context),
         ],
-        "statistics": "描述性统计；相关性面板使用 Spearman 相关系数。",
-        "interpretation": "；".join(interp_bits) + "。",
-        "boundary": BOUNDARY_MATRIX,
+        "statistics": _cap("qc_statistics"),
+        "interpretation": _cap("punct_semicolon").join(interp_bits) + _cap("punct_period"),
+        "boundary": boundary_matrix(),
         "paper_ref": _paper_ref_line(file_name, context),
     }
 
@@ -659,26 +1665,25 @@ def _caption_pca(file_name: str, title: str, record: Dict[str, Any], context: Di
     group_col = context.get("group_col") or "分组"
     outline = context.get("outline") or {}
     claim = _clean_cell(outline.get("executive_claim"))
-    interp = f"PCA 展示 {group_col} 维度的整体分离与离散程度，为后续各对比差异方向提供矩阵内结构参照。"
+    interp = _cap("pca_interp_prefix") + str(group_col) + _cap("pca_interp_suffix")
     if claim:
-        interp += f"结合主结论「{claim}」阅读。"
+        interp += _cap("claim_prefix") + claim + _cap("claim_suffix")
     return {
-        "title": title or PLOT_TYPE_TITLES["pca"],
+        "title": title or _plot_title("pca"),
         "panels": [
-            "PCA 散点：每个点为一个样本，横轴 PC1、纵轴 PC2，轴标签附各主成分解释方差百分比。",
-            "分组中心与椭圆：同组样本的中心位置与离散范围（按组着色）。",
+            _cap("pca_panel_scatter"),
+            _cap("pca_panel_groups"),
         ],
         "reading": (
-            "点间距离越近表示两个样本的蛋白丰度总模式越相似；颜色对应 "
-            f"{group_col} 分组；同组椭圆与异组椭圆重叠越少，组间整体分离越明显。"
+            _cap("pca_reading_a") + str(group_col) + _cap("pca_reading_b")
         ),
         "thresholds": [
-            "降维设置：基于当前矩阵蛋白丰度的方差结构，不设显著性阈值。",
+            _cap("pca_threshold_note"),
             _sample_line(context),
         ],
-        "statistics": "描述性降维（PCA），不涉及假设检验；PC1/PC2 解释方差比例标注于轴标签。",
+        "statistics": _cap("pca_statistics"),
         "interpretation": interp,
-        "boundary": BOUNDARY_MATRIX,
+        "boundary": boundary_matrix(),
         "paper_ref": _paper_ref_line(file_name, context),
     }
 
@@ -687,25 +1692,24 @@ def _caption_umap(file_name: str, title: str, record: Dict[str, Any], context: D
     group_col = context.get("group_col") or "分组"
     outline = context.get("outline") or {}
     claim = _clean_cell(outline.get("executive_claim"))
-    interp = f"UMAP 展示 {group_col} 维度样本的邻域结构，可与 PCA 互为对照判断分组结构是否稳健。"
+    interp = _cap("umap_interp_prefix") + str(group_col) + _cap("umap_interp_suffix")
     if claim:
-        interp += f"结合主结论「{claim}」阅读。"
+        interp += _cap("claim_prefix") + claim + _cap("claim_suffix")
     return {
-        "title": title or PLOT_TYPE_TITLES["umap"],
+        "title": title or _plot_title("umap"),
         "panels": [
-            "UMAP 散点：每个点为一个样本，横轴 UMAP 1、纵轴 UMAP 2，按组着色并附图例。",
+            _cap("umap_panel_scatter"),
         ],
         "reading": (
-            "相邻点表示蛋白丰度模式相似的样本；颜色对应 "
-            f"{group_col} 分组；UMAP 保留局部邻域结构，同组点的聚集比全局距离更可比较。"
+            _cap("umap_reading_a") + str(group_col) + _cap("umap_reading_b")
         ),
         "thresholds": [
-            "降维设置：基于当前矩阵蛋白丰度的邻域结构，不设显著性阈值。",
+            _cap("umap_threshold_note"),
             _sample_line(context),
         ],
-        "statistics": "描述性降维（UMAP），不涉及假设检验。",
+        "statistics": _cap("umap_statistics"),
         "interpretation": interp,
-        "boundary": BOUNDARY_MATRIX,
+        "boundary": boundary_matrix(),
         "paper_ref": _paper_ref_line(file_name, context),
     }
 
@@ -714,27 +1718,34 @@ def _caption_heatmap(file_name: str, title: str, record: Dict[str, Any], context
     th = _resolve_thresholds(record, context)
     group_col = context.get("group_col") or "分组"
     top = th.get("top_proteins")
-    scale = f"行数为按信息量挑选的 top {_fmt_num(top)} 个蛋白" if top is not None else "行数为信息量最高的差异蛋白"
+    scale = (
+        _cap("heatmap_scale_top_prefix") + _fmt_num(top) + _cap("heatmap_scale_top_suffix")
+        if top is not None
+        else _cap("heatmap_scale_all")
+    )
     return {
-        "title": title or PLOT_TYPE_TITLES["heatmap"],
+        "title": title or _plot_title("heatmap"),
         "panels": [
-            f"聚类热图：{scale}，列为样本（按 {group_col} 分组并附列颜色条）。",
-            "颜色条：Row Z-score（按蛋白行标准化后的丰度）。",
+            _cap("heatmap_panel_prefix")
+            + scale
+            + _cap("heatmap_panel_mid")
+            + str(group_col)
+            + _cap("heatmap_panel_suffix"),
+            _cap("heatmap_panel_colorbar"),
         ],
-        "reading": (
-            "红色表示该蛋白在对应样本中丰度高于其跨样本平均水平，蓝色表示低于；"
-            "列的聚类与颜色条可同时反映分组结构是否在差异蛋白上重现。"
-        ),
+        "reading": _cap("heatmap_reading_a") + _cap("heatmap_reading_b"),
         "thresholds": [
             _threshold_sentence(th),
             _sample_line(context),
         ],
-        "statistics": "展示层为 row Z-score（按蛋白行标准化），不涉及组间假设检验。",
+        "statistics": _cap("heatmap_statistics"),
         "interpretation": (
-            f"top 差异蛋白在 {group_col} 分组上的丰度结构；行方向（蛋白）与列方向（样本）的聚集"
-            "一起说明组间差异是否一致、是否存在混杂亚群。"
+            _cap("heatmap_interp_prefix")
+            + str(group_col)
+            + _cap("heatmap_interp_mid")
+            + _cap("heatmap_interp_tail")
         ),
-        "boundary": BOUNDARY_MATRIX,
+        "boundary": boundary_matrix(),
         "paper_ref": _paper_ref_line(file_name, context),
     }
 
@@ -751,43 +1762,80 @@ def _caption_volcano(file_name: str, title: str, record: Dict[str, Any], context
     counts = _contrast_counts(record, context, contrast)
     stats_row = (context.get("contrast_stats") or {}).get(contrast, {})
     if not group_a:
-        group_a, group_b = (stats_row.get("group_a") or "A 组"), (stats_row.get("group_b") or "B 组")
+        group_a, group_b = (
+            stats_row.get("group_a") or _cap("group_a_default")
+        ), (stats_row.get("group_b") or _cap("group_b_default"))
 
-    count_line = "该对比的上下调计数在 figure_manifest 与 core_story_evidence.csv 中均未记录，以图内图例计数为准。"
+    count_line = _cap("volcano_count_missing")
     if counts.get("n_sig") is not None or (counts.get("n_up") is not None and counts.get("n_down") is not None):
         count_line = (
-            f"显著差异蛋白 {counts.get('n_sig')} 个（{_clean_cell(counts.get('source'))}）："
-            f"上调 {counts.get('n_up')}、下调 {counts.get('n_down')}（方向为 {group_a} 相对 {group_b}）。"
+            _cap("count_sig_prefix")
+            + str(counts.get("n_sig"))
+            + _cap("count_sig_paren")
+            + _clean_cell(counts.get("source"))
+            + _cap("count_source_close")
+            + _cap("count_up_label")
+            + str(counts.get("n_up"))
+            + _cap("count_down_label")
+            + str(counts.get("n_down"))
+            + _cap("count_direction_prefix")
+            + str(group_a)
+            + _cap("relative_to")
+            + str(group_b)
+            + _cap("count_direction_close")
         )
 
     interp_parts: List[str] = []
     if counts.get("n_sig") is not None:
-        interp_parts.append(f"{group_a} 相对 {group_b} 共 {counts.get('n_sig')} 个显著差异蛋白（上调 {counts.get('n_up')} / 下调 {counts.get('n_down')}）")
+        interp_parts.append(
+            str(group_a)
+            + _cap("relative_to")
+            + str(group_b)
+            + _cap("interp_total_prefix")
+            + str(counts.get("n_sig"))
+            + _cap("interp_count_open")
+            + str(counts.get("n_up"))
+            + _cap("interp_count_down")
+            + str(counts.get("n_down"))
+            + _cap("interp_count_close")
+        )
     top_up = _extract_top_genes(stats_row.get("top_up"))
     top_down = _extract_top_genes(stats_row.get("top_down"))
     if top_up:
-        interp_parts.append("上调端代表蛋白：" + "、".join(top_up))
+        interp_parts.append(
+            _cap("interp_up_genes_prefix") + _cap("punct_enum").join(top_up)
+        )
     if top_down:
-        interp_parts.append("下调端代表蛋白：" + "、".join(top_down))
+        interp_parts.append(
+            _cap("interp_down_genes_prefix") + _cap("punct_enum").join(top_down)
+        )
     row_interp = _clean_cell(stats_row.get("interpretation"))
     if row_interp:
         interp_parts.append(row_interp)
     interp_parts = _drop_hollow_purpose_parts(interp_parts)
     if not interp_parts:
-        interp_parts = ["方向与显著性以图内散点和阈值参考线为准"]
-    interpretation = "；".join(interp_parts) + "。"
+        interp_parts = [_cap("interp_direction_fallback")]
+    interpretation = _cap("punct_semicolon").join(interp_parts) + _cap("punct_period")
 
     return {
-        "title": title or f"{_human_contrast(contrast)} 火山图",
+        "title": title or _human_contrast(contrast) + _cap("volcano_title_suffix"),
         "panels": [
-            f"散点：每个点为一个蛋白，横轴 log2 Fold Change（{group_a} 相对 {group_b}），纵轴 -log10(adj.P.Val)。",
-            "阈值参考线：两条竖虚线为 |log2FC| 阈值，一条横虚线为 adj.P.Val 阈值。",
-            "配色：红色 Upregulated、蓝色 Downregulated、灰色 Not significant，图例附各类计数。",
-            "基因标注：每侧标注效应量×显著性评分最高的基因名（adjust_text 防重叠）。",
+            _cap("volcano_panel_points_a")
+            + str(group_a)
+            + _cap("relative_to")
+            + str(group_b)
+            + _cap("volcano_panel_points_b"),
+            _cap("volcano_panel_thresholds"),
+            _cap("volcano_panel_colors"),
+            _cap("volcano_panel_labels"),
         ],
         "reading": (
-            f"右上（红色）为 {group_a} 中升高的蛋白，左上（蓝色）为 {group_a} 中降低的蛋白；"
-            "点越靠上校正后越显著，越靠右/左效应量越大；灰色点不进入候选与富集分析。"
+            _cap("volcano_reading_a")
+            + str(group_a)
+            + _cap("volcano_reading_b")
+            + str(group_a)
+            + _cap("volcano_reading_c")
+            + _cap("volcano_reading_d")
         ),
         "thresholds": [
             _threshold_sentence(th),
@@ -795,10 +1843,12 @@ def _caption_volcano(file_name: str, title: str, record: Dict[str, Any], context
             _sample_line(context),
         ],
         "statistics": (
-            f"limma 线性模型双侧检验；多重校正 {th.get('fdr_method', 'BH')}（adj.P.Val）；效应量为 log2 fold change。"
+            _cap("volcano_statistics_prefix")
+            + str(th.get("fdr_method", "BH"))
+            + _cap("volcano_statistics_suffix")
         ),
         "interpretation": interpretation,
-        "boundary": BOUNDARY_MATRIX,
+        "boundary": boundary_matrix(),
         "paper_ref": _paper_ref_line(file_name, context),
     }
 
@@ -818,12 +1868,18 @@ def _caption_barplot(file_name: str, title: str, record: Dict[str, Any], context
         if row.get("n_sig") is None and row.get("n_up") is None:
             continue
         count_bits.append(
-            f"{_human_contrast(row['contrast'])} 上调 {row.get('n_up')} / 下调 {row.get('n_down')}"
+            _human_contrast(row["contrast"])
+            + _cap("bar_count_up")
+            + str(row.get("n_up"))
+            + _cap("bar_count_down")
+            + str(row.get("n_down"))
         )
     count_line = (
-        "各对比计数（方向为对比名中 A 组相对 B 组）：" + "；".join(count_bits) + "。"
+        _cap("bar_count_label")
+        + _cap("punct_semicolon").join(count_bits)
+        + _cap("punct_period")
         if count_bits
-        else "各对比计数见图中柱上标注数字（figure_manifest 未记录计数元数据）。"
+        else _cap("bar_count_missing")
     )
     biggest = None
     for row in ordered:
@@ -832,32 +1888,44 @@ def _caption_barplot(file_name: str, title: str, record: Dict[str, Any], context
             continue
         if biggest is None or (biggest.get("n_sig") or 0) < n_sig:
             biggest = row
-    interp = "汇总各对比通过阈值的差异数规模"
+    interp = _cap("bar_interp_base")
     if biggest is not None:
-        interp += f"；差异规模最大的对比为 {_human_contrast(biggest['contrast'])}（{biggest.get('n_sig')} 个显著差异蛋白）"
-    interp += "，规模差异提示主对比与对照间对比的信号强度不同。"
+        interp += (
+            _cap("bar_interp_biggest_prefix")
+            + _human_contrast(biggest["contrast"])
+            + _cap("bar_interp_biggest_mid")
+            + str(biggest.get("n_sig"))
+            + _cap("bar_interp_biggest_suffix")
+        )
+    interp += _cap("bar_interp_tail")
     return {
-        "title": title or PLOT_TYPE_TITLES["differential_summary_barplot"],
+        "title": title or _plot_title("differential_summary_barplot"),
         "panels": [
-            "柱状图：每个对比两根柱，红色 Up（上调蛋白数，向上）、蓝色 Down（下调蛋白数，向下）。",
-            "数字标注：柱端标出各方向的确切计数。",
+            _cap("bar_panel_bars"),
+            _cap("bar_panel_labels"),
         ],
-        "reading": (
-            "柱长为该对比同时满足 adj.P.Val 与 |log2FC| 阈值的蛋白数；向上为对比名中 A 组升高、"
-            "向下为 A 组降低；上下规模不对称时说明方向性偏移。"
-        ),
+        "reading": _cap("bar_reading_a") + _cap("bar_reading_b"),
         "thresholds": [
-            f"计数口径：adj.P.Val < {_fmt_num(th.get('pval'))} 且 |log2FC| ≥ {_fmt_num(th.get('logfc'))}（{_th_fdr(th)} 校正）。"
+            _cap("bar_threshold_prefix")
+            + _fmt_num(th.get("pval"))
+            + _cap("bar_threshold_mid")
+            + _fmt_num(th.get("logfc"))
+            + _cap("punct_paren_open")
+            + _th_fdr(th)
+            + _cap("fdr_correction_suffix")
+            + _cap("punct_period")
             if th.get("pval") is not None or th.get("logfc") is not None
-            else "计数口径：figure_manifest 未记录该图阈值（差异分析默认口径见文档总览）。",
+            else _cap("bar_threshold_missing"),
             count_line,
             _sample_line(context),
         ],
         "statistics": (
-            f"各对比先经 limma 双侧检验 + {_th_fdr(th)} 校正，再计数；本图本身不执行新的检验。"
+            _cap("bar_statistics_prefix")
+            + _th_fdr(th)
+            + _cap("bar_statistics_suffix")
         ),
         "interpretation": interp,
-        "boundary": BOUNDARY_MATRIX,
+        "boundary": boundary_matrix(),
         "paper_ref": _paper_ref_line(file_name, context),
     }
 
@@ -868,39 +1936,52 @@ def _focus_genes_line(context: Dict[str, Any], k: int = 6) -> str:
     if not genes:
         return ""
     shown = genes[:k]
-    suffix = "等" if len(genes) > k else ""
-    return "报告 focus 基因（" + "、".join(shown) + suffix + "）可在图中对照追踪。"
+    suffix = _cap("focus_genes_more") if len(genes) > k else ""
+    return (
+        _cap("focus_genes_prefix")
+        + _cap("punct_enum").join(shown)
+        + suffix
+        + _cap("focus_genes_suffix")
+    )
 
 
 def _caption_key_protein_overview(file_name: str, title: str, record: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     th = _resolve_thresholds(record, context)
     per_contrast = th.get("top_per_contrast")
-    select_line = "筛选口径：" + (_threshold_core(th) or "figure_manifest 未记录该图阈值")
+    select_line = _cap("select_label") + (
+        _threshold_core(th) or _cap("no_threshold_recorded")
+    )
     if per_contrast is not None:
-        select_line += f"；每对比取评分 top {_fmt_num(per_contrast)} 个蛋白"
-    select_line += "。"
+        select_line += (
+            _cap("per_contrast_top_prefix")
+            + _fmt_num(per_contrast)
+            + _cap("per_contrast_top_suffix")
+        )
+    select_line += _cap("punct_period")
     focus = _focus_genes_line(context)
-    interp = "并排查看各对比显著蛋白的方向与强度：红色 Up、蓝色 Down 两类点分别对应 A 组升高与降低。"
+    interp = _cap("key_protein_interp")
     if focus:
         interp += focus
     return {
-        "title": title or PLOT_TYPE_TITLES["key_protein_overview"],
+        "title": title or _plot_title("key_protein_overview"),
         "panels": [
-            "散点：横轴为对比（Contrast，按评分排序），纵轴 log2 Fold Change；红色 Up、蓝色 Down。",
-            "点大小：-log10(adj.P.Val)，越显著点越大；深灰横线为该对比 log2FC 的中位数。",
-            "基因标注：每对比标注评分最高的若干基因名。",
+            _cap("key_panel_points"),
+            _cap("key_panel_size"),
+            _cap("key_panel_labels"),
         ],
-        "reading": (
-            "同一对比内，点越高表示该蛋白在 A 组升高越多（Down 相反）；不同对比的横轴位置不可横向比较，"
-            "应以纵轴 log2FC 数值与点大小为准。"
-        ),
+        "reading": _cap("key_reading_a") + _cap("key_reading_b"),
         "thresholds": [
             select_line,
             _sample_line(context),
         ],
-        "statistics": f"log2FC 与 adj.P.Val 来自 limma 双侧检验（{_th_fdr(th)} 校正）。",
+        "statistics": (
+            _cap("limma_stats_prefix")
+            + _th_fdr(th)
+            + _cap("fdr_correction_suffix")
+            + _cap("punct_period")
+        ),
         "interpretation": interp,
-        "boundary": BOUNDARY_MATRIX,
+        "boundary": boundary_matrix(),
         "paper_ref": _paper_ref_line(file_name, context),
     }
 
@@ -911,38 +1992,47 @@ def _caption_protein_bubble(file_name: str, title: str, record: Dict[str, Any], 
     max_proteins = th.get("max_proteins")
     select_bits: List[str] = []
     if per_contrast is not None:
-        select_bits.append(f"每对比取评分 top {_fmt_num(per_contrast)} 个蛋白")
+        select_bits.append(
+            _cap("per_contrast_take_prefix")
+            + _fmt_num(per_contrast)
+            + _cap("per_contrast_take_suffix")
+        )
     if max_proteins is not None:
-        select_bits.append(f"最多展示 {_fmt_num(max_proteins)} 个蛋白")
-    select_line = "筛选口径：" + (_threshold_core(th) or "figure_manifest 未记录该图阈值")
-    if select_bits:
-        select_line += "；" + "；".join(select_bits)
-    select_line += "。"
-    focus = _focus_genes_line(context)
-    interp = (
-        "跨对比并排比较候选蛋白：颜色一致（同为红/蓝）说明方向在对比间稳定，颜色翻转说明方向相反，"
-        "空白表示该蛋白未进入该对比的 top 集合。"
+        select_bits.append(
+            _cap("max_proteins_prefix")
+            + _fmt_num(max_proteins)
+            + _cap("max_proteins_suffix")
+        )
+    select_line = _cap("select_label") + (
+        _threshold_core(th) or _cap("no_threshold_recorded")
     )
+    if select_bits:
+        select_line += _cap("punct_semicolon") + _cap("punct_semicolon").join(select_bits)
+    select_line += _cap("punct_period")
+    focus = _focus_genes_line(context)
+    interp = _cap("bubble_interp_a") + _cap("bubble_interp_b")
     if focus:
         interp += focus
     return {
-        "title": title or PLOT_TYPE_TITLES["protein_contrast_bubble"],
+        "title": title or _plot_title("protein_contrast_bubble"),
         "panels": [
-            "气泡图：横轴为对比（Contrast），纵轴为关键蛋白（Key protein）。",
-            "颜色通道：log2 Fold Change，红正蓝负，色标以 0 为中心对称。",
-            "大小通道：-log10(adj.P.Val)，越显著气泡越大。",
+            _cap("bubble_panel_axes"),
+            _cap("bubble_panel_color"),
+            _cap("bubble_panel_size"),
         ],
-        "reading": (
-            "横向读一个蛋白跨对比的方向与显著性变化；纵向读一个对比内候选蛋白的组成；"
-            "颜色深浅与气泡大小要同时读，避免只按显著性排序。"
-        ),
+        "reading": _cap("bubble_reading_a") + _cap("bubble_reading_b"),
         "thresholds": [
             select_line,
             _sample_line(context),
         ],
-        "statistics": f"log2FC 与 adj.P.Val 来自 limma 双侧检验（{_th_fdr(th)} 校正）。",
+        "statistics": (
+            _cap("limma_stats_prefix")
+            + _th_fdr(th)
+            + _cap("fdr_correction_suffix")
+            + _cap("punct_period")
+        ),
         "interpretation": interp,
-        "boundary": BOUNDARY_MATRIX,
+        "boundary": boundary_matrix(),
         "paper_ref": _paper_ref_line(file_name, context),
     }
 
@@ -959,34 +2049,58 @@ def _caption_top_means(file_name: str, title: str, record: Dict[str, Any], conte
         info = (module_summary.get("modules") or {}).get(name, {})
         n_genes = info.get("n_genes")
         module_bits = (
-            f"可与 curated module（{name}，{_fmt_num(n_genes)} 个匹配基因，"
-            "见 evaluation_evidence/curated_module_group_summary.csv）的分组均分交叉验证"
+            _cap("module_cross_prefix")
+            + str(name)
+            + _cap("punct_comma")
+            + _fmt_num(n_genes)
+            + _cap("module_cross_mid")
++            + _cap("module_cross_tail")
         )
     else:
-        module_bits = "可与 evaluation_evidence/curated_module_group_summary.csv 的分组均分交叉验证"
-    scale = f"各对比 adj.P.Val < {_fmt_num(th.get('pval'))} 的 top {_fmt_num(top)} 差异蛋白" if top is not None else "各对比 top 差异蛋白"
+        module_bits = _cap("module_cross_plain")
+    scale = (
+        _cap("top_means_scale_a")
+        + _fmt_num(th.get("pval"))
+        + _cap("top_means_scale_b")
+        + _fmt_num(top)
+        + _cap("top_means_scale_c")
+        if top is not None
+        else _cap("top_means_scale_all")
+    )
     protein_set_line = (
-        f"蛋白集合：{scale}（{_threshold_core(th)}）。"
+        _cap("protein_set_label")
+        + scale
+        + _cap("punct_paren_open")
+        + _threshold_core(th)
+        + _cap("punct_paren_close")
+        + _cap("punct_period")
         if top is not None and _threshold_core(th)
-        else f"蛋白集合：{scale}。"
+        else _cap("protein_set_label") + scale + _cap("punct_period")
     )
     return {
-        "title": title or PLOT_TYPE_TITLES["mechanism_top_protein_group_means"],
+        "title": title or _plot_title("mechanism_top_protein_group_means"),
         "panels": [
-            f"左面板 Group Mean Abundance：{scale}在各 {group_col} 分组的平均 row Z-score（颜色 -2.5 至 2.5）。",
-            "右面板 Detection Rate：同组蛋白在各分组的检出率（0-100%）。",
+            _cap("top_means_panel_left_prefix")
+            + scale
+            + _cap("top_means_panel_left_mid")
+            + str(group_col)
+            + _cap("top_means_panel_left_suffix"),
+            _cap("top_means_panel_right"),
         ],
-        "reading": (
-            "左图颜色越红表示该蛋白在该分组平均丰度越高；右图检出率越低，左图均值受缺失模式的影响越大，"
-            "两个面板应同时读取。"
-        ),
+        "reading": _cap("top_means_reading_a") + _cap("top_means_reading_b"),
         "thresholds": [
             protein_set_line,
             _sample_line(context),
         ],
-        "statistics": "展示层为按蛋白行标准化的组均值 row Z-score 与检出率，不执行新的组间检验；组间差异方向以各对比火山图为准。",
-        "interpretation": f"候选蛋白按 {group_col} 分组的平均丰度方向与检出可靠性；{module_bits}。",
-        "boundary": BOUNDARY_MATRIX,
+        "statistics": _cap("top_means_statistics"),
+        "interpretation": (
+            _cap("top_means_interp_prefix")
+            + str(group_col)
+            + _cap("top_means_interp_mid")
+            + module_bits
+            + _cap("punct_period")
+        ),
+        "boundary": boundary_matrix(),
         "paper_ref": _paper_ref_line(file_name, context),
     }
 
@@ -995,34 +2109,32 @@ def _caption_enrichment_dotplot(file_name: str, title: str, record: Dict[str, An
     th = _resolve_thresholds(record, context)
     top_terms = th.get("top_terms")
     databases = _databases_from_inputs(record)
-    db_line = "、".join(databases) if databases else "GO/KEGG/Reactome（以 figure_manifest 记录的输入为准）"
+    db_line = (
+        _cap("punct_enum").join(databases) if databases else _cap("db_fallback")
+    )
     scale = (
-        f"每个 namespace×对比×方向取 p.adjust 最小的 top {_fmt_num(top_terms)} 条目"
+        _cap("dotplot_scale_prefix")
+        + _fmt_num(top_terms)
+        + _cap("dotplot_scale_suffix")
         if top_terms is not None
-        else "每个 namespace×对比×方向取 p.adjust 最小的 top 条目"
+        else _cap("dotplot_scale_all")
     )
     return {
-        "title": title or PLOT_TYPE_TITLES["mechanism_enrichment_dotplot"],
+        "title": title or _plot_title("mechanism_enrichment_dotplot"),
         "panels": [
-            "点图：横轴为对比×方向（Contrast and direction，Up/Down 分列），纵轴为通路条目（namespace: Description）。",
-            "点大小：Count，即该通路内检出的差异数。",
-            "颜色通道：-log10(FDR)（p.adjust），值越大颜色越亮、校正后越显著。",
+            _cap("dotplot_panel_points"),
+            _cap("dotplot_panel_size"),
+            _cap("dotplot_panel_color"),
         ],
-        "reading": (
-            "同一通路条目在 Up 与 Down 列同时出现时，可比较其在两个方向的富集强度；"
-            "优先阅读 Count 较大且 -log10(FDR) 较高的条目，避免只按单一指标排序。"
-        ),
+        "reading": _cap("dotplot_reading_a") + _cap("dotplot_reading_b"),
         "thresholds": [
-            f"条目规模：{scale}。",
-            f"输入数据库：{db_line}。",
+            _cap("term_scale_label") + scale + _cap("punct_period"),
+            _cap("input_db_label") + db_line + _cap("punct_period"),
             _sample_line(context),
         ],
-        "statistics": "超几何富集检验（over-representation analysis），BH 校正后报告 p.adjust；点大小为通路内检出差异数（Count）。",
-        "interpretation": (
-            "汇总当前矩阵差异蛋白的离线富集证据；条目方向应与对应对比的火山图方向一致阅读，"
-            "富集结果不改变矩阵内差异蛋白本身的方向与计数。"
-        ),
-        "boundary": BOUNDARY_ENRICHMENT,
+        "statistics": _cap("dotplot_statistics"),
+        "interpretation": _cap("dotplot_interp_a") + _cap("dotplot_interp_b"),
+        "boundary": boundary_enrichment(),
         "paper_ref": _paper_ref_line(file_name, context),
     }
 
@@ -1042,34 +2154,56 @@ def _caption_enrichment_bubble(file_name: str, title: str, record: Dict[str, Any
     th = _resolve_thresholds(record, context)
     info = _parse_enrichment_bubble_name(file_name)
     database = info.get("database", "").upper() or "GO/KEGG/Reactome"
-    contrast_human = _human_contrast(info.get("contrast", "")) or "对应对比"
+    contrast_human = _human_contrast(info.get("contrast", "")) or _cap("contrast_default")
     direction = info.get("direction", "")
-    direction_zh = {"upregulated": "上调", "downregulated": "下调"}.get(direction, direction or "对应方向")
+    direction_label = {
+        "upregulated": _cap("direction_upregulated"),
+        "downregulated": _cap("direction_downregulated"),
+    }.get(direction, direction or _cap("direction_default"))
     top_n = th.get("top_terms")
-    source_line = "来源文件：" + os.path.basename(str((record.get("inputs") or [""])[0])) if record.get("inputs") else "来源文件：figure_manifest 未记录"
-    scale = f"每个对比方向取 p.adjust 最小的 top {_fmt_num(top_n)} 条目" if top_n is not None else "每个对比方向取 p.adjust 最小的 top 条目"
+    source_line = (
+        _cap("source_file_label")
+        + os.path.basename(str((record.get("inputs") or [""])[0]))
+        if record.get("inputs")
+        else _cap("source_file_missing")
+    )
+    scale = (
+        _cap("bubble_scale_prefix") + _fmt_num(top_n) + _cap("bubble_scale_suffix")
+        if top_n is not None
+        else _cap("bubble_scale_all")
+    )
     return {
-        "title": title or f"{database} {contrast_human} {direction_zh}富集气泡图",
-        "panels": [
-            "气泡图：横轴 Rich Factor（通路内检出基因数 / 通路注释基因总数），纵轴为通路条目。",
-            "点大小：Count（通路内检出的差异数）。",
-            "颜色通道：-log10(adjusted p-value)。",
-        ],
-        "reading": (
-            "越靠右表示该通路在差异蛋白中的占比越高；点越大表示检出差异数越多；"
-            "Rich Factor 与 Count 应同时读取，避免高占比但检出数极少的条目被过度解读。"
+        "title": title or (
+            database
+            + " "
+            + contrast_human
+            + " "
+            + direction_label
+            + _cap("enrichment_bubble_title_suffix")
         ),
+        "panels": [
+            _cap("enrich_bubble_panel_axes"),
+            _cap("enrich_bubble_panel_size"),
+            _cap("enrich_bubble_panel_color"),
+        ],
+        "reading": _cap("enrich_bubble_reading_a") + _cap("enrich_bubble_reading_b"),
         "thresholds": [
-            f"条目规模：{scale}。",
-            source_line + "。",
+            _cap("term_scale_label") + scale + _cap("punct_period"),
+            source_line + _cap("punct_period"),
             _sample_line(context),
         ],
-        "statistics": "超几何富集检验（over-representation analysis），BH 校正后报告 p.adjust。",
+        "statistics": _cap("enrich_bubble_statistics"),
         "interpretation": (
-            f"来自 {database} 的 {contrast_human} {direction_zh}差异蛋白集；"
-            "解释机制方向时应与对应火山图的上下调方向一致阅读。"
+            _cap("enrich_bubble_interp_prefix")
+            + database
+            + _cap("enrich_bubble_interp_mid")
+            + contrast_human
+            + " "
+            + direction_label
+            + _cap("enrich_bubble_interp_tail")
+            + _cap("enrich_bubble_interp_tail2")
         ),
-        "boundary": BOUNDARY_ENRICHMENT,
+        "boundary": boundary_enrichment(),
         "paper_ref": _paper_ref_line(file_name, context),
     }
 
@@ -1081,28 +2215,42 @@ def _caption_pathway_heatmap(file_name: str, title: str, record: Dict[str, Any],
     info = _parse_enrichment_bubble_name(file_name)
     contrast_human = _human_contrast(info.get("contrast", ""))
     group_col = context.get("group_col") or "分组"
-    source_line = "来源文件：" + os.path.basename(str((record.get("inputs") or [""])[0])) if record.get("inputs") else "来源文件：figure_manifest 未记录"
+    source_line = (
+        _cap("source_file_label")
+        + os.path.basename(str((record.get("inputs") or [""])[0]))
+        if record.get("inputs")
+        else _cap("source_file_missing")
+    )
     return {
-        "title": title or f"通路基因热图：{term}",
+        "title": title or _cap("pathway_heatmap_title_prefix") + str(term),
         "panels": [
-            f"热图：行为通路「{term}」匹配到当前矩阵的基因（Matched pathway genes），列为 {group_col} 分组。",
-            "颜色通道：组均值 row Z-score（-2.5 至 2.5），红色为该组平均丰度较高、蓝色较低。",
+            _cap("pathway_panel_prefix")
+            + str(term)
+            + _cap("pathway_panel_mid")
+            + str(group_col)
+            + _cap("pathway_panel_suffix"),
+            _cap("pathway_panel_color"),
         ],
-        "reading": (
-            "逐行读取基因在不同分组间的平均丰度方向；同一通路内方向一致的基因越多，"
-            "该通路的整体方向越可信。"
-        ),
+        "reading": _cap("pathway_reading_a") + _cap("pathway_reading_b"),
         "thresholds": [
-            f"蛋白集合：通路「{term}」注释基因中可匹配到当前矩阵的部分（匹配不到的基因不进入热图）。",
-            source_line + "。",
+            _cap("pathway_set_prefix") + str(term) + _cap("pathway_set_suffix"),
+            source_line + _cap("punct_period"),
             _sample_line(context),
         ],
-        "statistics": "展示层为按蛋白行标准化的组均值 row Z-score，不执行组间检验；通路归属来自离线富集条目。",
+        "statistics": _cap("pathway_statistics"),
         "interpretation": (
-            f"通路「{term}」内基因在{(' ' + contrast_human + ' ') if contrast_human else '各对比'}方向下的平均丰度结构，"
-            "与对应富集条目配套阅读。"
+            _cap("pathway_interp_prefix")
+            + str(term)
+            + _cap("pathway_interp_mid")
+            + (
+                " " + contrast_human + " "
+                if contrast_human
+                else _cap("pathway_interp_all_contrasts")
+            )
+            + _cap("pathway_interp_suffix")
+            + _cap("pathway_interp_tail")
         ),
-        "boundary": BOUNDARY_MIXED,
+        "boundary": boundary_mixed(),
         "paper_ref": _paper_ref_line(file_name, context),
     }
 
@@ -1110,24 +2258,23 @@ def _caption_pathway_heatmap(file_name: str, title: str, record: Dict[str, Any],
 def _caption_upset(file_name: str, title: str, record: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     th = _resolve_thresholds(record, context)
     return {
-        "title": title or PLOT_TYPE_TITLES["mechanism_dep_overlap_upset"],
+        "title": title or _plot_title("mechanism_dep_overlap_upset"),
         "panels": [
-            "UpSet 式汇总：底部条形为各对比的差异数，主区条形为交集/独有蛋白数。",
-            "数字标注：各集合的确切蛋白数。",
+            _cap("upset_panel_summary"),
+            _cap("upset_panel_labels"),
         ],
-        "reading": (
-            "先读底部各对比总量，再读主区：独有集合说明对比特异性，交集说明跨对比共享的差异机制。"
-        ),
+        "reading": _cap("upset_reading"),
         "thresholds": [
             _threshold_sentence(th),
             _sample_line(context),
         ],
-        "statistics": f"基于各对比 limma 双侧检验 + {_th_fdr(th)} 校正后的差异蛋白集合，再取交集/差集。",
-        "interpretation": (
-            "衡量候选机制在各对比间的共享与特异程度；交集大说明机制跨对比稳定，"
-            "独有集大说明该对比携带独特信号。"
+        "statistics": (
+            _cap("upset_statistics_prefix")
+            + _th_fdr(th)
+            + _cap("upset_statistics_suffix")
         ),
-        "boundary": BOUNDARY_MATRIX,
+        "interpretation": _cap("upset_interp_a") + _cap("upset_interp_b"),
+        "boundary": boundary_matrix(),
         "paper_ref": _paper_ref_line(file_name, context),
     }
 
@@ -1138,32 +2285,37 @@ def _caption_contrast_evidence(file_name: str, title: str, record: Dict[str, Any
     meta = record.get("caption_metadata") or {}
     omitted = [str(x) for x in (meta.get("omitted_panels") or [])]
     omitted_names = {
-        "enrichment_terms": "富集条目子面板",
-        "group_means": "组均值热图子面板",
-        "volcano_evidence": "火山证据子面板",
-        "top_proteins": "核心差异蛋白子面板",
+        "enrichment_terms": "ce_panel_enrichment_terms",
+        "group_means": "ce_panel_group_means",
+        "volcano_evidence": "ce_panel_volcano",
+        "top_proteins": "ce_panel_top_proteins",
     }
     panels = [
-        f"单对比综合证据面板（{contrast}）：并排展示该对比的差异蛋白方向、组均值与富集要点。",
-        "各子面板的坐标与颜色含义与对应单图一致（火山/均值/富集）。",
+        _cap("ce_panel_prefix") + str(contrast) + _cap("ce_panel_suffix"),
+        _cap("ce_panel_consistency"),
     ]
     if omitted:
-        names = "、".join(omitted_names.get(key, key) for key in omitted)
-        panels.append(f"面板省略说明：{names} 因该对比无匹配数据未绘制，不使用灰字占位图。")
+        names = _cap("punct_enum").join(
+            _cap(omitted_names[key]) if key in omitted_names else key for key in omitted
+        )
+        panels.append(
+            _cap("panel_omitted_prefix") + names + _cap("panel_omitted_suffix_ce")
+        )
     return {
-        "title": title or f"{contrast} 综合证据面板",
+        "title": title or str(contrast) + _cap("ce_title_suffix"),
         "panels": panels,
-        "reading": (
-            "把同一对比的差异证据与富集解释放进一张图，先读差异方向，再读富集条目；"
-            "两列证据方向冲突时应回到对应单图核对。"
-        ),
+        "reading": _cap("ce_reading_a") + _cap("ce_reading_b"),
         "thresholds": [
             _threshold_sentence(th),
             _sample_line(context),
         ],
-        "statistics": f"子图沿用 limma 双侧检验（{_th_fdr(th)} 校正）与超几何富集检验结果，不引入新的检验。",
-        "interpretation": f"{contrast} 的差异与机制证据整合视图；与该对比火山图和富集气泡图结论应一致。",
-        "boundary": BOUNDARY_MIXED,
+        "statistics": (
+            _cap("ce_statistics_prefix")
+            + _th_fdr(th)
+            + _cap("ce_statistics_suffix")
+        ),
+        "interpretation": str(contrast) + _cap("ce_interp_suffix"),
+        "boundary": boundary_mixed(),
         "paper_ref": _paper_ref_line(file_name, context),
     }
 
@@ -1178,21 +2330,24 @@ def _caption_generic(
     th = _resolve_thresholds(record, context)
     category = _clean_cell(record.get("category"))
     manifest_caption = _clean_cell(record.get("caption"))
-    boundary = BOUNDARY_ENRICHMENT if category.startswith("Enrichment") else BOUNDARY_MATRIX
-    interp = "本图的面板结构以图内轴标签与图例为准；数字口径见上方阈值行，并与主报告对应任务章节阅读。"
+    boundary = boundary_enrichment() if category.startswith("Enrichment") else boundary_matrix()
+    interp = _cap("generic_interp")
     if manifest_caption:
-        interp += f"figure_manifest 记录：{manifest_caption}"
+        interp += _cap("manifest_caption_label") + manifest_caption
     return {
         "title": title or _clean_cell(record.get("plot_type")) or file_name,
         "panels": [
-            f"面板结构以图内轴标签与图例为准（figure_manifest 类别：{category or '未记录'}）。"
+            _cap("generic_panel_prefix")
+            + (category or _cap("not_recorded"))
+            + _cap("punct_paren_close")
+            + _cap("punct_period"),
         ],
-        "reading": "按图内轴标签与图例读取；数值通道与显著性含义见阈值与统计口径行。",
+        "reading": _cap("generic_reading"),
         "thresholds": [
             _threshold_sentence(th),
             _sample_line(context),
         ],
-        "statistics": "统计口径以生成该图的 plot 函数记录为准（见 figure_manifest.json 该条目）。",
+        "statistics": _cap("generic_statistics"),
         "interpretation": interp,
         "boundary": boundary,
         "paper_ref": _paper_ref_line(file_name, context),
@@ -1241,16 +2396,21 @@ def _fallback_title(record: Optional[Dict[str, Any]], file_name: str) -> str:
     if record:
         plot_type = _clean_cell(record.get("plot_type"))
         if plot_type in PLOT_TYPE_TITLES:
-            return PLOT_TYPE_TITLES[plot_type]
+            return _plot_title(plot_type)
         if plot_type == "volcano":
-            return f"{_human_contrast(_volcano_contrast(file_name))} 火山图"
+            return _human_contrast(_volcano_contrast(file_name)) + _cap("volcano_title_suffix")
         if plot_type == "enrichment_bubble":
             info = _parse_enrichment_bubble_name(file_name)
-            return f"{info.get('database', '').upper()} {info.get('contrast', '')} 富集气泡图"
+            return (
+                info.get("database", "").upper()
+                + " "
+                + info.get("contrast", "")
+                + _cap("enrichment_bubble_title_fallback_suffix")
+            )
         if plot_type == "mechanism_pathway_gene_heatmap":
             term_match = re.search(r"`([^`]+)`", _clean_cell(record.get("caption")))
             if term_match:
-                return f"通路基因热图：{term_match.group(1)}"
+                return _cap("pathway_heatmap_title_prefix") + str(term_match.group(1))
     return os.path.splitext(os.path.basename(file_name))[0]
 
 
@@ -1280,18 +2440,18 @@ def build_caption_records(context: Dict[str, Any], key_figures: Sequence[Any]) -
             cap = _caption_generic(file_name, title, record, context)
         if not _clean_cell(cap.get("title")):
             cap["title"] = _fallback_title(record, file_name)
-        cap["no"] = f"图{idx}"
+        cap["no"] = _cap("figure_no_prefix") + str(idx)
         cap["file_name"] = os.path.basename(file_name)
         cap["plot_type"] = plot_type
         # empty-cell discipline: every narrative field must carry text
         for field in ("panels", "reading", "thresholds", "statistics", "interpretation", "boundary", "paper_ref"):
             value = cap.get(field)
             if isinstance(value, list):
-                cap[field] = [(_clean_cell(v) or "figure_manifest 未记录该信息。") for v in value]
+                cap[field] = [_clean_cell(v) or _cap("not_recorded_info") for v in value]
                 if not cap[field]:
-                    cap[field] = ["figure_manifest 未记录该信息。"]
+                    cap[field] = [_cap("not_recorded_info")]
             elif not _clean_cell(value):
-                cap[field] = "figure_manifest 未记录该信息。"
+                cap[field] = _cap("not_recorded_info")
         records.append(cap)
     return records
 
@@ -1303,19 +2463,45 @@ def _overview_lines(context: Dict[str, Any]) -> List[str]:
     logfc = _to_float(diff.get("logfc_thresh"))
     fdr = _clean_cell(diff.get("fdr_method")) or "BH"
     if pval is not None and logfc is not None:
-        lines.append(f"差异分析默认口径：adj.P.Val < {_fmt_num(pval)}；|log2FC| ≥ {_fmt_num(logfc)}（{fdr} 校正，limma 双侧检验）。")
+        lines.append(
+            _cap("overview_default_prefix")
+            + _fmt_num(pval)
+            + _cap("punct_semicolon")
+            + "|log2FC| ≥ "
+            + _fmt_num(logfc)
+            + _cap("punct_paren_open")
+            + fdr
+            + _cap("overview_default_suffix")
+        )
     elif pval is not None or logfc is not None:
-        lines.append(f"差异分析默认口径（部分记录）：adj.P.Val < {_fmt_num(pval) if pval is not None else '未记录'}；|log2FC| ≥ {_fmt_num(logfc) if logfc is not None else '未记录'}（{fdr} 校正）。")
+        lines.append(
+            _cap("overview_partial_prefix")
+            + (_fmt_num(pval) if pval is not None else _cap("not_recorded"))
+            + _cap("punct_semicolon")
+            + "|log2FC| ≥ "
+            + (_fmt_num(logfc) if logfc is not None else _cap("not_recorded"))
+            + _cap("punct_paren_open")
+            + fdr
+            + _cap("overview_partial_suffix")
+        )
     else:
-        lines.append("差异分析默认口径：analysis_design 未记录阈值，逐图阈值见各图注的阈值行。")
+        lines.append(_cap("overview_missing"))
     lines.append(_sample_line(context))
     group_col = context.get("group_col")
     if group_col:
-        lines.append(f"主分组列：{group_col}（来自 analysis_design）。")
+        lines.append(
+            _cap("main_group_col_prefix")
+            + str(group_col)
+            + _cap("main_group_col_suffix")
+        )
     generated_at = context.get("generated_at")
     lines.append(
-        "数字来源：figure_manifest.json（含逐图 caption_metadata/params）与 evaluation_evidence 证据表"
-        + (f"；manifest 生成时间 {generated_at}。" if generated_at else "。")
+        _cap("numbers_source")
+        + (
+            _cap("manifest_time_prefix") + str(generated_at) + _cap("punct_period")
+            if generated_at
+            else _cap("punct_period")
+        )
     )
     return lines
 
@@ -1323,26 +2509,26 @@ def _overview_lines(context: Dict[str, Any]) -> List[str]:
 def render_figures_captions_md(dataset: str, records: Sequence[Dict[str, Any]], context: Dict[str, Any]) -> str:
     lines: List[str] = []
     lines.extend([
-        f"# {dataset} 发表级图注",
+        f"# {dataset}" + _cap("captions_doc_title_suffix"),
         "",
-        "本文档为每张关键图提供发表级中文图注，由 run 内 `figure_manifest.json`、`analysis_design` 与 `evaluation_evidence` 证据表自动生成；蛋白、通路与统计术语保留英文原文。",
+        _cap("captions_doc_intro"),
         "",
-        "## 阈值与统计总览",
+        _cap("heading_thresholds_overview"),
         "",
     ])
     for line in _overview_lines(context):
         lines.append(f"- {line}")
     lines.extend([
         "",
-        "## 证据边界图例",
+        _cap("heading_boundary_legend"),
         "",
-        f"- {BOUNDARY_MATRIX}",
-        f"- {BOUNDARY_ENRICHMENT}",
-        "- extension：启发式推测和后续验证建议只作为可检验假设，不进入图注数字。",
+        f"- {boundary_matrix()}",
+        f"- {boundary_enrichment()}",
+        _cap("boundary_extension"),
         "",
-        "## 图注目录",
+        _cap("heading_caption_index"),
         "",
-        "| 图号 | 标题 | 图片文件 |",
+        _cap("index_header"),
         "|---|---|---|",
     ])
     for record in records:
@@ -1352,22 +2538,22 @@ def render_figures_captions_md(dataset: str, records: Sequence[Dict[str, Any]], 
         lines.extend([
             f"## {record['no']} {record['title']}",
             "",
-            f"- 图片文件：`{record['file_name']}`",
-            "- 面板说明：",
+            _cap("label_image_file") + f"`{record['file_name']}`",
+            _cap("label_panels"),
         ])
         for panel in record["panels"]:
             lines.append(f"  - {panel}")
         lines.extend([
-            f"- 如何阅读：{record['reading']}",
-            "- 阈值与样本量：",
+            _cap("label_reading") + f"{record['reading']}",
+            _cap("label_thresholds"),
         ])
         for threshold in record["thresholds"]:
             lines.append(f"  - {threshold}")
         lines.extend([
-            f"- 统计口径：{record['statistics']}",
-            f"- 一句话解读：{record['interpretation']}",
-            f"- 证据边界：{record['boundary']}",
-            f"- 对应原论文图：{record['paper_ref']}",
+            _cap("label_statistics") + f"{record['statistics']}",
+            _cap("label_interpretation") + f"{record['interpretation']}",
+            _cap("label_boundary") + f"{record['boundary']}",
+            _cap("label_paper_ref") + f"{record['paper_ref']}",
             "",
         ])
     return "\n".join(lines).rstrip() + "\n"
@@ -1377,14 +2563,16 @@ def render_brief_figures_md(
     dataset: str,
     records: Sequence[Dict[str, Any]],
     links: Sequence[str],
-    title_suffix: str = "关键图表嵌入版",
+    title_suffix: str = "",
     intro: str = "",
 ) -> str:
-    lines: List[str] = [f"# {dataset} {title_suffix}", ""]
-    lines.append(intro or (
-        "每张图只保留图号、标题与嵌图；逐图的面板说明、阈值、统计口径、解读与证据边界见 "
-        "`figures_captions.md` 对应小节。"
-    ))
+    lines: List[str] = [
+        f"# {dataset} " + (title_suffix or _cap("brief_title_suffix_default")),
+        "",
+    ]
+    lines.append(
+        intro or (_cap("brief_intro_default_a") + _cap("brief_intro_default_b"))
+    )
     lines.append("")
     for record, link in zip(records, links):
         heading = f"{record['no']} {record['title']}"
@@ -1393,7 +2581,9 @@ def render_brief_figures_md(
             "",
             f"![{heading}]({link})",
             "",
-            f"图注详见 `figures_captions.md` §{record['no']}。",
+            _cap("brief_pointer_prefix")
+            + f"`figures_captions.md` §{record['no']}"
+            + _cap("punct_period"),
             "",
         ])
     return "\n".join(lines).rstrip() + "\n"
@@ -1465,11 +2655,8 @@ def write_run_caption_assets(
         dataset,
         records,
         abs_links,
-        title_suffix="关键图表本机预览版",
-        intro=(
-            "本文件使用本机绝对路径，主要用于解决某些 Markdown 预览器不能解析相对图片路径的问题；"
-            "对外发送时优先使用 `figures.md`。逐图图注见 `figures_captions.md`。"
-        ),
+        title_suffix=_cap("local_title_suffix"),
+        intro=_cap("local_intro_a") + _cap("local_intro_b"),
     )
 
     written: Dict[str, str] = {
@@ -1518,9 +2705,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if not name:
                 continue
             stem = os.path.splitext(name)[0]
-            title = PLOT_TYPE_TITLES.get(stem)
+            title = _plot_title(stem)
             if stem.endswith("_volcano_plot"):
-                title = f"{_human_contrast(stem[: -len('_volcano_plot')])} 火山图"
+                title = _human_contrast(
+                    stem[: -len("_volcano_plot")]
+                ) + _cap("volcano_title_suffix")
             key_figures.append((name, title or ""))
 
     result = write_run_caption_assets(

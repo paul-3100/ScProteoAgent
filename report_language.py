@@ -274,6 +274,24 @@ CORE = {
     "analysis_conditions": ("本次分析条件", "Analysis Conditions for This Run"),
     "figure_index": ("可复核图表索引", "Reproducible Figure Index"),
     "qc_semantics": ("缺失与检出口径", "Missingness and Detection Conventions"),
+    # reader-facing tokens the report self-check looks for. These are wording probes, so
+    # each language lists the words that actually appear in that language's report.
+    "tok_core_contrast_table": ("核心对比表", "Core contrast table"),
+    "tok_contrast_header": ("对比", "Contrast"),
+    "tok_candidate_header": ("候选", "Candidate"),
+    "tok_representative_header": ("代表蛋白", "Representative protein"),
+    "tok_table_significance": ("通过筛选|显著", "passed screening|significant"),
+    "tok_current_matrix": ("当前矩阵", "current matrix"),
+    "tok_offline_enrichment": ("离线富集", "offline enrichment"),
+    "tok_external_annotation": ("外部注释", "external annotation"),
+    "tok_heuristic": ("启发式推测", "heuristic inference"),
+    "tok_followup": ("后续验证建议", "follow-up validation"),
+    "tok_boundary_word": ("结论边界", "conclusion boundaries"),
+    "note_historical_check_names": (
+        "注：chinese_* 是历史检查名，判定的是当前报告语言对应的标题与用词。",
+        "Note: the chinese_* names are historical check identifiers; each one is evaluated "
+        "against the headings and wording of the active report language.",
+    ),
 }
 register("core", CORE)
 
@@ -293,3 +311,8 @@ def story_headings(lang=None):
 def reader_headings(lang=None):
     """Canonical plus story headings for the language (used to strip sections)."""
     return list(canonical_headings(lang).values()) + story_headings(lang)
+
+
+def t_list(key, **fmt):
+    """Template split on the pipe character, for multi-word wording probes."""
+    return tuple(part for part in t(key, **fmt).split("|") if part)

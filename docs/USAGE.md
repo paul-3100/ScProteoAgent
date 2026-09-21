@@ -21,6 +21,24 @@ python main_agent.py -i <dataset-dir> -rf <runs-folder> [--name NAME] [--design 
 The run directory is named `<dataset>_<model>_<YYYYMMDD>` for the eleven benchmark studies and
 `Agent-<model>-<name>-<timestamp>` for any other dataset name.
 
+## Report language and continuation
+
+Two optional flags control the report language and follow-up runs.
+
+| Flag | Effect |
+|---|---|
+| `--report-language {zh,en}` | Report language. Default `zh`; any other value fails argument parsing before the agent starts. |
+| `--continue-from <run_folder>` | Continue a previous run: inherits its report language and reuses its saved design and normalized matrix. |
+
+Resolution order is explicit `--report-language` > the language recorded by
+`--continue-from` > `zh`. The task text is never inspected. The resolved language and its
+source are written to `run_metadata.json` and `parameters.json`, and reused artefacts are
+listed under `continued_artifacts` with their source paths and both hashes.
+
+English output is not a translation of the Chinese report: the prompts, the headings, the
+deterministic prose and the captions have English templates of their own. Where a template is
+missing, the report carries a `MISSING_EN_TEMPLATE:<key>` marker instead of Chinese text.
+
 ## Inputs
 
 * `ProteinQuant.csv` — proteins in rows, sample columns as in `SampleInfo.csv`, annotation columns

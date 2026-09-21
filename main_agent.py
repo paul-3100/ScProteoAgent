@@ -8,6 +8,7 @@ import argparse
 import ast
 import copy
 import csv
+import hashlib
 import json
 import os
 import re
@@ -24,6 +25,7 @@ except Exception:  # pragma: no cover - image validation is best effort without 
 
 from config import Config, get_config, set_config
 import figure_captions
+import report_language as _report_language
 from evidence_utils import append_evidence
 # The agent stack (langchain, langgraph, the provider clients, the tool registry and the prompt
 # library) is imported by `_load_runtime_dependencies()` at the start of a real run instead of at
@@ -1869,7 +1871,7 @@ def _counting_convention_text(run_folder: str) -> str:
         logfc_thresh = float(diff.get("logfc_thresh") or 0.25)
     except Exception:
         logfc_thresh = 0.25
-    return f"adj.P<{p_thresh:g} 且 |logFC|>{logfc_thresh:g}"
+    return tm("convention_threshold", p=p_thresh, l=logfc_thresh)
 
 
 def _display_convention_notes(run_folder: str) -> List[Tuple[str, str, str]]:
@@ -2026,7 +2028,7 @@ def _build_story_executive_summary(run_folder: str) -> str:
         if delta:
             module_bits.append(f"{row.get('module')} Δ={delta}")
     lines = [
-        f"## {CANONICAL_REPORT_HEADINGS['executive']}",
+        f"## {canonical_report_headings()['executive']}",
         f"- `{dataset}` 的核心问题是：{metadata.get('story_title', '当前矩阵核心对比故事')}；本报告先给结论和核心表格，再把完整证据放入附录。",
         f"- current_matrix 核心对比：{main_contrast.get('display_contrast')}，{main_change_phrase}。",
     ]
@@ -2042,7 +2044,7 @@ def _build_story_scoring_first_screen(run_folder: str) -> str:
     if not _core_story_rows(run_folder, "contrast"):
         return ""
     lines = [
-        f"## {CANONICAL_REPORT_HEADINGS['scoring']}",
+        f"## {canonical_report_headings()['scoring']}",
         "本节只放用户最需要先看到的核心表格：核心对比、代表蛋白和模块证据。完整文件路径、coverage table 与日志放在证据附录。",
         "",
     ]
@@ -2066,7 +2068,7 @@ def _build_story_main_findings(run_folder: str) -> str:
     module_rows = _core_story_rows(run_folder, "module")
     enrichment_bits = _enrichment_summary_lines(run_folder, metadata.get("dataset") or _get_dataset_name(run_folder), limit=5)
     lines = [
-        f"## {CANONICAL_REPORT_HEADINGS['findings']}",
+        f"## {canonical_report_headings()['findings']}",
         f"### 主线判断：{metadata.get('story_title', '当前矩阵核心对比')}",
         f"{metadata.get('executive_claim', '本节按数据集核心问题组织结果，而不是按工具调用顺序罗列证据。')}",
     ]
@@ -2115,7 +2117,7 @@ def _first_story_row(rows: List[Dict[str, Any]], contains: List[str]) -> Dict[st
 
 def _contrast_sentence(row: Dict[str, Any]) -> str:
     if not row:
-        return "当前矩阵未生成对应核心对比，结论只能保持低置信度。"
+        return tm("contrast_missing")
     group_a, group_b = _display_groups_from_contrast(row)
     nsig = int(_float_or_none(row.get("n_sig")) or 0)
     top_up = _brief_gene_list(row.get("top_up_display_group_a"), 4)
@@ -2124,21 +2126,22 @@ def _contrast_sentence(row: Dict[str, Any]) -> str:
         tested = int(_float_or_none(row.get("n_tested")) or 0)
         share = ""
         if tested > 0:
-            share = "（占表内蛋白 %d 的 %.2f%%）" % (tested, 100.0 * nsig / tested)
+            share = tm("contrast_share", tested=tested, share=100.0 * nsig / tested)
         # objective reporting only: the number and its share of the tested table. Whether that
         # supports a group-level difference depends on effect sizes, functional sets and design,
         # and must not be inferred from a count threshold here.
-        strength = "%d 个蛋白通过筛选口径%s；" % (nsig, share)
-        return (
-            f"{_human_contrast_label(row.get('display_contrast'))} 的对比结果为：{strength}"
-            f"{group_a} 较高 {row.get('n_up_display_group_a', 0)} 个，{group_b} 较高 {row.get('n_down_display_group_a', 0)} 个；"
-            f"代表蛋白包括 {group_a} 侧 {top_up or '未列出'}，{group_b} 侧 {top_down or '未列出'}。"
-        )
-    return (
-        f"{_human_contrast_label(row.get('display_contrast'))} 在当前阈值下没有稳定显著差异蛋白；"
-        f"因此只把按效应量排序的候选变化作为探索性线索，{group_a} 较高候选为 {top_up or '未列出'}，"
-        f"{group_b} 较高候选为 {top_down or '未列出'}。"
-    )
+        strength = tm("contrast_strength", nsig=nsig, share=share)
+        return tm(
+            "contrast_positive",
+            contrast=_human_contrast_label(row.get("display_contrast")),
+            strength=strength, group_a=group_a, group_b=group_b,
+            up=row.get("n_up_display_group_a", 0), down=row.get("n_down_display_group_a", 0),
+            top_up=top_up or tm("not_listed"), top_down=top_down or tm("not_listed"))
+    return tm(
+        "contrast_negative",
+        contrast=_human_contrast_label(row.get("display_contrast")),
+        group_a=group_a, group_b=group_b,
+        top_up=top_up or tm("not_listed"), top_down=top_down or tm("not_listed"))
 
 
 def _candidate_bits_for_genes(candidate_rows: List[Dict[str, Any]], genes: List[str], limit: int = 6) -> List[str]:
@@ -2404,7 +2407,7 @@ def _pispa_task_four_lines(
     c2c3_modules = _rows_for_display_contrast(module_rows, "Cluster_2_vs_Cluster_3")
     group_a, group_b = _display_groups_from_contrast(c2c3_contrast)
     lines = [
-        f"## {CLAUDE_STYLE_REPORT_HEADINGS[5]}",
+        f"## {story_report_headings()[5]}",
         (
             f"结论先行：{group_a} 与 {group_b} 不是完全等价的对照背景。"
             f"{_contrast_sentence(c2c3_contrast)} 这说明对照群体内部仍有可解释的蛋白组状态分层。"
@@ -2480,7 +2483,7 @@ def _build_pispa_claude_style_report(report_body: str, run_folder: str) -> str:
     figure_summary = " ".join(visualization_lines[:3]) or "图册索引见 visualize_results/figure_index.md。"
 
     lines: List[str] = [
-        f"## {CLAUDE_STYLE_REPORT_HEADINGS[0]}",
+        f"## {story_report_headings()[0]}",
         "- Cluster 1 是本数据集中最明确的迁移相关状态；Cluster × Type 结构和 C1 相对 C2/C3 的核心对比共同支持这一点，证据层级为 `current_matrix`，置信度为中等。",
         "- 迁移机制不是单个蛋白的故事，而是“分泌/ECM 重塑 + 局部骨架快速周转 + 黏附复合体调节”的组合轴；Rho GTPase 调控、ERM 膜-皮质连接、肌球蛋白收缩和 talin-vinculin 黏附斑提供同向证据。",
         "- Cluster 2 与 Cluster 3 不能合并成一个均一对照；C2/C3 的差异提示对照群体内部已有翻译、黏附或细胞状态分层，需要在解释迁移轴时单独标出。",
@@ -2490,12 +2493,12 @@ def _build_pispa_claude_style_report(report_body: str, run_folder: str) -> str:
 
     lines.extend([
         "",
-        f"## {CLAUDE_STYLE_REPORT_HEADINGS[1]}",
+        f"## {story_report_headings()[1]}",
         "本轮使用包内 `ProteinQuant.csv` 与 `SampleInfo.csv` 生成当前矩阵证据；分组、缺失和样本结构先由 `group_composition_qc.csv`、PCA/UMAP 与图册索引确认，再进入差异和模块解释。",
         f"- 分组与 QC 摘要：{group_summary}。",
         f"- 结构图证据：{figure_summary}",
         "",
-        f"## {CLAUDE_STYLE_REPORT_HEADINGS[2]}",
+        f"## {story_report_headings()[2]}",
         "结论先行：Cluster 1 是迁移相关状态的主要候选，Cluster 2/3 则是带有内部差异的对照背景。下表只保留最能回答任务的问题、方向和代表证据，完整差异表见资产清单。",
         "",
     ])
@@ -2506,7 +2509,7 @@ def _build_pispa_claude_style_report(report_body: str, run_folder: str) -> str:
         "",
         f"简要解读：{_contrast_sentence(main_contrast)} 这一结果说明 Cluster 1 与迁移状态相关，但它仍是抽样矩阵中的统计对应，不等同于因果验证。",
         "",
-        f"## {CLAUDE_STYLE_REPORT_HEADINGS[3]}",
+        f"## {story_report_headings()[3]}",
         "结论先行：迁移 Cluster 的功能解释应以机制链为中心，而不是把所有通路名铺开。当前最有价值的链条是 Rho GTPase 调控 -> ERM 膜-皮质连接 -> 肌球蛋白收缩 -> talin/vinculin 黏附 -> 肌动蛋白骨架重排。",
         "",
     ])
@@ -2520,7 +2523,7 @@ def _build_pispa_claude_style_report(report_body: str, run_folder: str) -> str:
         lines.extend(enrichment_table)
     lines.extend([
         "",
-        f"## {CLAUDE_STYLE_REPORT_HEADINGS[4]}",
+        f"## {story_report_headings()[4]}",
         "结论先行：EZR/MSN/MYL9/CDC42/RAC1/RHOA/TLN1/VCL/FLNA/ACTN1/ITGB1 等候选应按检出、方向、logFC 与 FDR 分层呈现；不可检出或未显著项目必须作为边界写清。",
         "",
     ])
@@ -2536,7 +2539,7 @@ def _build_pispa_claude_style_report(report_body: str, run_folder: str) -> str:
     lines.extend(_pispa_task_four_lines(c2c3_contrast, candidate_rows, module_rows))
     lines.extend([
         "",
-        f"## {CLAUDE_STYLE_REPORT_HEADINGS[6]}",
+        f"## {story_report_headings()[6]}",
         "### 当前矩阵支持",
         "- Cluster 1 与迁移表型的对应关系可以由 Cluster-Type 结构、核心对比、候选蛋白和模块分数共同支持。",
         "- C2/C3 内部差异是 current_matrix 中真实需要解释的结构，不能被迁移主线完全覆盖。",
@@ -2549,7 +2552,7 @@ def _build_pispa_claude_style_report(report_body: str, run_folder: str) -> str:
         "- 用免疫染色或靶向蛋白质组验证 EZR/MSN/MYL9/TLN1/VCL 等候选在迁移前沿或黏附结构中的定位。",
         "- 将 PiSPA 迁移 readout 与细胞形态、速度或扰动实验联动，验证模块分数是否对应真实迁移能力。",
         "",
-        f"## {CLAUDE_STYLE_REPORT_HEADINGS[7]}",
+        f"## {story_report_headings()[7]}",
         "本 run 同时生成纯文本资产清单与嵌图版 Markdown，便于合作者快速查看图表而不必翻完整日志。",
         "",
         "| 资产 | 证据层级 | 用途 |",
@@ -2564,7 +2567,7 @@ def _build_pispa_claude_style_report(report_body: str, run_folder: str) -> str:
         "| `visualize_results/figure_index.md` | current_matrix | PCA/UMAP、热图、候选蛋白和模块图册索引 |",
         "| `analysis_design.used.yaml` 与 `evidence_ledger.jsonl` | audit trail | 记录分组设计和证据来源标签 |",
         "",
-        f"## {CLAUDE_STYLE_REPORT_HEADINGS[8]}",
+        f"## {story_report_headings()[8]}",
         "- `current_matrix`：本报告的差异、候选、模块、QC 和图册均来自当前评测矩阵；它们能支持方向和优先级，不能单独证明因果。",
         "- `offline_enrichment`：只作为本地 GO/KEGG/Reactome 的通路解释；未通过 FDR 的条目只能写作探索性提示。",
         "- `external_annotation`：PiSPA 正文不使用疾病外部注释，不把背景知识写成当前矩阵结论。",
@@ -2595,10 +2598,10 @@ def _story_module_rows_for_claim(module_rows: List[Dict[str, Any]], claim_id: st
 
 
 def _story_task_heading(index: int, title: str) -> str:
-    title = _short_story_value(title, 90) or "核心对比"
+    title = _short_story_value(title, 90) or tm("story_task_default_title")
     cn_nums = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
     label = cn_nums[index - 1] if 0 < index <= len(cn_nums) else str(index)
-    return f"{index + 1}. 任务{label}：{title}"
+    return tm("story_task_heading", n=index + 1, label=label, index=index, title=title)
 
 
 def _generic_story_key_summary(run_folder: str) -> List[str]:
@@ -2608,7 +2611,8 @@ def _generic_story_key_summary(run_folder: str) -> List[str]:
     module_rows = _core_story_rows(run_folder, "module")
     dataset = metadata.get("dataset") or _get_dataset_name(run_folder)
     lines = [
-        f"- {dataset} 的核心问题是：{metadata.get('story_title', '当前矩阵核心对比故事')}；结论以 current_matrix 为主，离线富集和推测只作解释层。"
+        tm("key_summary_opening", dataset=dataset,
+           story_title=metadata.get("story_title", tm("key_summary_default_story")))
     ]
     for row in contrast_rows[:3]:
         group_a, group_b = _display_groups_from_contrast(row)
@@ -2618,19 +2622,22 @@ def _generic_story_key_summary(run_folder: str) -> List[str]:
         top_up = _brief_gene_list(row.get("top_up_display_group_a"), 2)
         top_down = _brief_gene_list(row.get("top_down_display_group_a"), 2)
         evidence = "；".join(bit for bit in [
-            f"{group_a}较高：{top_up}" if top_up else "",
-            f"{group_b}较高：{top_down}" if top_down else "",
+            tm("evidence_up", group=group_a, genes=top_up) if top_up else "",
+            tm("evidence_up", group=group_b, genes=top_down) if top_down else "",
         ] if bit)
         if not evidence:
-            evidence = "代表蛋白不足，需按效应量和候选表保守解读"
-        lines.append(
-            f"- {row.get('claim_title') or _human_contrast_label(row.get('display_contrast'))}："
-            f"{_human_contrast_label(row.get('display_contrast'))} 中 n_sig={nsig}（{_counting_convention_text(run_folder)}），"
-            f"{group_a}较高={up}、{group_b}较高={down}；{evidence}。"
-        )
+            evidence = tm("evidence_insufficient")
+        lines.append(tm(
+            "key_summary_contrast",
+            claim=row.get("claim_title") or _human_contrast_label(row.get("display_contrast")),
+            contrast=_human_contrast_label(row.get("display_contrast")),
+            nsig=nsig, convention=_counting_convention_text(run_folder),
+            up=tm("evidence_up_short", group=group_a) + "=" + str(up),
+            down=tm("evidence_up_short", group=group_b) + "=" + str(down),
+            evidence=evidence))
     if candidate_rows:
         bits = [_candidate_key_value(row) for row in candidate_rows[:3]]
-        lines.append(f"- 代表蛋白层面优先关注 {'；'.join(bits)}；未达 FDR 的候选只作为方向线索。")
+        lines.append(tm("key_summary_candidates", bits="；".join(bits)))
     informative_modules = [
         row for row in module_rows
         if _float_or_none(row.get("module_delta_group_a_minus_group_b")) is not None
@@ -2640,8 +2647,9 @@ def _generic_story_key_summary(run_folder: str) -> List[str]:
             f"{_module_display_name(row.get('module'))} Δ={_fmt_story_number(row.get('module_delta_group_a_minus_group_b'))}"
             for row in informative_modules[:3]
         ]
-        lines.append(f"- 模块层面显示 {'；'.join(bits)}；模块 Δ 是平均分差，不替代差异蛋白 FDR。")
-    lines.append(f"- 边界：{metadata.get('boundary', '所有外推均需标注 evidence layer，不能替代当前矩阵结论。')}")
+        lines.append(tm("key_summary_modules", bits="；".join(bits)))
+    lines.append(tm("key_summary_boundary",
+                    boundary=metadata.get("boundary", tm("boundary_default"))))
     return lines[:6]
 
 
@@ -2655,7 +2663,7 @@ def _generic_task_table_lines(
     group_a, group_b = _display_groups_from_contrast(contrast_row)
     candidates = _story_candidate_rows_for_claim(candidate_rows, claim_id, limit=6)
     modules = _story_module_rows_for_claim(module_rows, claim_id, limit=5)
-    convention_text = convention_text or "adj.P<0.05 且 |logFC|>0.25"
+    convention_text = convention_text or tm("convention_threshold", p=0.05, l=0.25)
     display_contrast = _short_story_value(contrast_row.get("display_contrast"), 120)
     source_contrast = _short_story_value(contrast_row.get("source_contrast"), 120)
     inverted_display = bool(
@@ -2663,30 +2671,30 @@ def _generic_task_table_lines(
         and display_contrast and source_contrast and display_contrast != source_contrast
     )
     lines = [
-        "### 核心对比表",
-        "| 对比 | n_sig | A组较高 | B组较高 | 代表蛋白 | 统计口径 |",
-        "|---|---:|---:|---:|---|---|",
+        tm("task_table_title"),
+        tm("task_table_header"),
+        tm("task_table_rule"),
         (
             f"| {_fmt_cell(_human_contrast_label(contrast_row.get('display_contrast')), 80)} | "
             f"{_fmt_story_number(contrast_row.get('n_sig')) or '0'} | "
             f"{_fmt_story_number(contrast_row.get('n_up_display_group_a')) or '0'} | "
             f"{_fmt_story_number(contrast_row.get('n_down_display_group_a')) or '0'} | "
             f"{_fmt_cell('; '.join(bit for bit in [_brief_gene_list(contrast_row.get('top_up_display_group_a'), 4), _brief_gene_list(contrast_row.get('top_down_display_group_a'), 4)] if bit), 150)} | "
-            f"n_sig 口径：{convention_text}；logFC/adj.P.Val 来自当前差异表 |"
+            f"{tm('task_table_note', convention=convention_text)} |"
         ),
         "",
     ]
     if candidates:
         lines.extend([
-            "### 代表蛋白表",
-            "| 候选蛋白 | 当前矩阵方向 | logFC | P.Value | adj.P.Val/FDR | 解读 |",
-            "|---|---|---:|---:|---:|---|",
+            tm("candidate_table_title"),
+            tm("candidate_table_header"),
+            tm("candidate_table_rule"),
         ])
         for row in candidates:
             lines.append(
                 f"| {_fmt_cell(row.get('candidate', ''))} | {_fmt_cell(_story_direction_zh(row))} | "
                 f"{_fmt_story_number(row.get('logFC_display'))} | {_fmt_story_number(row.get('P.Value'))} | "
-                f"{_fmt_story_number(row.get('adj.P.Val'))} | {_fmt_cell(row.get('interpretation', '') or '同任务候选，需结合 FDR 和效应量判断优先级。', 130)} |"
+                f"{_fmt_story_number(row.get('adj.P.Val'))} | {_fmt_cell(row.get('interpretation', '') or tm('candidate_default_reading'), 130)} |"
             )
         if inverted_display:
             lines.append(
@@ -2697,20 +2705,20 @@ def _generic_task_table_lines(
         lines.append("")
     if modules:
         lines.extend([
-            "### 模块证据",
-            "| 模块 | A组均值 | B组均值 | Δ(A-B) | 代表蛋白数 | 解读 |",
-            "|---|---:|---:|---:|---:|---|",
+            tm("module_table_title"),
+            tm("module_table_header"),
+            tm("module_table_rule"),
         ])
         for row in modules:
             delta = _float_or_none(row.get("module_delta_group_a_minus_group_b"))
             if delta is None:
-                interpretation = "未计算出模块均值差，通常是分组不存在或模块匹配蛋白不足。"
+                interpretation = tm("module_not_computed")
             elif abs(delta) < 0.15:
-                interpretation = f"{group_a} 与 {group_b} 的模块差异较弱。"
+                interpretation = tm("module_weak", group_a=group_a, group_b=group_b)
             elif delta > 0:
-                interpretation = f"{group_a} 在该模块上更高。"
+                interpretation = tm("module_a_higher", group_a=group_a)
             else:
-                interpretation = f"{group_b} 在该模块上更高。"
+                interpretation = tm("module_b_higher", group_b=group_b)
             lines.append(
                 f"| {_fmt_cell(_module_display_name(row.get('module')), 80)} | "
                 f"{_fmt_story_number(row.get('group_a_mean_score'))} | "
@@ -2954,17 +2962,17 @@ def _build_generic_story_first_report(report_body: str, run_folder: str) -> str:
     module_rows = _core_story_rows(run_folder, "module")
     group_rows = _read_csv_rows(os.path.join(run_folder, "evaluation_evidence", "group_composition_qc.csv"), limit=100)
     visualization_lines = _visualization_evidence_lines(run_folder)
-    group_summary = "; ".join(_group_qc_lines(group_rows, limit=5)) or "未生成可读分组/QC 摘要。"
-    figure_summary = " ".join(visualization_lines[:4]) or "图册索引见 `figures.md` 和 `visualize_results/figure_index.md`。"
+    group_summary = "; ".join(_group_qc_lines(group_rows, limit=5)) or tm("group_qc_fallback")
+    figure_summary = " ".join(visualization_lines[:4]) or tm("figure_fallback")
     lines: List[str] = [
-        "## 0. 关键结论速览",
+        "## " + _report_language.t("core.s0"),
         *_generic_story_key_summary(run_folder),
         "",
-        "## 1. 数据与预处理",
-        "本报告基于当前输入矩阵、样本信息和自动/预设 analysis design 生成；先确认分组、缺失和结构图，再解释差异蛋白、模块和离线富集。",
-        f"- 分组与 QC 摘要：{group_summary}",
-        f"- 结构图证据：{figure_summary}",
-        "- 统计边界：差异蛋白以当前矩阵中的 logFC、P.Value 和 adj.P.Val/FDR 为准；模块分数用于组织机制，不单独等同于显著富集。",
+        "## " + _report_language.t("core.s1"),
+        tm("intro"),
+        tm("label_group_qc", text=group_summary),
+        tm("label_structure_figures", text=figure_summary),
+        tm("statistical_boundary"),
         "",
     ]
     for index, contrast_row in enumerate(contrast_rows[:6], start=1):
@@ -2972,7 +2980,7 @@ def _build_generic_story_first_report(report_body: str, run_folder: str) -> str:
         heading = _story_task_heading(index, title)
         lines.extend([
             f"## {heading}",
-            f"结论先行：{title}。{_contrast_sentence(contrast_row)}",
+            tm("conclusion_first", title=title, sentence=_contrast_sentence(contrast_row)),
             "",
         ])
         lines.extend(_generic_task_table_lines(contrast_row, candidate_rows, module_rows,
@@ -2980,9 +2988,9 @@ def _build_generic_story_first_report(report_body: str, run_folder: str) -> str:
         interpretation = _short_story_value(contrast_row.get("interpretation"), 260)
         boundary = _short_story_value(contrast_row.get("boundary") or metadata.get("boundary"), 260)
         if interpretation:
-            lines.append(f"解释：{interpretation}")
+            lines.append(tm("label_interpretation", text=interpretation))
         if boundary:
-            lines.append(f"边界：{boundary}")
+            lines.append(tm("label_boundary", text=boundary))
         lines.append("")
     summary_index = min(len(contrast_rows[:6]) + 2, 12)
     integration_lines = _build_dimension4_section(run_folder, summary_index)
@@ -2990,49 +2998,49 @@ def _build_generic_story_first_report(report_body: str, run_folder: str) -> str:
         lines.extend(integration_lines)
         summary_index += 1
     lines.extend([
-        f"## {summary_index}. 总结与启发式推测",
-        "### 当前矩阵支持",
-        f"- 当前矩阵支持的主线是：{metadata.get('story_title', '围绕核心对比组织的蛋白质组差异')}。",
-        "- 核心对比、代表蛋白和模块 Δ 已在上文逐任务列出；未显著候选只作为方向线索。",
+        f"## {summary_index}. {_report_language.t('core.story_synthesis')}",
+        tm("sub_current_matrix"),
+        tm("mainline", title=metadata.get("story_title", tm("default_story_title"))),
+        tm("mainline_more"),
         "",
-        "### 离线富集补充",
+        tm("sub_offline"),
     ])
     lines.extend(_generic_enrichment_table_lines(run_folder, dataset, contrast_rows))
     lines.extend([
         "",
-        "### 合理推测",
-        "- `extension`：若同一方向同时得到差异蛋白、模块 Δ 和离线富集支持，可作为后续实验优先验证的机制假设。",
-        "- `extension`：若当前矩阵显著性不足但效应量和候选方向一致，应写成低置信度线索，而不是已验证机制。",
+        tm("sub_reasoned"),
+        tm("extension_unanimous"),
+        tm("extension_low_confidence"),
         "",
-        "### 后续验证建议",
-        "- 优先验证与主任务最接近的候选蛋白或模块，而不是泛化到无直接证据的疾病、发育或功能因果结论。",
-        "- 对样本量较小或 FDR 不显著的对比，建议增加重复、靶向验证或独立批次确认。",
+        tm("sub_followup"),
+        tm("followup_focus"),
+        tm("followup_replication"),
         "",
-        f"## {summary_index + 1}. 可复核资产清单",
-        "本 run 同时生成主报告、结论版、技术附录、图册和证据表；建议先读 `report.md`，再查看 `figures.md` 与 `assets.txt`。",
+        f"## {summary_index + 1}. {_report_language.t('core.story_assets')}",
+        tm("assets_intro"),
         "",
-        "| 资产 | 证据层级 | 用途 |",
-        "|---|---|---|",
-        "| `report.md` | final_report | 结论优先的中文主报告 |",
-        "| `figures.md` | figure_view | 直接内嵌关键 PNG 图和中文图注 |",
-        "| `assets.txt` | asset_index | 纯文本列出关键报告、图表和证据表 |",
-        "| `evaluation_evidence/core_story_evidence.csv` | current_matrix | 核心对比、候选蛋白、模块方向的故事骨架 |",
-        "| `evaluation_evidence/candidate_protein_evidence.csv` | current_matrix | 候选蛋白检出、logFC、P.Value、adj.P.Val/FDR |",
-        "| `evaluation_evidence/curated_module_group_summary.csv` | current_matrix | Curated 模块在各分组中的均值和差值 |",
-        "| `evaluation_evidence/group_composition_qc.csv` | current_matrix | 样本组成、缺失率和分组交叉表 |",
-        "| `visualize_results/figure_index.md` | current_matrix | 完整图册索引 |",
+        tm("assets_header"),
+        tm("assets_rule"),
+        tm("asset_report"),
+        tm("asset_figures"),
+        tm("asset_assets"),
+        tm("asset_core_story"),
+        tm("asset_candidates"),
+        tm("asset_modules"),
+        tm("asset_group_qc"),
+        tm("asset_figure_index"),
         "",
-        f"## {summary_index + 2}. 结论边界与方法局限",
-        "- `current_matrix`：本报告的差异、候选、模块、QC 和图册均来自当前矩阵；它们能支持方向和优先级，不能单独证明因果。",
-        "- `offline_enrichment`：只作为本地 GO/KEGG/Reactome 的通路解释；未通过 FDR 的条目只能写作探索性提示。",
+        f"## {summary_index + 2}. {_report_language.t('core.story_conclusion')}",
+        tm("boundary_current_matrix"),
+        tm("boundary_offline_enrichment"),
     ])
     if _external_annotation_applicable(run_folder):
-        lines.append("- `external_annotation`：本地外部注释只用于离线交叉表，不证明当前矩阵中的疾病或风险因果关系。")
+        lines.append(tm("boundary_external_applicable"))
     else:
-        lines.append("- `external_annotation`：本数据集未启用疾病或风险基因外部注释，正文结论不依赖该证据层。")
+        lines.append(tm("boundary_external_not_applicable"))
     lines.extend([
-        "- `extension`：启发式推测和后续验证建议用于提出可检验假设，不能替代差异统计或独立实验。",
-        "- `analysis_design.used.yaml` 记录分组和对比设计；`evidence_ledger.jsonl` 保存证据来源标签，便于复核。",
+        tm("boundary_extension"),
+        tm("boundary_records"),
     ])
     return "\n".join(lines).strip() + "\n"
 
@@ -3526,6 +3534,18 @@ def _has_h2_any(text: str, headings: List[str]) -> bool:
     return any(_has_h2(text, heading) for heading in headings)
 
 
+def _has_numbered_h2(text: str, heading: str) -> bool:
+    """Match the renumbered story-first form, e.g. '## 6. <heading>'."""
+    pattern = "(?m)^## [0-9]+[.][ ]*" + re.escape(heading) + "[ ]*$"
+    return bool(re.search(pattern, str(text)))
+
+
+def _numbered_heading_re(heading: str, number: str = "[0-9]+"):
+    """Compiled matcher for '## <number>. <heading>', tolerant of leading whitespace."""
+    pattern = "(?m)^##[ \t]*" + number + "[.][ \t]*" + re.escape(heading) + "[ \t]*$"
+    return re.compile(pattern)
+
+
 CANONICAL_REPORT_HEADINGS = {
     "executive": "一、执行摘要",
     "scoring": "二、核心证据首页",
@@ -3559,6 +3579,294 @@ LEGACY_REPORT_HEADINGS = [
 
 CHINESE_REPORT_HEADINGS = list(CANONICAL_REPORT_HEADINGS.values()) + CLAUDE_STYLE_REPORT_HEADINGS
 
+
+# The constants above are the released zh wording and stay its single source. These
+# accessors return the wording of the *active* report language; for zh they return exactly
+# those constants, so a zh run renders byte-identical text to the release.
+def canonical_report_headings() -> Dict[str, str]:
+    return _report_language.canonical_headings()
+
+
+def story_report_headings() -> List[str]:
+    return _report_language.story_headings()
+
+
+def reader_report_headings() -> List[str]:
+    """Section headings of the active language, plus the legacy English set to strip."""
+    return (list(canonical_report_headings().values())
+            + story_report_headings() + LEGACY_REPORT_HEADINGS)
+
+
+# Deterministic report prose for the active language. zh values are the released wording,
+# copied verbatim; en values are the added language. Keys whose zh value embeds a path are
+# written with the same backticks the released report used.
+MAIN_TEXT = {
+    "group_qc_fallback": (
+        "未生成可读分组/QC 摘要。",
+        "No readable group/QC summary was generated."),
+    "figure_fallback": (
+        "图册索引见 `figures.md` 和 `visualize_results/figure_index.md`。",
+        "See `figures.md` and `visualize_results/figure_index.md` for the figure index."),
+    "intro": (
+        "本报告基于当前输入矩阵、样本信息和自动/预设 analysis design 生成；先确认分组、缺失和结构图，再解释差异蛋白、模块和离线富集。",
+        "This report was generated from the current input matrix, the sample information and "
+        "the automatic or declared analysis design. Grouping, missingness and the structure "
+        "figures are established first, and the differential proteins, modules and offline "
+        "enrichment are interpreted afterwards."),
+    "label_group_qc": ("- 分组与 QC 摘要：{text}", "- Group and QC summary: {text}"),
+    "label_structure_figures": ("- 结构图证据：{text}", "- Structure figure evidence: {text}"),
+    "statistical_boundary": (
+        "- 统计边界：差异蛋白以当前矩阵中的 logFC、P.Value 和 adj.P.Val/FDR 为准；模块分数用于组织机制，不单独等同于显著富集。",
+        "- Statistical boundary: differential proteins follow the logFC, P.Value and "
+        "adj.P.Val/FDR recorded in the current matrix; module scores are used to organise "
+        "mechanisms and are not by themselves equivalent to significant enrichment."),
+    "conclusion_first": ("结论先行：{title}。{sentence}", "Conclusion first: {title}. {sentence}"),
+    "label_interpretation": ("解释：{text}", "Interpretation: {text}"),
+    "label_boundary": ("边界：{text}", "Boundary: {text}"),
+    "sub_current_matrix": ("### 当前矩阵支持", "### Supported by the current matrix"),
+    "mainline": (
+        "- 当前矩阵支持的主线是：{title}。",
+        "- The main line supported by the current matrix is: {title}."),
+    "mainline_more": (
+        "- 核心对比、代表蛋白和模块 Δ 已在上文逐任务列出；未显著候选只作为方向线索。",
+        "- The core contrasts, representative proteins and module deltas are listed task by "
+        "task above; candidates that were not significant serve only as directional leads."),
+    "sub_offline": ("### 离线富集补充", "### Offline enrichment supplement"),
+    "sub_reasoned": ("### 合理推测", "### Reasonable inference"),
+    "extension_unanimous": (
+        "- `extension`：若同一方向同时得到差异蛋白、模块 Δ 和离线富集支持，可作为后续实验优先验证的机制假设。",
+        "- `extension`: when the same direction is supported jointly by differential "
+        "proteins, module deltas and offline enrichment, it can be prioritised as a "
+        "mechanism hypothesis for follow-up experiments."),
+    "extension_low_confidence": (
+        "- `extension`：若当前矩阵显著性不足但效应量和候选方向一致，应写成低置信度线索，而不是已验证机制。",
+        "- `extension`: when significance in the current matrix is insufficient but the "
+        "effect size and candidate direction agree, it must be written as a low-confidence "
+        "lead rather than an established mechanism."),
+    "sub_followup": ("### 后续验证建议", "### Follow-up validation suggestions"),
+    "followup_focus": (
+        "- 优先验证与主任务最接近的候选蛋白或模块，而不是泛化到无直接证据的疾病、发育或功能因果结论。",
+        "- Validate the candidate proteins or modules closest to the main question first, "
+        "instead of generalising to disease, developmental or functional causal claims that "
+        "have no direct evidence here."),
+    "followup_replication": (
+        "- 对样本量较小或 FDR 不显著的对比，建议增加重复、靶向验证或独立批次确认。",
+        "- For contrasts with a small sample size or a non-significant FDR, add replicates, "
+        "targeted validation or independent-batch confirmation."),
+    "assets_intro": (
+        "本 run 同时生成主报告、结论版、技术附录、图册和证据表；建议先读 `report.md`，再查看 `figures.md` 与 `assets.txt`。",
+        "This run produced a main report, a conclusion-first report, a technical appendix, a "
+        "figure set and the evidence tables. Read `report.md` first, then `figures.md` "
+        "and `assets.txt`."),
+    "assets_header": ("| 资产 | 证据层级 | 用途 |", "| Asset | Evidence level | Purpose |"),
+    "assets_rule": ("|---|---|---|", "|---|---|---|"),
+    "asset_report": (
+        "| `report.md` | final_report | 结论优先的中文主报告 |",
+        "| `report.md` | final_report | Conclusion-first main report |"),
+    "asset_figures": (
+        "| `figures.md` | figure_view | 直接内嵌关键 PNG 图和中文图注 |",
+        "| `figures.md` | figure_view | Key PNG figures with their captions, embedded directly |"),
+    "asset_assets": (
+        "| `assets.txt` | asset_index | 纯文本列出关键报告、图表和证据表 |",
+        "| `assets.txt` | asset_index | Plain-text index of the key reports, figures and evidence tables |"),
+    "asset_core_story": (
+        "| `evaluation_evidence/core_story_evidence.csv` | current_matrix | 核心对比、候选蛋白、模块方向的故事骨架 |",
+        "| `evaluation_evidence/core_story_evidence.csv` | current_matrix | Story backbone of core contrasts, candidate proteins and module directions |"),
+    "asset_candidates": (
+        "| `evaluation_evidence/candidate_protein_evidence.csv` | current_matrix | 候选蛋白检出、logFC、P.Value、adj.P.Val/FDR |",
+        "| `evaluation_evidence/candidate_protein_evidence.csv` | current_matrix | Candidate detection, logFC, P.Value and adj.P.Val/FDR |"),
+    "asset_modules": (
+        "| `evaluation_evidence/curated_module_group_summary.csv` | current_matrix | Curated 模块在各分组中的均值和差值 |",
+        "| `evaluation_evidence/curated_module_group_summary.csv` | current_matrix | Curated module means and deltas per group |"),
+    "asset_group_qc": (
+        "| `evaluation_evidence/group_composition_qc.csv` | current_matrix | 样本组成、缺失率和分组交叉表 |",
+        "| `evaluation_evidence/group_composition_qc.csv` | current_matrix | Sample composition, missingness rates and group cross-tables |"),
+    "asset_figure_index": (
+        "| `visualize_results/figure_index.md` | current_matrix | 完整图册索引 |",
+        "| `visualize_results/figure_index.md` | current_matrix | Complete figure index |"),
+    "boundary_current_matrix": (
+        "- `current_matrix`：本报告的差异、候选、模块、QC 和图册均来自当前矩阵；它们能支持方向和优先级，不能单独证明因果。",
+        "- `current_matrix`: the differential results, candidates, modules, QC and figures "
+        "in this report all come from the current matrix. They support direction and priority "
+        "and cannot on their own establish causation."),
+    "boundary_offline_enrichment": (
+        "- `offline_enrichment`：只作为本地 GO/KEGG/Reactome 的通路解释；未通过 FDR 的条目只能写作探索性提示。",
+        "- `offline_enrichment`: used only as local GO/KEGG/Reactome pathway interpretation; "
+        "terms that do not pass FDR may only be written as exploratory notes."),
+    "boundary_external_applicable": (
+        "- `external_annotation`：本地外部注释只用于离线交叉表，不证明当前矩阵中的疾病或风险因果关系。",
+        "- `external_annotation`: local external annotation is used only for offline "
+        "cross-tables and does not establish disease or risk causation in the current matrix."),
+    "boundary_external_not_applicable": (
+        "- `external_annotation`：本数据集未启用疾病或风险基因外部注释，正文结论不依赖该证据层。",
+        "- `external_annotation`: disease or risk-gene external annotation is not enabled "
+        "for this dataset, and the conclusions here do not depend on that evidence layer."),
+    "boundary_extension": (
+        "- `extension`：启发式推测和后续验证建议用于提出可检验假设，不能替代差异统计或独立实验。",
+        "- `extension`: heuristic inference and follow-up suggestions exist to state "
+        "testable hypotheses and do not replace differential statistics or independent "
+        "experiments."),
+    "boundary_records": (
+        "- `analysis_design.used.yaml` 记录分组和对比设计；`evidence_ledger.jsonl` 保存证据来源标签，便于复核。",
+        "- `analysis_design.used.yaml` records the grouping and contrast design, and "
+        "`evidence_ledger.jsonl` stores the evidence-source labels for review."),
+    "appendix_intro": (
+        "本节集中列出可复核证据表、图册索引和审计文件。正文不保留 raw tool JSON 或长工具日志。",
+        "This section collects the reproducible evidence tables, the figure index and the "
+        "audit files. The body text keeps no raw tool JSON and no long tool logs."),
+    "default_story_title": (
+        "围绕核心对比组织的蛋白质组差异",
+        "proteome differences organised around the core contrasts"),
+    "footer_design": (
+        "- 分析设计记录：说明本次分析的分组选择，以及设计是用户提供、数据集提供还是自动推断；随证据包交付。",
+        "- Analysis design record: states the grouping used here and whether the design was "
+        "user-provided, dataset-provided or automatically inferred; delivered with the "
+        "evidence pack."),
+    "footer_ledger": (
+        "- 证据账本：记录每条结论的来源标签（本次分析的数据矩阵、离线富集结果、外部文献、药物数据库与分析设计）；随证据包交付。",
+        "- Evidence ledger: records the source label of every conclusion (the data matrix "
+        "behind this analysis, offline enrichment results, external literature, drug "
+        "databases and the analysis design); delivered with the evidence pack."),
+    "footer_external": (
+        "- 外部知识审计：`{path}` 保存 PubMed/Google/DGIdb 查询和返回记录。",
+        "- External-knowledge audit: `{path}` stores the PubMed/Google/DGIdb queries and "
+        "their returned records."),
+    "footer_confidence": (
+        "- confidence: moderate 是自动推断设计或 Python fallback 结论的默认上限；high confidence 需要用户复核设计和成熟统计后端。",
+        "- confidence: moderate is the default ceiling for conclusions from an automatically "
+        "inferred design or a Python fallback; high confidence requires a user-reviewed "
+        "design and a mature statistical backend."),
+    "footer_combat": (
+        "- 批次校正边界：当 `combat_success=false` 时，`ProteinQuant_ComBat.csv` 是下游兼容输出路径，不应解释为新完成的 ComBat 校正证据。",
+        "- Batch-correction boundary: when `combat_success=false`, "
+        "`ProteinQuant_ComBat.csv` is a downstream compatibility output path and must not "
+        "be read as evidence of a newly completed ComBat correction."),
+    "boundary_supplement": ("### 结论边界补充", "### Evidence-boundary supplement"),
+    "required_deliverables": (
+        "必需交付与候选蛋白核查",
+        "Required Deliverables and Candidate Protein Audit"),
+    "candidate_audit_title": (
+        "候选蛋白逐条核查（完整表）",
+        "Candidate protein audit (complete table)"),
+    "candidate_audit_note": (
+        "未检出的候选按当前矩阵的记录形式（见「本次分析条件」）判读：可能是该蛋白组不在分析矩阵中，"
+        "也可能是检出结构不支持定量比较；两者都不等于该蛋白在生物学上不存在。",
+        "A candidate that was not detected is read through the recording convention of the "
+        "current matrix (see Analysis Conditions for This Run): the protein group may be "
+        "absent from the analysis matrix, or the detection structure may not support a "
+        "quantitative comparison. Neither case means the protein does not exist "
+        "biologically."),
+    "mechanism_integration": (
+        "机制整合与解释边界",
+        "Mechanism Integration and Interpretation Boundaries"),
+    "appendix_reproducible": ("可复核证据附录", "Reproducible Evidence Appendix"),
+    "appendix_technical": ("技术证据附录", "Technical Evidence Appendix"),
+    "appendix_scoring": ("评分证据附录", "Scoring Evidence Appendix"),
+    "appendix_leakage": ("蛋白泄漏证据附录", "Protein Leakage Evidence Appendix"),
+    "appendix_scoring_intro": (
+        "以下条目说明正文结论的证据来源与复核入口；数值已按读者可读形式列入正文对应小节，本表不再暴露内部文件名。",
+        "The entries below state the evidence source and the review entry point for the "
+        "conclusions in the body. The numbers are already listed in reader-facing form in "
+        "the corresponding sections, and this table no longer exposes internal file names."),
+    "evidence_ledger_header": (
+        "| 证据账 | 本报告中的复核入口 |",
+        "| Evidence ledger | Review entry in this report |"),
+    "appendix_leakage_intro": (
+        "以下泄漏证据来自膜状态对比与 curated compartment-marker 汇总，属本次分析的数据矩阵证据。",
+        "The leakage evidence below comes from the membrane-state contrast and the curated "
+        "compartment-marker summary, and belongs to the data-matrix evidence of this run."),
+    "appendix_leakage_qc_title": (
+        "#### 蛋白泄漏 QC 证据", "#### Protein Leakage QC Evidence"),
+    "story_task_heading": ("{n}. 任务{label}：{title}", "{n}. Task {index}: {title}"),
+    "story_task_default_title": ("核心对比", "core contrast"),
+    "convention_threshold": ("adj.P<{p:g} 且 |logFC|>{l:g}", "adj.P<{p:g} and |logFC|>{l:g}"),
+    "key_summary_opening": (
+        "- {dataset} 的核心问题是：{story_title}；结论以 current_matrix 为主，离线富集和推测只作解释层。",
+        "- The central question for {dataset} is: {story_title}. Conclusions rest on "
+        "current_matrix; offline enrichment and inference are only an interpretation layer."),
+    "key_summary_default_story": (
+        "当前矩阵核心对比故事", "the core contrast story of the current matrix"),
+    "evidence_up": ("{group}较高：{genes}", "{group} higher: {genes}"),
+    "evidence_up_short": ("{group}较高", "{group} higher"),
+    "evidence_insufficient": (
+        "代表蛋白不足，需按效应量和候选表保守解读",
+        "too few representative proteins; read conservatively from effect sizes and the "
+        "candidate table"),
+    "key_summary_contrast": (
+        "- {claim}：{contrast} 中 n_sig={nsig}（{convention}），{up}、{down}；{evidence}。",
+        "- {claim}: in {contrast}, n_sig={nsig} ({convention}); {up}, {down}; {evidence}."),
+    "key_summary_candidates": (
+        "- 代表蛋白层面优先关注 {bits}；未达 FDR 的候选只作为方向线索。",
+        "- At the representative-protein level, prioritise {bits}; candidates that do not "
+        "reach FDR serve only as directional leads."),
+    "key_summary_modules": (
+        "- 模块层面显示 {bits}；模块 Δ 是平均分差，不替代差异蛋白 FDR。",
+        "- At the module level, {bits}; module deltas are mean-score differences and do not "
+        "replace differential-protein FDR."),
+    "key_summary_boundary": ("- 边界：{boundary}", "- Boundary: {boundary}"),
+    "boundary_default": (
+        "所有外推均需标注 evidence layer，不能替代当前矩阵结论。",
+        "Every extrapolation must be labelled with its evidence layer and cannot replace "
+        "conclusions from the current matrix."),
+    "contrast_missing": (
+        "当前矩阵未生成对应核心对比，结论只能保持低置信度。",
+        "The current matrix produced no corresponding core contrast, so conclusions can only "
+        "stay at low confidence."),
+    "contrast_share": (
+        "（占表内蛋白 {tested} 的 {share:.2f}%）",
+        " ({share:.2f}% of the {tested} proteins in the table)"),
+    "contrast_strength": (
+        "{nsig} 个蛋白通过筛选口径{share}；",
+        "{nsig} proteins passed the screening convention{share}; "),
+    "contrast_positive": (
+        "{contrast} 的对比结果为：{strength}{group_a} 较高 {up} 个，{group_b} 较高 {down} 个；"
+        "代表蛋白包括 {group_a} 侧 {top_up}，{group_b} 侧 {top_down}。",
+        "For {contrast}: {strength}{group_a} is higher for {up} proteins and {group_b} for "
+        "{down}; representative proteins are {top_up} on the {group_a} side and {top_down} "
+        "on the {group_b} side."),
+    "contrast_negative": (
+        "{contrast} 在当前阈值下没有稳定显著差异蛋白；因此只把按效应量排序的候选变化作为探索性线索，"
+        "{group_a} 较高候选为 {top_up}，{group_b} 较高候选为 {top_down}。",
+        "At the current thresholds {contrast} has no stably significant differential "
+        "proteins, so only the effect-size-ranked candidate changes are treated as "
+        "exploratory leads: {top_up} are higher in {group_a} and {top_down} in {group_b}."),
+    "not_listed": ("未列出", "not listed"),
+    "task_table_title": ("### 核心对比表", "### Core contrast table"),
+    "task_table_header": (
+        "| 对比 | n_sig | A组较高 | B组较高 | 代表蛋白 | 统计口径 |",
+        "| Contrast | n_sig | Higher in A | Higher in B | Representative proteins | Convention |"),
+    "task_table_rule": ("|---|---:|---:|---:|---|---|", "|---|---:|---:|---:|---|---|"),
+    "task_table_note": (
+        "n_sig 口径：{convention}；logFC/adj.P.Val 来自当前差异表",
+        "n_sig convention: {convention}; logFC/adj.P.Val come from the current differential table"),
+    "candidate_table_title": ("### 代表蛋白表", "### Representative proteins"),
+    "candidate_table_header": (
+        "| 候选蛋白 | 当前矩阵方向 | logFC | P.Value | adj.P.Val/FDR | 解读 |",
+        "| Candidate | Direction in the current matrix | logFC | P.Value | adj.P.Val/FDR | Reading |"),
+    "candidate_table_rule": ("|---|---|---:|---:|---:|---|", "|---|---|---:|---:|---:|---|"),
+    "candidate_default_reading": (
+        "同任务候选，需结合 FDR 和效应量判断优先级。",
+        "A candidate from the same task; judge priority from FDR together with effect size."),
+    "module_table_title": ("### 模块证据", "### Module evidence"),
+    "module_table_header": (
+        "| 模块 | A组均值 | B组均值 | Δ(A-B) | 代表蛋白数 | 解读 |",
+        "| Module | Mean in A | Mean in B | Delta (A-B) | Representative proteins | Reading |"),
+    "module_table_rule": ("|---|---:|---:|---:|---:|---|", "|---|---:|---:|---:|---:|---|"),
+    "module_not_computed": (
+        "未计算出模块均值差，通常是分组不存在或模块匹配蛋白不足。",
+        "The module mean difference could not be computed, usually because a group is "
+        "missing or too few module proteins matched."),
+    "module_weak": ("{group_a} 与 {group_b} 的模块差异较弱。", "The module difference between {group_a} and {group_b} is weak."),
+    "module_a_higher": ("{group_a} 在该模块上更高。", "{group_a} is higher in this module."),
+    "module_b_higher": ("{group_b} 在该模块上更高。", "{group_b} is higher in this module."),
+}
+_report_language.register("main", MAIN_TEXT)
+
+
+def tm(key: str, **fmt) -> str:
+    """Deterministic report prose for the active language (main namespace)."""
+    return _report_language.t("main." + key, **fmt)
+
 V3_MAIN_DATASETS = {
     "Nat_Commun_PiSPA_2024",
     "Nat_Methods_iPSC_2025",
@@ -3574,27 +3882,44 @@ V3_MAIN_DATASETS = {
 }
 
 
+def report_language_directive() -> str:
+    """Report-request text an English run needs. Empty for zh, so a zh request is unchanged."""
+    if _report_language.get_language() != "en":
+        return ""
+    directive = globals().get("EN_REPORT_LANGUAGE_DIRECTIVE") or ""
+    if not directive:
+        return ""
+    return chr(10) + chr(10) + directive
+
+
 def _has_story_task_heading(report_content: str) -> bool:
-    return bool(re.search(r"(?m)^## \d+\.\s*任务", str(report_content)))
+    word = re.escape(_report_language.t("core.task_word"))
+    return bool(re.search("(?m)^## [0-9]+[.][ ]*" + word, str(report_content)))
 
 
 def _has_story_first_structure(report_content: str) -> bool:
     text = str(report_content)
+    story = story_report_headings()
+
+    def _numbered(key: str) -> bool:
+        tail = re.escape(_report_language.t(key))
+        return bool(re.search("(?m)^## [0-9]+[.][ ]*" + tail + "[ ]*$", text))
+
     return (
-        _has_h2(text, CLAUDE_STYLE_REPORT_HEADINGS[0])
-        and _has_h2(text, CLAUDE_STYLE_REPORT_HEADINGS[1])
+        _has_h2(text, story[0])
+        and _has_h2(text, story[1])
         and _has_story_task_heading(text)
-        and bool(re.search(r"(?m)^## \d+\.\s*总结与启发式推测\s*$", text))
-        and bool(re.search(r"(?m)^## \d+\.\s*可复核资产清单\s*$", text))
-        and bool(re.search(r"(?m)^## \d+\.\s*结论边界与方法局限\s*$", text))
+        and _numbered("core.story_synthesis")
+        and _numbered("core.story_assets")
+        and _numbered("core.story_conclusion")
     )
 
 
 def _main_report_text_for_language_check(report_content: str) -> str:
     text = str(report_content)
     markers = [
-        f"\n## {CANONICAL_REPORT_HEADINGS['appendix']}",
-        f"\n## {CLAUDE_STYLE_REPORT_HEADINGS[7]}",
+        f"\n## {canonical_report_headings()['appendix']}",
+        f"\n## {story_report_headings()[7]}",
         "\n## Evidence Appendix",
         "\n## Scoring Evidence Appendix",
         "\n## Protein Leakage Evidence Appendix",
@@ -3616,29 +3941,10 @@ def _chinese_char_ratio(report_content: str) -> float:
 
 
 def _has_long_english_paragraph(report_content: str) -> bool:
+    """zh: a long purely-English paragraph. en: a long purely-Chinese paragraph."""
     body = _main_report_text_for_language_check(report_content)
-    for line in body.splitlines():
-        stripped = line.strip()
-        if len(stripped) < 160:
-            continue
-        lower = stripped.lower()
-        if (
-            stripped.startswith(("|", "-", "*", "`"))
-            or "\\" in stripped
-            or "/" in stripped
-            or ".csv" in lower
-            or ".json" in lower
-            or ".png" in lower
-            or "current_matrix" in lower
-            or "offline_enrichment" in lower
-            or "external_annotation" in lower
-        ):
-            continue
-        cjk = len(re.findall(r"[\u4e00-\u9fff]", stripped))
-        latin = len(re.findall(r"[A-Za-z]", stripped))
-        if latin > 120 and cjk < 3:
-            return True
-    return False
+    return _report_language.wrong_language_paragraph_present(
+        body, _report_language.get_language())
 
 
 def _remove_h2_section(text: str, heading: str) -> str:
@@ -3700,7 +4006,7 @@ def _build_scoring_evidence_first_screen(run_folder: str) -> str:
         return ""
 
     lines = [
-        f"## {CANONICAL_REPORT_HEADINGS['scoring']}",
+        f"## {canonical_report_headings()['scoring']}",
         (
             "本节先把核心问题对应到可复核证据，再进入机制解释。`external_annotation` 只在本数据集需要本地离线注释交叉表时出现，"
             "不代表当前矩阵直接证明疾病或因果关系。"
@@ -3792,7 +4098,7 @@ def _build_executive_result_summary(run_folder: str) -> str:
         ][:5]
 
     lines = [
-        f"## {CANONICAL_REPORT_HEADINGS['executive']}",
+        f"## {canonical_report_headings()['executive']}",
         f"- 数据集：`{dataset}`。",
         f"- confidence: moderate；核心问题覆盖为 {covered}/{coverage_total} 个维度；依据为 current_matrix 证据表与数据集 recipe。",
     ]
@@ -3858,7 +4164,7 @@ def _build_main_findings_section(report_body: str, run_folder: str) -> str:
     enrichment_bits = _enrichment_summary_lines(run_folder, dataset, limit=8)
 
     lines = [
-        f"## {CANONICAL_REPORT_HEADINGS['findings']}",
+        f"## {canonical_report_headings()['findings']}",
         "### 当前矩阵结构",
     ]
     if coverage_rows:
@@ -3924,7 +4230,7 @@ def _build_evidence_boundary_section(run_folder: str) -> str:
     design_path = os.path.join(run_folder, "analysis_design.used.yaml")
     ledger_path = os.path.join(run_folder, "evidence_ledger.jsonl")
     lines = [
-        f"## {CANONICAL_REPORT_HEADINGS['boundary']}",
+        f"## {canonical_report_headings()['boundary']}",
         f"- 当前矩阵：来自本轮分析的蛋白统计、候选证据、QC 和模块分数；审计账本为 `{_report_path(ledger_path, run_folder)}`。",
         "- 离线富集：来自本地 GO/KEGG/Reactome 资源；非 FDR 支持的条目只作探索性提示。",
     ]
@@ -4620,7 +4926,7 @@ def prepend_report_front_matter(report_text: str, run_folder: str) -> str:
         _build_scoring_evidence_first_screen(run_folder),
         _build_main_findings_section(body, run_folder),
         _build_evidence_boundary_section(run_folder),
-        f"## {CANONICAL_REPORT_HEADINGS['appendix']}\n本节集中列出可复核证据表、图册索引和审计文件。正文不保留 raw tool JSON 或长工具日志。",
+        f"## {canonical_report_headings()['appendix']}\n{tm('appendix_intro')}",
     ]
     composed = "\n\n".join(block for block in blocks if block).strip() + "\n"
     return _inject_selfcontained_sections(composed, run_folder, body)
@@ -4907,22 +5213,23 @@ def _renumber_report_headings(text: str) -> str:
 def _inject_selfcontained_sections(report_text: str, run_folder: str, report_body: str) -> str:
     """Deterministically lift the analysis conditions, deliverable coverage and
     candidate audit from the artifact layer into the main report."""
-    if "本次分析条件" in report_text:
+    if _report_language.t("core.analysis_conditions") in report_text:
         return report_text
     text = report_text
-    block: List[str] = ["", "## 9. 本次分析条件", ""]
+    block: List[str] = ["", "## 9. " + _report_language.t("core.analysis_conditions"), ""]
     block.extend(_build_analysis_conditions_lines(run_folder))
-    block.extend(["", "### 缺失与检出口径", "", "- " + _qc_semantics_note(run_folder)])
+    block.extend(["", "### " + _report_language.t("core.qc_semantics"), "",
+                  "- " + _qc_semantics_note(run_folder)])
     figure_lines = _build_figure_index_lines(run_folder)
     if figure_lines:
-        block.extend(["", "### 可复核图表索引", ""])
+        block.extend(["", "### " + _report_language.t("core.figure_index"), ""])
         block.extend(figure_lines)
     required = _build_required_analysis_section(run_folder, report_body)
     if required:
-        block.extend(["", "## 9. 必需交付与候选蛋白核查", ""])
+        block.extend(["", "## 9. " + tm("required_deliverables"), ""])
         block.extend(required)
 
-    anchor = re.search(r"(?m)^##\s*1\.\s*数据与预处理\s*$", text)
+    anchor = _numbered_heading_re(_report_language.t("core.s1"), "1").search(text)
     if anchor:
         nxt = re.search(r"(?m)^##\s", text[anchor.end():])
         insert_at = anchor.end() + (nxt.start() if nxt else len(text[anchor.end():]))
@@ -4931,20 +5238,23 @@ def _inject_selfcontained_sections(report_text: str, run_folder: str, report_bod
         text = text.rstrip() + chr(10) + chr(10) + chr(10).join(block).strip(chr(10)) + chr(10)
 
     candidate_lines = _build_candidate_audit_lines(run_folder)
-    if candidate_lines and "候选蛋白逐条核查（完整表）" not in text:
-        tail_anchor = re.search(r"(?m)^##\s*\d+\.\s*结论边界与方法局限\s*$", text) or re.search(r"(?m)^##\s*\d+\.\s*可复核资产清单\s*$", text)
-        block_text = chr(10).join(["### 候选蛋白逐条核查（完整表）", ""] + candidate_lines + [
+    if candidate_lines and tm("candidate_audit_title") not in text:
+        tail_anchor = (
+            _numbered_heading_re(_report_language.t("core.story_conclusion")).search(text)
+            or _numbered_heading_re(_report_language.t("core.story_assets")).search(text))
+        block_text = chr(10).join(["### " + tm("candidate_audit_title"), ""] + candidate_lines + [
             "",
-            "未检出的候选按当前矩阵的记录形式（见「本次分析条件」）判读：可能是该蛋白组不在分析矩阵中，"
-            "也可能是检出结构不支持定量比较；两者都不等于该蛋白在生物学上不存在。"]).strip(chr(10))
+            tm("candidate_audit_note")]).strip(chr(10))
         if tail_anchor:
             text = text[:tail_anchor.start()].rstrip() + chr(10) + chr(10) + block_text + chr(10) + chr(10) + text[tail_anchor.start():]
         else:
             text = text.rstrip() + chr(10) + chr(10) + block_text + chr(10)
-    if "机制整合与解释边界" not in text:
+    # the section title is emitted in the active language by _build_dimension4_section, but an
+    # English run may legitimately carry either marker, so both are accepted as already present
+    if tm("mechanism_integration") not in text and "机制整合与解释边界" not in text:
         dim4 = _build_dimension4_section(run_folder, heading_index=9)
         if dim4:
-            tail = re.search(r"(?m)^##\s*\d+\.\s*总结与启发式推测\s*$", text)
+            tail = _numbered_heading_re(_report_language.t("core.story_synthesis")).search(text)
             block_text = chr(10).join(dim4).strip(chr(10))
             if tail:
                 text = text[:tail.start()].rstrip() + chr(10) + chr(10) + block_text + chr(10) + chr(10) + text[tail.start():]
@@ -4956,7 +5266,7 @@ def _polish_pispa_report_terms(report_text: str) -> str:
     """Add concise PiSPA domain wording without adding scoring-oriented text."""
     if "single-cell proteomic" in report_text and "cell motility" in report_text and "actin cytoskeleton" in report_text:
         return report_text
-    heading = f"## {CLAUDE_STYLE_REPORT_HEADINGS[3]}"
+    heading = f"## {story_report_headings()[3]}"
     insertion = (
         "\n"
         "术语说明：本节把 single-cell proteomic 矩阵中的 cell motility、actin cytoskeleton、"
@@ -4971,8 +5281,8 @@ def _polish_pispa_report_terms(report_text: str) -> str:
 def write_report_variants(report_content: str, run_folder: str, base_name: str) -> List[str]:
     os.makedirs(run_folder, exist_ok=True)
     appendix_markers = [
-        f"\n## {CANONICAL_REPORT_HEADINGS['appendix']}",
-        f"\n## {CLAUDE_STYLE_REPORT_HEADINGS[7]}",
+        f"\n## {canonical_report_headings()['appendix']}",
+        f"\n## {story_report_headings()[7]}",
         "\n### 可复核证据附录",
         "\n### 技术证据附录",
         "\n## Evidence Appendix",
@@ -5347,7 +5657,15 @@ def run_report_self_check(report_content: str, run_folder: str) -> Dict[str, Any
     legacy_primary_heading_present = any(_has_h2(report_content, heading) for heading in LEGACY_REPORT_HEADINGS[:5])
     dataset_for_style = _get_dataset_name(run_folder)
     story_first_structure_present = _has_story_first_structure(report_content)
-    exact_pispa_headings_present = all(_has_h2(report_content, heading) for heading in CLAUDE_STYLE_REPORT_HEADINGS)
+    exact_pispa_headings_present = all(_has_h2(report_content, heading) for heading in story_report_headings())
+    # An English report must not carry Chinese template text. Any residue is reported with
+    # the exact fragments so a missing English template becomes a listed gap, never a silent
+    # fall back to Chinese.
+    english_residue: List[str] = []
+    if _report_language.get_language() == "en":
+        _scan_body = _report_language.strip_code_and_paths(
+            _main_report_text_for_language_check(report_content))
+        english_residue = re.findall("[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+", _scan_body)
     asset_files_present = (
         dataset_for_style not in V3_MAIN_DATASETS
         or (
@@ -5358,7 +5676,7 @@ def run_report_self_check(report_content: str, run_folder: str) -> Dict[str, Any
         )
     )
     key_summary = re.search(
-        rf"(?ms)^## {re.escape(CLAUDE_STYLE_REPORT_HEADINGS[0])}\s*\n(.*?)(?=^## |\Z)",
+        rf"(?ms)^## {re.escape(story_report_headings()[0])}\s*\n(.*?)(?=^## |\Z)",
         report_content,
     )
     key_summary_text = key_summary.group(1) if key_summary else ""
@@ -5377,24 +5695,27 @@ def run_report_self_check(report_content: str, run_folder: str) -> Dict[str, Any
         or (3 <= key_summary_count <= 6 and key_summary_longest <= 300)
     )
     checks = {
-        "chinese_executive_summary": _has_h2(report_content, CANONICAL_REPORT_HEADINGS["executive"]) or _has_h2(report_content, CLAUDE_STYLE_REPORT_HEADINGS[0]),
-        "chinese_scoring_first_screen": _has_h2(report_content, CANONICAL_REPORT_HEADINGS["scoring"]) or _has_story_task_heading(report_content),
-        "chinese_main_findings": _has_h2(report_content, CANONICAL_REPORT_HEADINGS["findings"]) or _has_story_task_heading(report_content),
-        "chinese_evidence_boundary": _has_h2(report_content, CANONICAL_REPORT_HEADINGS["boundary"]) or bool(re.search(r"(?m)^## \d+\.\s*结论边界与方法局限\s*$", report_content)),
-        "chinese_evidence_appendix": _has_h2(report_content, CANONICAL_REPORT_HEADINGS["appendix"]) or bool(re.search(r"(?m)^## \d+\.\s*可复核资产清单\s*$", report_content)),
+        "chinese_executive_summary": _has_h2(report_content, canonical_report_headings()["executive"]) or _has_h2(report_content, story_report_headings()[0]),
+        "chinese_scoring_first_screen": _has_h2(report_content, canonical_report_headings()["scoring"]) or _has_story_task_heading(report_content),
+        "chinese_main_findings": _has_h2(report_content, canonical_report_headings()["findings"]) or _has_story_task_heading(report_content),
+        "chinese_evidence_boundary": _has_h2(report_content, canonical_report_headings()["boundary"]) or _has_numbered_h2(report_content, _report_language.t("core.story_conclusion")),
+        "chinese_evidence_appendix": _has_h2(report_content, canonical_report_headings()["appendix"]) or _has_numbered_h2(report_content, _report_language.t("core.story_assets")),
         "story_first_headings_present": story_first_structure_present or dataset_for_style not in V3_MAIN_DATASETS,
         "pispa_exact_task_headings_present": exact_pispa_headings_present or dataset_for_style != "Nat_Commun_PiSPA_2024",
         "legacy_primary_english_headings_absent": not legacy_primary_heading_present,
-        "chinese_body_ratio_ok": chinese_ratio >= 0.10,
+        "chinese_body_ratio_ok": _report_language.body_language_ok(
+            _main_report_text_for_language_check(report_content), _report_language.get_language()),
         "long_english_paragraph_absent": not long_english_paragraph,
+        "english_report_has_no_chinese_residue": (
+            (not english_residue) if _report_language.get_language() == "en" else True),
         "raw_tool_json_absent": not re.search(r"```json\s*(?:(?!```).){1000,}(?:\"tool\"|\"result\"|\"tool_call_id\")", report_content, re.I | re.S),
         "long_tool_logs_absent": "## Task" not in report_content and "[Analyzer] Local Fallback Summary" not in report_content,
         "required_csvs_present": all(_path_exists(path) for path in required_csvs),
-        "core_story_table_present": ("核心对比表" in report_content) or _quantitative_table_present(
-            _markdown_table_headers(report_content), ("对比",),
-            ("logFC", "log2FC", "adj.P", "FDR", "通过筛选", "显著")),
-        "representative_protein_table_present": ("代表蛋白表" in report_content) or _quantitative_table_present(
-            _markdown_table_headers(report_content), ("候选", "代表蛋白"),
+        "core_story_table_present": (_report_language.t("core.tok_core_contrast_table") in report_content) or _quantitative_table_present(
+            _markdown_table_headers(report_content), (_report_language.t("core.tok_contrast_header"),),
+            ("logFC", "log2FC", "adj.P", "FDR") + _report_language.t_list("core.tok_table_significance")),
+        "representative_protein_table_present": (_report_language.t("core.tok_representative_header") + "表" in report_content) or _quantitative_table_present(
+            _markdown_table_headers(report_content), (_report_language.t("core.tok_candidate_header"), _report_language.t("core.tok_representative_header")),
             ("logFC", "log2FC", "adj.P")),
         "figures_present": any(_path_exists(path) for path in figure_candidates),
         "asset_files_present": asset_files_present,
@@ -5403,13 +5724,16 @@ def run_report_self_check(report_content: str, run_folder: str) -> Dict[str, Any
         "quantitative_evidence_present": bool(re.search(r"\b(logFC|adj\.P\.Val|FDR|P\.Value|missing_rate|detected_in_matrix)\b", report_content, re.I)) or _path_exists(os.path.join(evidence_dir, "candidate_protein_evidence.csv")),
         # finished reports carry the boundary statements in Chinese; the internal provenance tokens
         # must not appear in reader-facing text, so the check follows the reader-facing wording
-        "evidence_boundary_present": "当前矩阵" in report_content,
-        "offline_enrichment_boundary_present": "离线富集" in report_content,
-        "external_annotation_boundary_present": ("外部注释" in report_content) or not external_annotation_required,
+        "evidence_boundary_present": _report_language.t("core.tok_current_matrix") in report_content,
+        "offline_enrichment_boundary_present": _report_language.t("core.tok_offline_enrichment") in report_content,
+        "external_annotation_boundary_present": (_report_language.t("core.tok_external_annotation") in report_content) or not external_annotation_required,
         "coverage_rows_present": bool(coverage_rows),
         "coverage_not_missing": not any(str(row.get("coverage_status", "")).startswith("missing") for row in coverage_rows),
         "pispa_mechanism_chain_present": dataset_for_style != "Nat_Commun_PiSPA_2024" or all(token in report_content for token in ["Rho GTPase", "ERM", "myosin", "talin", "vinculin"]),
-        "pispa_heuristic_and_boundary_present": dataset_for_style != "Nat_Commun_PiSPA_2024" or ("启发式推测" in report_content and "后续验证建议" in report_content and "结论边界" in report_content),
+        "pispa_heuristic_and_boundary_present": dataset_for_style != "Nat_Commun_PiSPA_2024" or (
+            _report_language.t("core.tok_heuristic") in report_content
+            and _report_language.t("core.tok_followup") in report_content
+            and _report_language.t("core.tok_boundary_word") in report_content),
     }
     failures = [name for name, passed in checks.items() if not passed and name not in {"figures_present", "offline_enrichment_boundary_present"}]
     warnings = [name for name, passed in checks.items() if not passed and name in {"figures_present", "offline_enrichment_boundary_present"}]
@@ -5428,6 +5752,8 @@ def run_report_self_check(report_content: str, run_folder: str) -> Dict[str, Any
         "required_csvs": required_csvs,
         "figure_candidates": figure_candidates,
         "chinese_body_ratio": chinese_ratio,
+        "report_language": _report_language.get_language(),
+        "chinese_residue": english_residue[:40],
         "fact_check": fact_check,
     }
     out_json = os.path.join(run_folder, "report_self_check.json")
@@ -5444,6 +5770,8 @@ def run_report_self_check(report_content: str, run_folder: str) -> Dict[str, Any
         "",
         f"fact_check_verdict: {fact_check.get('verdict')}",
         f"fact_check_levels: {levels}",
+        "report_language: %s" % _report_language.get_language(),
+        _report_language.t("core.note_historical_check_names"),
         "注：contradiction = 存在与工件矛盾的断言；unverified = 仍有未绑定断言（不构成通过）；"
         "pass = 未发现矛盾且无未绑定断言。exit code 0 不等于科学验收通过。",
     ])
@@ -5460,7 +5788,7 @@ def build_report_request(base_prompt: str, assembly_mode: str, task_ids, boundar
     task ids and the three general revision requirements are part of the request itself. Keeping it
     in a named function lets the node test call exactly what the node calls instead of a copy.
     """
-    prompt = base_prompt
+    prompt = base_prompt + report_language_directive()
     if str(assembly_mode).lower() != "hybrid":
         return prompt
     # the schema text carries braces, and the prompt is a LangChain f-string template, so the
@@ -5666,10 +5994,11 @@ def finalize_report_for_output(report_content: str, run_folder: str, base_name: 
 
 def _append_scoring_evidence_appendix(report_text: str, run_folder: str) -> str:
     if (
-        "### 可复核证据附录" in report_text
-        or "### 技术证据附录" in report_text
-        or "### 评分证据附录" in report_text
-        or "## Scoring Evidence Appendix" in report_text
+        any(title in report_text for title in (
+            "### " + tm("appendix_reproducible"),
+            "### " + tm("appendix_technical"),
+            "### " + tm("appendix_scoring"),
+            "## Scoring Evidence Appendix"))
     ):
         return report_text
 
@@ -5693,10 +6022,10 @@ def _append_scoring_evidence_appendix(report_text: str, run_folder: str) -> str:
         return report_text
 
     lines = [
-        "### 可复核证据附录",
-        "以下条目说明正文结论的证据来源与复核入口；数值已按读者可读形式列入正文对应小节，本表不再暴露内部文件名。",
+        "### " + tm("appendix_reproducible"),
+        tm("appendix_scoring_intro"),
         "",
-        "| 证据账 | 本报告中的复核入口 |",
+        tm("evidence_ledger_header"),
         "|---|---|",
     ]
     evidence_file_rows = [
@@ -5887,7 +6216,7 @@ def _append_scoring_evidence_appendix(report_text: str, run_folder: str) -> str:
 
 
 def _append_leakage_evidence_appendix(report_text: str, run_folder: str) -> str:
-    if "### 蛋白泄漏证据附录" in report_text or "## Protein Leakage Evidence Appendix" in report_text or "### Protein Leakage QC Evidence" in report_text:
+    if ("### " + tm("appendix_leakage")) in report_text or "## Protein Leakage Evidence Appendix" in report_text or "### Protein Leakage QC Evidence" in report_text:
         return report_text
     leakage_summary_path = os.path.join(run_folder, "proteins_leakage", "leakage_summary.json")
     leakage_module_path = os.path.join(run_folder, "proteins_leakage", "leakage_module_summary.csv")
@@ -5895,10 +6224,10 @@ def _append_leakage_evidence_appendix(report_text: str, run_folder: str) -> str:
         return report_text
 
     lines = [
-        "### 蛋白泄漏证据附录",
-        "以下泄漏证据来自膜状态对比与 curated compartment-marker 汇总，属本次分析的数据矩阵证据。",
+        "### " + tm("appendix_leakage"),
+        tm("appendix_leakage_intro"),
         "",
-        "| 证据账 | 本报告中的复核入口 |",
+        tm("evidence_ledger_header"),
         "|---|---|",
     ]
     for label, path, pointer in [
@@ -5912,7 +6241,7 @@ def _append_leakage_evidence_appendix(report_text: str, run_folder: str) -> str:
     if leakage_rows:
         lines.extend([
             "",
-            "#### 蛋白泄漏 QC 证据",
+            tm("appendix_leakage_qc_title"),
             "| 对比 | 状态列 | 模块 | 匹配基因数 | groupA-groupB 平均 logFC | 方向 | A 组样本数 | B 组样本数 | 置信度 |",
             "|---|---|---|---:|---:|---|---:|---:|---|",
         ])
@@ -5990,19 +6319,17 @@ def report_evidence_footer_items(report_text: str, run_folder: str) -> List[str]
     external_path = os.path.join(run_folder, "external_knowledge.jsonl")
     params_path = os.path.join(run_folder, "parameters.json")
     if "analysis_design.used.yaml" not in report_text:
-        footer_items.append(
-            "- 分析设计记录：说明本次分析的分组选择，以及设计是用户提供、数据集提供还是自动推断；随证据包交付。")
+        footer_items.append(tm("footer_design"))
     if "evidence_ledger.jsonl" not in report_text:
-        footer_items.append(
-            "- 证据账本：记录每条结论的来源标签（本次分析的数据矩阵、离线富集结果、外部文献、药物数据库与分析设计）；随证据包交付。")
+        footer_items.append(tm("footer_ledger"))
     if os.path.exists(external_path) and "external_knowledge.jsonl" not in report_text:
-        footer_items.append(f"- 外部知识审计：`{_report_path(external_path, run_folder)}` 保存 PubMed/Google/DGIdb 查询和返回记录。")
+        footer_items.append(tm("footer_external", path=_report_path(external_path, run_folder)))
     if (
         "confidence:" not in report_text
         and "置信度" not in report_text
         and not re.search(r"confidence\s*[:：]\s*(high|moderate|low)", report_text, re.I)
     ):
-        footer_items.append("- confidence: moderate 是自动推断设计或 Python fallback 结论的默认上限；high confidence 需要用户复核设计和成熟统计后端。")
+        footer_items.append(tm("footer_confidence"))
     try:
         params = load_json(params_path) if os.path.exists(params_path) else {}
         batch_info = params.get("combat_calibration", {}).get("batch_correction", {})
@@ -6012,7 +6339,7 @@ def report_evidence_footer_items(report_text: str, run_folder: str) -> List[str]
             and "compatibility" not in report_text.lower()
             and "兼容" not in report_text
         ):
-            footer_items.append("- 批次校正边界：当 `combat_success=false` 时，`ProteinQuant_ComBat.csv` 是下游兼容输出路径，不应解释为新完成的 ComBat 校正证据。")
+            footer_items.append(tm("footer_combat"))
     except Exception:
         pass
     return footer_items
@@ -6028,18 +6355,19 @@ def ensure_report_evidence_footer(report_text: str, run_folder: str) -> str:
         return sanitize_report_text_for_output(report_text)
     if _get_dataset_name(run_folder) in V3_MAIN_DATASETS:
         addition = "\n".join(footer_items)
-        story_boundary = re.search(r"(?m)^## \d+\.\s*结论边界与方法局限\s*$", report_text)
+        story_boundary = _numbered_heading_re(
+            _report_language.t("core.story_conclusion")).search(report_text)
         if story_boundary:
             section_marker = "\n" + story_boundary.group(0)
         elif _get_dataset_name(run_folder) == "Nat_Commun_PiSPA_2024":
-            section_marker = f"\n## {CLAUDE_STYLE_REPORT_HEADINGS[8]}"
+            section_marker = f"\n## {story_report_headings()[8]}"
         else:
-            section_marker = "\n## 结论边界与方法局限"
+            section_marker = "\n## " + _report_language.t("core.story_conclusion")
         insert_markers = [
-            "\n### 可复核证据附录",
-            "\n### 技术证据附录",
-            "\n### 蛋白泄漏证据附录",
-            f"\n## {CANONICAL_REPORT_HEADINGS['appendix']}",
+            "\n### " + tm("appendix_reproducible"),
+            "\n### " + tm("appendix_technical"),
+            "\n### " + tm("appendix_leakage"),
+            f"\n## {canonical_report_headings()['appendix']}",
         ]
         insert_at = len(report_text)
         for marker in insert_markers:
@@ -6052,8 +6380,8 @@ def ensure_report_evidence_footer(report_text: str, run_folder: str) -> str:
             report_text = report_text.rstrip() + f"\n\n{section_marker.lstrip()}\n" + addition + "\n"
         return sanitize_report_text_for_output(report_text)
 
-    addition = "### 结论边界补充\n" + "\n".join(footer_items)
-    markers = [f"\n## {CANONICAL_REPORT_HEADINGS['appendix']}", f"\n## {CLAUDE_STYLE_REPORT_HEADINGS[7]}", "\n## Evidence Appendix"]
+    addition = tm("boundary_supplement") + "\n" + "\n".join(footer_items)
+    markers = [f"\n## {canonical_report_headings()['appendix']}", f"\n## {story_report_headings()[7]}", "\n## Evidence Appendix"]
     idx = -1
     for marker in markers:
         marker_idx = report_text.find(marker)
@@ -6062,7 +6390,7 @@ def ensure_report_evidence_footer(report_text: str, run_folder: str) -> str:
     if idx >= 0:
         report_text = report_text[:idx].rstrip() + "\n\n" + addition + "\n" + report_text[idx:]
     else:
-        report_text = report_text.rstrip() + f"\n\n## {CANONICAL_REPORT_HEADINGS['boundary']}\n" + addition + "\n"
+        report_text = report_text.rstrip() + f"\n\n## {canonical_report_headings()['boundary']}\n" + addition + "\n"
     return sanitize_report_text_for_output(report_text)
 
 
@@ -6680,6 +7008,7 @@ def _load_runtime_dependencies() -> None:
     global prepare_evaluation_evidence_pack, prepare_user_visible_evidence_pack
     global PLANNER_PROMPT, EXECUTOR_PROMPT, ANALYZER_PROMPT, CRITIC_PROMPT
     global REPLANNER_PROMPT, SCORER_PROMPT, REPORT_PROMPT
+    global EN_REPORT_LANGUAGE_DIRECTIVE
     global AVAIABLE_TOOLS, load_json, TOOLS_PROMPTS
 
     if _RUNTIME_DEPENDENCIES_LOADED:
@@ -6702,6 +7031,7 @@ def _load_runtime_dependencies() -> None:
         REPLANNER_PROMPT,
         SCORER_PROMPT,
         REPORT_PROMPT,
+        EN_REPORT_LANGUAGE_DIRECTIVE,
     )
     from tools import AVAIABLE_TOOLS, load_json
     from tools_prompts import TOOLS_PROMPTS
@@ -6709,11 +7039,138 @@ def _load_runtime_dependencies() -> None:
     LLM_with_tools = LLM.bind_tools(AVAIABLE_TOOLS)
 
 
+# --------------------------------------------------------------------------- report language
+#
+# The report language is an explicit run option. It is never inferred from the task text,
+# so a Chinese request can ask for an English report and an English request can ask for a
+# Chinese one. Resolution order: explicit CLI value > the parent run recorded by
+# --continue-from > the zh default.
+
+CONTINUED_ARTIFACT_SKIP_PREFIXES = ("differential_",)
+CONTINUED_ARTIFACT_SKIP_NAMES = frozenset({
+    "report.md", "final_report.md", "final_output_report.md", "report_validation.json",
+    "report_self_check.json", "report_self_check.md", "self_check.json", "self_check.md",
+    "memory.json", "record_file.md", "evidence_ledger.jsonl", "external_knowledge.jsonl",
+})
+
+
+def sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def looks_like_run_folder(path: str) -> bool:
+    """Cheap, dependency-free check that --continue-from points at a previous run."""
+    if not path or not os.path.isdir(path):
+        return False
+    for name in ("run_metadata.json", "parameters.json", "record_file.md",
+                 "analysis_design.used.yaml"):
+        if os.path.exists(os.path.join(path, name)):
+            return True
+    return os.path.isdir(os.path.join(path, "processed_proteins"))
+
+
+def parent_run_language(parent_folder: str) -> Tuple[Optional[str], Optional[str]]:
+    """Return (language, source_path) recorded by the parent run, else (None, None).
+
+    A run recorded before this feature existed has no report_language field; that is
+    read as the zh default, exactly like a missing field anywhere else.
+    """
+    for name in ("run_metadata.json", "parameters.json"):
+        path = os.path.join(parent_folder, name)
+        if not os.path.exists(path):
+            continue
+        try:
+            payload = load_json(path)
+        except Exception:  # noqa: BLE001 - an unreadable record simply falls through
+            continue
+        if not isinstance(payload, dict) or "report_language" not in payload:
+            continue
+        try:
+            return _report_language.normalize(payload.get("report_language")), path
+        except _report_language.UnknownReportLanguage:
+            continue
+    return None, None
+
+
+def resolve_report_language(cli_value, continue_from: Optional[str] = None) -> Tuple[str, str]:
+    """Resolve the run language and say where it came from. Never reads the task text."""
+    if cli_value is not None:
+        return _report_language.normalize(cli_value), "cli"
+    if continue_from:
+        inherited, _source_path = parent_run_language(continue_from)
+        if inherited:
+            return inherited, "inherited_from_parent"
+    return _report_language.DEFAULT_LANGUAGE, "default"
+
+
+def collect_continued_artifacts(parent_folder: str) -> List[Tuple[str, str]]:
+    """Parent-run products a continuation may reuse, as (source, destination-relative) pairs.
+
+    The saved matrix, its gene map and its transform record are reused. Differential tables
+    are deliberately not reused: a continuation recomputes the contrasts it needs on the
+    inherited matrix, which is what makes it a new analysis instead of a replay.
+    """
+    pairs: List[Tuple[str, str]] = []
+    design_src = os.path.join(parent_folder, "analysis_design.used.yaml")
+    if os.path.isfile(design_src):
+        pairs.append((design_src, "analysis_design.used.yaml"))
+    processed_src = os.path.join(parent_folder, "processed_proteins")
+    if os.path.isdir(processed_src):
+        for name in sorted(os.listdir(processed_src)):
+            source = os.path.join(processed_src, name)
+            if not os.path.isfile(source):
+                continue
+            if name.startswith(CONTINUED_ARTIFACT_SKIP_PREFIXES):
+                continue
+            if name in CONTINUED_ARTIFACT_SKIP_NAMES:
+                continue
+            pairs.append((source, os.path.join("processed_proteins", name)))
+    return pairs
+
+
+def seed_continued_run(parent_folder: str, run_folder: str) -> List[Dict[str, Any]]:
+    """Copy the reusable parent products into the new run and hash every one of them."""
+    records: List[Dict[str, Any]] = []
+    for source, relative in collect_continued_artifacts(parent_folder):
+        destination = os.path.join(run_folder, relative)
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        shutil.copy2(source, destination)
+        records.append({
+            "source_path": source,
+            "relative_path": relative.replace(os.sep, "/"),
+            "destination_path": destination,
+            "source_sha256": sha256_file(source),
+            "destination_sha256": sha256_file(destination),
+            "bytes": os.path.getsize(destination),
+        })
+    return records
+
+
 def build_argument_parser() -> argparse.ArgumentParser:
     """Build the command line parser (standard library only, so `--help` needs no environment)."""
     parser = argparse.ArgumentParser(description="Single-cell Proteomics LLM Pipeline")
     parser.add_argument("-i", "--input-folder", required=True, type=str)
     parser.add_argument("-rf", "--runs-folder", required=False, type=str, default="./runs")
+    parser.add_argument(
+        "--report-language",
+        dest="report_language",
+        choices=list(_report_language.SUPPORTED),
+        default=None,
+        help="Language of the generated report: zh (default) or en. An explicit value wins "
+             "over the language inherited through --continue-from.",
+    )
+    parser.add_argument(
+        "--continue-from",
+        dest="continue_from",
+        required=False,
+        default=None,
+        help="Previous run folder to continue. Inherits its report language and reuses its "
+             "saved analysis design and matrix state.",
+    )
     parser.add_argument(
         "-n",
         "--name",
@@ -6762,10 +7219,20 @@ def main(argv: Optional[List[str]] = None) -> None:
     args = parser.parse_args(argv)
     if args.enable_internal_scorer and args.evaluator_mode != "internal-dev":
         parser.error("--enable-internal-scorer requires --evaluator-mode internal-dev")
+    # checked before the agent environment is touched, so a bad parent folder costs nothing
+    if args.continue_from and not looks_like_run_folder(args.continue_from):
+        parser.error("--continue-from must point at a previous run folder (none of "
+                     "run_metadata.json, parameters.json, record_file.md, "
+                     "analysis_design.used.yaml or processed_proteins/ was found in %s)"
+                     % args.continue_from)
 
     # From here on the run needs the agent environment. `--help` and an invalid argument
     # combination have already exited above, before any third-party package is imported.
     _load_runtime_dependencies()
+
+    report_language, report_language_source = resolve_report_language(
+        args.report_language, args.continue_from)
+    _report_language.set_language(report_language)
 
     input_file_path = args.input_folder
     evaluator_root = args.evaluator_root or input_file_path
@@ -6795,17 +7262,37 @@ def main(argv: Optional[List[str]] = None) -> None:
         evaluator_mode=args.evaluator_mode,
         enable_internal_scorer=enable_internal_scorer,
         publication_eligible_initial=publication_eligible_initial,
+        report_language=report_language,
+        report_language_source=report_language_source,
+        continued_from=args.continue_from or "",
     )
     save_memory(memory_path, initialize_memory_store())
 
+    continued_artifacts: List[Dict[str, Any]] = []
+    if args.continue_from:
+        continued_artifacts = seed_continued_run(args.continue_from, this_run_folder)
+        record_event(
+            record_file_path,
+            "continued_run_seeded",
+            "completed",
+            continued_from=args.continue_from,
+            artifact_count=len(continued_artifacts),
+            artifacts=[item["relative_path"] for item in continued_artifacts],
+        )
+
     sampleinfo_path = os.path.join(input_file_path, "SampleInfo.csv")
     protein_quant_path = os.path.join(input_file_path, "ProteinQuant.csv")
+    explicit_design_path = args.design
+    if explicit_design_path is None and args.continue_from:
+        inherited_design_path = os.path.join(args.continue_from, "analysis_design.used.yaml")
+        if os.path.exists(inherited_design_path):
+            explicit_design_path = inherited_design_path
     design_info = prepare_analysis_design(
         input_file_path,
         sampleinfo_path,
         protein_quant_path,
         this_run_folder,
-        explicit_design_path=args.design,
+        explicit_design_path=explicit_design_path,
     )
     record_event(
         record_file_path,
@@ -6846,6 +7333,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         "enable_internal_scorer": enable_internal_scorer,
         "evaluator_root": evaluator_root if args.evaluator_mode == "internal-dev" else "",
         "publication_eligible_initial": publication_eligible_initial,
+        "report_language": report_language,
+        "report_language_source": report_language_source,
+        "continued_from": args.continue_from or "",
+        "continued_artifacts": continued_artifacts,
         "analysis_design": design_info.get("analysis_design", {}),
         "analysis_design_path": design_info.get("analysis_design_path", ""),
         "analysis_design_inferred_path": design_info.get("analysis_design_inferred_path", ""),
@@ -6864,6 +7355,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         "publication_eligible_initial": publication_eligible_initial,
         "publication_eligible": publication_eligible_initial,
         "hidden_standard_paths_in_generation_config": enable_internal_scorer,
+        "report_language": report_language,
+        "report_language_source": report_language_source,
+        "continued_from": args.continue_from or "",
+        "continued_artifacts": continued_artifacts,
         "analysis_design_source": design_info.get("analysis_design_source"),
         "analysis_design_path": design_info.get("analysis_design_path", ""),
         "analysis_design_inferred_path": design_info.get("analysis_design_inferred_path", ""),

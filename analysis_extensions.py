@@ -26,6 +26,399 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+import report_language  # same directory as this file; the shared zh/en registry
+
+# --------------------------------------------------------------------------- language
+# Reader-facing text of the extension emitters (candidate-exclusion trace, treatment/batch
+# confounding verdicts, stratified contrasts, contrast concordance, unit-layer diagnostics).
+# The zh value of every entry is the released literal copied byte for byte, so a zh run writes
+# exactly the released text; the en value is the same statement in English. Placeholders stay
+# in %-form so the call site is one expression for both languages.
+#
+# Strings that were already English in the released module (the unit-level filter rule,
+# correction scope and row note) keep that English text as their zh value: the released text is
+# the contract for a zh run, and the entry simply makes the en path explicit and reachable.
+EXTENSION_TEXT = {
+    # --- shared
+    "list_separator": ("、", ", "),
+    "unknown": ("未知", "unknown"),
+    # --- trace_candidate_exclusion
+    "trace_no_protein_in_stage": (
+        "该阶段矩阵中无此蛋白组",
+        "this protein group is absent from the matrix at this stage",
+    ),
+    "trace_not_detected_in_stage": (
+        "该阶段全样本未检出",
+        "not detected in any sample at this stage",
+    ),
+    "trace_not_in_diff_table": (
+        "未进入该对比的差异表",
+        "did not enter this contrast's differential table",
+    ),
+    "trace_verdict_matched_diff": (
+        "已匹配：进入分析矩阵与差异表",
+        "matched: present in the analysis matrix and in the differential table",
+    ),
+    "trace_verdict_matched_matrix": (
+        "已匹配：进入分析矩阵",
+        "matched: present in the analysis matrix",
+    ),
+    "trace_verdict_absent_matrix": (
+        "未匹配：符号可识别，但各阶段矩阵中不存在该蛋白组",
+        "not matched: the symbol is resolvable, but this protein group is absent from the "
+        "matrices at every stage",
+    ),
+    "trace_verdict_name_unresolved": (
+        "名称待解析：未在任何矩阵、候选表或差异表中识别该符号",
+        "name unresolved: the symbol was not recognised in any matrix, candidate table or "
+        "differential table",
+    ),
+    "trace_verdict_not_detected_input": (
+        "未检出：原始矩阵中全样本未检出",
+        "not detected: absent from every sample of the input matrix",
+    ),
+    "trace_stage_filtered_matrix": ("过滤后矩阵", "the filtered matrix"),
+    "trace_stage_preprocessing": ("预处理", "preprocessing"),
+    "trace_verdict_filtered_out": (
+        "被过滤移除：输入矩阵检出 %s/%s（%s），过滤后矩阵已不含该蛋白组（该步保留 %s 个蛋白）",
+        "removed by filtering: detected in %s/%s of the input matrix (%s), and the filtered "
+        "matrix no longer contains this protein group (that step kept %s proteins)",
+    ),
+    "trace_verdict_not_computed": (
+        "未计算：进入分析矩阵但未进入任何已计算对比的差异表",
+        "not computed: present in the analysis matrix but in no computed contrast's "
+        "differential table",
+    ),
+    # --- estimate_confounding
+    "conf_no_matrix_yet": (
+        "本轮尚未生成分析矩阵：分析阶段尚未完成（processed_proteins 目录尚无产物），"
+        "因此未做处理与批次的可比性判断；该判词不是数据缺失的结论。",
+        "No analysis matrix has been produced for this run yet: the analysis stage has no "
+        "output in the processed_proteins directory, so treatment-batch comparability was not "
+        "assessed; this verdict is not a finding that data are missing.",
+    ),
+    "conf_no_matrix_or_sampleinfo": (
+        "找不到可用的分析矩阵或样本信息，无法评估处理与批次的可比性。",
+        "No usable analysis matrix or sample metadata could be resolved, so treatment-batch "
+        "comparability cannot be assessed.",
+    ),
+    "conf_no_group_column": (
+        "该数据集没有可用的分组列，处理与批次的可比性不适用。",
+        "This dataset has no usable group column, so treatment-batch comparability does not "
+        "apply.",
+    ),
+    "conf_no_batch_column": (
+        "元数据中没有声明批次列，本轮不做处理与批次的可比性判断。",
+        "No batch column is declared in the metadata, so treatment-batch comparability was not "
+        "assessed in this run.",
+    ),
+    "conf_too_few_samples": ("可用样本过少，无法评估可比性。", "Too few usable samples to assess comparability."),
+    "conf_too_few_proteins": (
+        "分析矩阵中完整蛋白过少，无法评估可比性。",
+        "Too few complete proteins in the analysis matrix to assess comparability.",
+    ),
+    "conf_note_same_complete_set": (
+        "效应估计与置换使用同一完整集合",
+        "the effect estimate and the permutation use the same complete set",
+    ),
+    "conf_note_projection_residual": (
+        "对比在 row space(X) 上的投影残差 %.3g",
+        "residual of the contrast projected onto the row space of X: %.3g",
+    ),
+    "conf_note_variance_inflation": (
+        "对比估计相对无批次设计的方差膨胀",
+        "variance inflation of the contrast estimate relative to the design without batch",
+    ),
+    "conf_note_weak_identification": (
+        "VIF > 50 时判为弱识别",
+        "a VIF above 50 is read as weak identification",
+    ),
+    "conf_note_empty_cell": ("0 表示存在空交叉格", "0 means an empty treatment-by-batch cell exists"),
+    "conf_note_adjusted_median": ("批次校正后 %s", "%s after batch adjustment"),
+    "conf_note_permutation": (
+        "%d 次批次内置换；观测与置换使用同一固定集合（按蛋白方差预选 %d/%d 个，与处理标签无关）",
+        "%d within-batch permutations; the observed statistic and the permutations use the same "
+        "fixed set (%d/%d preselected on protein variance, independent of the treatment labels)",
+    ),
+    "conf_note_eta2_treatment": (
+        "仅描述性：主成分上与处理的单因素关联",
+        "descriptive only: single-factor association with treatment on the principal components",
+    ),
+    "conf_note_eta2_batch": (
+        "仅描述性：主成分上与批次的单因素关联",
+        "descriptive only: single-factor association with batch on the principal components",
+    ),
+    "conf_note_empty_cell_estimable": (
+        "；存在空交叉格（最小格 0 个观测）：加性模型下该对比仍可估计，但不能估计该格的处理×批次交互",
+        "; an empty treatment-by-batch cell exists (smallest cell 0 observations): the contrast "
+        "is still estimable under the additive model, but the treatment-by-batch interaction in "
+        "that cell cannot be estimated",
+    ),
+    "conf_nearly_collinear": ("处理与批次接近共线", "treatment and batch are nearly collinear"),
+    "conf_verdict_not_estimable": (
+        "目标对比 %s 在联合设计中不可估计（对比向量几乎完全落在批次空间内，残差范数 %.4g）："
+        "不报告批次校正后的效应，也不做处理与批次效应的强弱比较；结果按处理+批次合并效应报告。",
+        "The target contrast %s is not estimable in the joint design (the contrast vector lies "
+        "almost entirely inside the batch space, residual norm %.4g): no batch-adjusted effect "
+        "is reported and treatment and batch effects are not compared in strength; results are "
+        "reported as a combined treatment-plus-batch effect.",
+    ),
+    "conf_verdict_weakly_identified": (
+        "目标对比 %s 可估计但只是弱识别（相对无批次设计的方差膨胀 VIF=%.1f；%s）："
+        "批次校正后的效应不稳定，只能作为参考，不用于与批次效应比较强弱；"
+        "处理×批次覆盖情况必须与结果一同引用。",
+        "The target contrast %s is estimable but only weakly identified (variance inflation "
+        "VIF=%.1f relative to the design without batch; %s): the batch-adjusted effect is "
+        "unstable and is given as a reference only, not for comparing strength against the "
+        "batch effect; the treatment-by-batch coverage must be cited with the result.",
+    ),
+    "conf_verdict_estimable": (
+        "目标对比 %s 在联合设计中可估计（VIF=%.2f，处理×批次最小格 %d 个观测%s）："
+        "批次校正后对比效应中位数 %.3f、四分位距 %.3f，与未校正均值差的 Spearman 相关 %.3f、"
+        "符号一致 %d/%d；批次内置换检验 p=%.4f，观测与置换使用同一固定集合（按蛋白方差预选 %d/%d 个，"
+        "与处理标签无关）。主成分上的处理/批次单因素关联（%.3f / %.3f）只作描述性指标。",
+        "The target contrast %s is estimable in the joint design (VIF=%.2f, smallest "
+        "treatment-by-batch cell %d observations%s): after batch adjustment the contrast effect "
+        "has median %.3f and interquartile range %.3f, with Spearman correlation %.3f and sign "
+        "agreement %d/%d against the unadjusted mean difference; the within-batch permutation "
+        "test gives p=%.4f, and the observed statistic and the permutations use the same fixed "
+        "set (%d/%d preselected on protein variance, independent of the treatment labels). The "
+        "single-factor treatment/batch associations on the principal components (%.3f / %.3f) "
+        "are descriptive only.",
+    ),
+    # --- _effect_scale / effect_scale_record
+    "scale_log2_from_record": (
+        "log2FC（依据本次运行写出的矩阵变换执行记录）",
+        "log2FC (from the matrix-transform record written by this run)",
+    ),
+    "scale_log2_from_design": (
+        "log2FC（分析设计明确记录已执行对数变换）",
+        "log2FC (the analysis design records that a log transform was applied)",
+    ),
+    "scale_linear_recorded": (
+        "均值差（设计记录未做对数变换，数值范围与线性强度一致；单位为矩阵强度）",
+        "mean difference (the design records no log transform and the value range matches "
+        "linear intensities; units are matrix intensity)",
+    ),
+    "scale_unknown_heuristic": (
+        "均值差（仅有尺度启发式提示，未记录对数变换；尺度未知，不能称为 log2FC）",
+        "mean difference (only a scale heuristic is available and no log transform is "
+        "recorded; the scale is unknown and this is not a log2FC)",
+    ),
+    "scale_unknown": (
+        "均值差（未记录对数变换，尺度未知；不能称为 log2FC）",
+        "mean difference (no log transform is recorded and the scale is unknown; this is not "
+        "a log2FC)",
+    ),
+    "scale_source_run_record": (
+        "processed_proteins/matrix_transform_record.json（本次运行写出的变换执行记录）",
+        "processed_proteins/matrix_transform_record.json (the transform record written by "
+        "this run)",
+    ),
+    # --- stratified_contrasts
+    "strat_threshold_joint": (
+        "|logFC| > %.2f 且 adj.P < %.2f",
+        "|logFC| > %.2f and adj.P < %.2f",
+    ),
+    "strat_threshold_fdr_only": (
+        "仅 adj.P < %.2f（尺度未确认为 log2，未套用 logFC 阈值）",
+        "adj.P < %.2f only (the scale is not confirmed as log2, so no logFC threshold is applied)",
+    ),
+    "strat_verdict_below_min_n": (
+        "未分层（低于最低计算门槛）",
+        "not stratified (below the minimum computation threshold)",
+    ),
+    "strat_note_min_n": (
+        "两臂各需 ≥%d，实际 %d vs %d；该门槛只是计算下限，不代表设计上可分层",
+        "each arm needs at least %d, actual %d vs %d; this threshold is only a computation "
+        "floor and does not mean the design supports stratification",
+    ),
+    "strat_verdict_stratified": ("已分层", "stratified"),
+    "strat_note_alignment": (
+        "按完整蛋白组标识与合并结果对齐；同向 %d/%d、异向 %d；逐蛋白结果见 %s.csv",
+        "aligned with the pooled result by the full protein-group identifier; same sign %d/%d, "
+        "opposite sign %d; per-protein results in %s.csv",
+    ),
+    "strat_verdict_convention_note": ("口径说明", "convention note"),
+    "strat_note_separate_not_joint": (
+        "分别按各变量分层不等于同时控制这些变量；需要联合控制时应把两个因素放进同一模型。",
+        "Stratifying by each variable separately is not the same as controlling both variables "
+        "at once; joint control requires both factors in one model.",
+    ),
+    # --- contrast_concordance
+    "conc_not_applicable": ("不适用", "not applicable"),
+    "conc_insufficient_shared": ("共享蛋白不足，无法比较", "too few shared proteins to compare"),
+    "conc_comparable": (
+        "可比较（两对比均有显著蛋白）",
+        "comparable (both contrasts have significant proteins)",
+    ),
+    "conc_no_shared_significant": ("无共同显著蛋白", "no shared significant proteins"),
+    "conc_zero_overlap": (
+        "显著集合重叠为零（%s 显著 %d 个，%s 显著 %d 个）；方向一致率不适用。"
+        "整体足迹仍可比：见效应量分布与共享蛋白相关性。",
+        "the significant sets do not overlap at all (%s: %d significant, %s: %d significant), "
+        "so the sign-agreement rate is not applicable. The overall footprints remain "
+        "comparable: see the effect-size distributions and the shared-protein correlation.",
+    ),
+    "conc_note_fdr_scope": (
+        "显著集合用 adj.P（FDR）判定；原始 P 单列保留。Spearman 基于全部共享蛋白，含近零效应。",
+        "the significant sets are defined by adj.P (FDR) and raw P is kept as its own column. "
+        "Spearman is computed over all shared proteins, including near-zero effects.",
+    ),
+    # --- unit_structure_diagnostics / unit_aware_sensitivity
+    "unit_exclusion_rule": (
+        "实验单位的独立生物学个体判定规则：标签中出现 mixed/mix/pool/combined/"
+        "composite 的样本按混合来源处理，标签为 unknown/unassigned/none/null/NA 的按"
+        "未确认来源处理；两者都不作为独立生物学个体进入个体层检验，也不参与个体间比较。",
+        "Rule for treating an experimental-unit label as an independent biological individual: "
+        "samples whose label contains mixed/mix/pool/combined/composite are treated as pooled "
+        "sources, and labels unknown/unassigned/none/null/NA as unconfirmed sources; neither "
+        "enters the unit-level test as an independent individual and neither takes part in "
+        "between-unit comparisons.",
+    ),
+    "unit_reason_group_col_missing": (
+        "分组列不在样本元数据中（group column is missing from the sample metadata）",
+        "the group column is missing from the sample metadata",
+    ),
+    "unit_reason_no_unit_column": (
+        "分析设计未声明实验单位列，元数据中也未推断出可用列"
+        "（no experimental-unit column is declared and none could be inferred）",
+        "no experimental-unit column is declared in the analysis design and none could be "
+        "inferred from the metadata",
+    ),
+    "unit_reason_unit_col_empty": (
+        "实验单位列在参与分析的样本上全部为空（the unit column is empty for every analysed sample）",
+        "the unit column is empty for every analysed sample",
+    ),
+    "unit_reason_no_unit_left": (
+        "排除混合来源与未确认来源后没有剩余实验单位"
+        "（no experimental unit remains after excluding pooled and unconfirmed sources）",
+        "no experimental unit remains after excluding pooled and unconfirmed sources",
+    ),
+    "unit_structure_nested": (
+        "每个个体只出现在一个臂上：处理与个体身份在联合模型中不可分离。"
+        "个体间比较仍然可用，但它比较的是不同个体，不能排除个体来源差异。",
+        "each individual appears in one arm only: treatment and individual identity are not "
+        "separable in a joint model. A between-unit comparison is still available, but it "
+        "compares different individuals and cannot rule out differences between them.",
+    ),
+    "unit_structure_partially_crossed": (
+        "部分个体同时出现在两臂：个体内（配对）估计目标可识别；"
+        "只在一个臂出现的个体为个体间估计目标提供独立观测。",
+        "some individuals appear in both arms: the within-unit (paired) estimand is "
+        "identifiable, and individuals appearing in one arm only provide independent "
+        "observations for the between-unit estimand.",
+    ),
+    "unit_structure_crossed": (
+        "每个个体在两臂都有观测：两种估计目标都基于同一批个体。",
+        "every individual is observed in both arms: both estimands rest on the same set of "
+        "individuals.",
+    ),
+    "unit_note_rank": (
+        "该秩与残余自由度只描述「处理与个体身份能否放进同一个固定效应模型」，"
+        "是诊断，不用来一概否决个体间比较。",
+        "this rank and the residual degrees of freedom only describe whether treatment and "
+        "individual identity fit in one fixed-effects model; it is a diagnostic and does not "
+        "by itself rule out a between-unit comparison.",
+    ),
+    "unit_estimand_within": (
+        "个体内（同一实验单位在两臂都有观测）的均值差",
+        "within-unit mean difference (the same experimental unit is observed in both arms)",
+    ),
+    "unit_reason_within_insufficient": (
+        "同时出现在两臂的独立个体只有 %d 个（配对分析门槛 %d 个）：共享个体属于两臂，"
+        "把它同时当成两臂的独立样本会重复计数，因此不进入个体间检验。",
+        "only %d independent individuals appear in both arms (paired-analysis threshold %d): "
+        "a shared individual belongs to both arms, so treating it as an independent sample of "
+        "each arm would double-count it, and it is kept out of the between-unit test.",
+    ),
+    "unit_estimand_between": (
+        "个体间（每条臂只使用只在该臂观测的独立个体）的均值差",
+        "between-unit mean difference (each arm uses only the independent individuals observed "
+        "in that arm)",
+    ),
+    "unit_reason_between_insufficient": (
+        "只在一个臂上观测的独立个体不足（A 臂 %d 个、B 臂 %d 个，门槛各 %d 个）："
+        "共享个体不能同时充当两臂的独立样本。",
+        "too few independent individuals are observed in a single arm (arm A %d, arm B %d, "
+        "threshold %d each): a shared individual cannot serve as an independent sample of both "
+        "arms.",
+    ),
+    "unit_reason_matched_by_name": (
+        "单位列是按列名匹配推断的，未在分析设计中确认"
+        "（the unit column was matched by name only and is not declared in the analysis design）。",
+        "the unit column was matched by name only and is not declared in the analysis design.",
+    ),
+    "unit_reason_auto_design": (
+        "单位列来自自动生成的分析设计（按列名匹配，未由研究者确认）：“标签对应独立生物学个体”"
+        "是标签层假定，单位层结果按标签层探索性分析解读"
+        "（the unit column comes from the auto-inferred design; label-level independence is assumed, not confirmed）。",
+        "the unit column comes from the auto-inferred design (matched by column name, not "
+        "confirmed by the researcher): label-level independence is an assumption, so the "
+        "unit-level result is read as an exploratory analysis at the label level.",
+    ),
+    "unit_reason_excluded_labels": (
+        "已排除 %d 个混合来源或未确认来源标签（%s）：混合池与未知标签不能包装成独立生物学个体。",
+        "%d pooled or unconfirmed-source labels were excluded (%s): pooled and unknown labels "
+        "cannot be packaged as independent biological individuals.",
+    ),
+    "unit_reason_switched_between": (
+        "本节改用个体间估计目标：只使用单臂专属个体（A 臂 %d 个、B 臂 %d 个）。",
+        "this section switches to the between-unit estimand and uses single-arm individuals "
+        "only (arm A %d, arm B %d).",
+    ),
+    "unit_reason_unbalanced_structure": (
+        "结构变量在两臂分布不均：%d 个个体只在其中一个臂出现（共 %d 个个体）。",
+        "the structural variable is unevenly distributed across arms: %d individuals appear "
+        "in one arm only (of %d individuals in total).",
+    ),
+    "unit_reason_matrix_matched_units_unresolved": (
+        "矩阵匹配后有已声明的单位找不到可分析的样本列：已声明个体（A %s / B %s / 共同 %s）→ "
+        "实际参与（A %d / B %d / 共同 %d）。",
+        "after matrix matching, some declared units have no analysable sample column: declared "
+        "individuals (A %s / B %s / shared %s) versus those actually included "
+        "(A %d / B %d / shared %d).",
+    ),
+    "unit_reference_analysis": (
+        "observation-level Welch t-test (differential_%s.csv)",
+        "observation-level Welch t-test (differential_%s.csv)",
+    ),
+    "unit_filter_rule_fdr_only": (
+        "FDR scope only: adjusted P < %s (BH over the %d protein groups of this contrast that "
+        "pass the minimum-sample condition)",
+        "FDR scope only: adjusted P < %s (BH over the %d protein groups of this contrast that "
+        "pass the minimum-sample condition)",
+    ),
+    "unit_filter_rule_joint": (
+        "joint threshold: adjusted P < %s and |%s| > %s (thresholds inherited from the "
+        "observation-level design; effect scale state: %s)",
+        "joint threshold: adjusted P < %s and |%s| > %s (thresholds inherited from the "
+        "observation-level design; effect scale state: %s)",
+    ),
+    "unit_correction_scope": (
+        "BH correction scope: the %d protein groups of this contrast that pass the "
+        "minimum-sample condition; not pooled across contrasts or datasets.",
+        "BH correction scope: the %d protein groups of this contrast that pass the "
+        "minimum-sample condition; not pooled across contrasts or datasets.",
+    ),
+    "unit_row_level_note": (
+        "Per protein the table reports the effective number of units (or pairs), the degrees "
+        "of freedom, the standard error and the 95% confidence interval; rows below the "
+        "minimum sample condition are marked as not tested and carry no P value.",
+        "Per protein the table reports the effective number of units (or pairs), the degrees "
+        "of freedom, the standard error and the 95% confidence interval; rows below the "
+        "minimum sample condition are marked as not tested and carry no P value.",
+    ),
+}
+report_language.register("extensions", EXTENSION_TEXT)
+
+
+def t(key: str, *args) -> str:
+    """Reader-facing extension text for the active language, optionally %-formatted."""
+    value = report_language.t("extensions." + key)
+    return value % args if args else value
+
+
 SEED = 20260911
 GENE_COL_CANDIDATES = ["PG.Genes", "gene", "Gene", "Genes", "gene_name"]
 PROTEIN_COL_CANDIDATES = ["PG.ProteinGroups", "protein", "Protein", "protein_group", "ProteinGroups"]
@@ -252,7 +645,7 @@ def trace_candidate_exclusion(run_folder: Path, candidates: Optional[List[str]] 
                 positions[stage] = "absent"
                 rows.append({"candidate": gene, "stage": stage, "protein_group": "", "detected_samples": 0,
                              "total_samples": len(sample_cols), "detected_fraction": 0.0,
-                             "status": "absent", "reason": "该阶段矩阵中无此蛋白组"})
+                             "status": "absent", "reason": t("trace_no_protein_in_stage")})
                 continue
             sub = df[hit].iloc[0]
             detected, _ = _detection(df[hit], sample_cols)
@@ -264,7 +657,7 @@ def trace_candidate_exclusion(run_folder: Path, candidates: Optional[List[str]] 
                          "detected_samples": n_det, "total_samples": len(sample_cols),
                          "detected_fraction": frac,
                          "status": "present" if n_det > 0 else "undetected",
-                         "reason": "" if n_det > 0 else "该阶段全样本未检出"})
+                         "reason": "" if n_det > 0 else t("trace_not_detected_in_stage")})
         for contrast, df in diff_tables.items():
             gene_col = _col(df, GENE_COL_CANDIDATES)
             if not gene_col:
@@ -274,34 +667,39 @@ def trace_candidate_exclusion(run_folder: Path, candidates: Optional[List[str]] 
                          "detected_samples": int(hit.sum()), "total_samples": int(df.shape[0]),
                          "detected_fraction": round(float(hit.sum()) / max(1, df.shape[0]), 6),
                          "status": "present" if hit.any() else "absent",
-                         "reason": "" if hit.any() else "未进入该对比的差异表"})
+                         "reason": "" if hit.any() else t("trace_not_in_diff_table")})
         trace = [r for r in rows if r["candidate"] == gene]
         input_row = next((r for r in trace if r["stage"] == "input"), None)
         analysis_row = next((r for r in trace if r["stage"] == "analysed"), None)
         diff_rows = [r for r in trace if str(r["stage"]).startswith("differential:")]
         in_diff = any(r["status"] == "present" for r in diff_rows)
         in_preset = gene in preset_genes
-        verdict = "已匹配：进入分析矩阵与差异表" if (analysis_row and analysis_row["status"] == "present" and in_diff) else "已匹配：进入分析矩阵"
+        verdict = (t("trace_verdict_matched_diff")
+                   if (analysis_row and analysis_row["status"] == "present" and in_diff)
+                   else t("trace_verdict_matched_matrix"))
         identity_known = in_preset or in_diff or any(
             r["status"] != "absent" for r in trace
             if str(r["stage"]) in {"input", "filtered", "analysed"})
         if input_row and input_row["status"] == "absent" and (analysis_row is None or analysis_row["status"] == "absent"):
             if identity_known:
-                verdict = "未匹配：符号可识别，但各阶段矩阵中不存在该蛋白组"
+                verdict = t("trace_verdict_absent_matrix")
             else:
-                verdict = "名称待解析：未在任何矩阵、候选表或差异表中识别该符号"
+                verdict = t("trace_verdict_name_unresolved")
         elif input_row and input_row["status"] == "undetected":
-            verdict = "未检出：原始矩阵中全样本未检出"
+            verdict = t("trace_verdict_not_detected_input")
         elif analysis_row and analysis_row["status"] == "absent":
             filtered_row = next((r for r in trace if r["stage"] == "filtered"), None)
-            stage_name = "过滤后矩阵" if (filtered_row and filtered_row["status"] == "absent") else "预处理"
-            verdict = ("被过滤移除：输入矩阵检出 %s/%s（%s），过滤后矩阵已不含该蛋白组（该步保留 %s 个蛋白）"
-                       % ((input_row or {}).get("detected_samples", ""),
-                          (input_row or {}).get("total_samples", ""),
-                          (input_row or {}).get("detected_fraction", ""),
-                          int(stages.get("analysed", (None, []))[0].shape[0]) if stages.get("analysed") else "未知"))
+            stage_name = (t("trace_stage_filtered_matrix")
+                          if (filtered_row and filtered_row["status"] == "absent")
+                          else t("trace_stage_preprocessing"))
+            verdict = t("trace_verdict_filtered_out",
+                        (input_row or {}).get("detected_samples", ""),
+                        (input_row or {}).get("total_samples", ""),
+                        (input_row or {}).get("detected_fraction", ""),
+                        int(stages.get("analysed", (None, []))[0].shape[0])
+                        if stages.get("analysed") else t("unknown"))
         elif analysis_row and analysis_row["status"] == "present" and not in_diff:
-            verdict = "未计算：进入分析矩阵但未进入任何已计算对比的差异表"
+            verdict = t("trace_verdict_not_computed")
         rows.append({"candidate": gene, "stage": "verdict", "protein_group": "", "detected_samples": 0,
                      "total_samples": 0, "detected_fraction": 0.0, "status": "summary", "reason": verdict})
     return pd.DataFrame(rows)
@@ -329,26 +727,25 @@ def estimate_confounding(run_folder: Path, n_perm: int = 500, out_dir: Optional[
         # not assert a data defect that has not happened.
         produced = sorted(q.name for q in (run_folder / "processed_proteins").glob("*.csv")) if (run_folder / "processed_proteins").exists() else []
         if not produced:
-            return empty, ("本轮尚未生成分析矩阵：分析阶段尚未完成（processed_proteins 目录尚无产物），"
-                           "因此未做处理与批次的可比性判断；该判词不是数据缺失的结论。")
-        return empty, "找不到可用的分析矩阵或样本信息，无法评估处理与批次的可比性。"
+            return empty, t("conf_no_matrix_yet")
+        return empty, t("conf_no_matrix_or_sampleinfo")
     matrix, sampleinfo = pd.read_csv(matrix_path), pd.read_csv(si_path)
     group_col = str(design.get("group_col") or "")
     batch_col = str(design.get("batch_col") or "")
     id_col = str(design.get("sample_id_col") or "")
     contrasts = (design.get("differential") or {}).get("contrasts") or []
     if not group_col or group_col not in sampleinfo.columns:
-        return empty, "该数据集没有可用的分组列，处理与批次的可比性不适用。"
+        return empty, t("conf_no_group_column")
     if not batch_col or batch_col not in sampleinfo.columns:
-        return empty, "元数据中没有声明批次列，本轮不做处理与批次的可比性判断。"
+        return empty, t("conf_no_batch_column")
     sample_cols = _sample_cols(matrix, sampleinfo, id_col)
     if len(sample_cols) < 6:
-        return empty, "可用样本过少，无法评估可比性。"
+        return empty, t("conf_too_few_samples")
     prot_col = _col(matrix, PROTEIN_COL_CANDIDATES)
     df = matrix.set_index(matrix[prot_col].astype(str) if prot_col else matrix.index)[sample_cols].apply(pd.to_numeric, errors="coerce")
     df = df.loc[df.notna().all(axis=1)]
     if df.shape[0] < 10:
-        return empty, "分析矩阵中完整蛋白过少，无法评估可比性。"
+        return empty, t("conf_too_few_proteins")
     meta = sampleinfo.set_index(sampleinfo[id_col].astype(str)).reindex([str(c) for c in sample_cols])
     treat = np.asarray([str(v) for v in meta[group_col].tolist()])
     batch = np.asarray([str(v) for v in meta[batch_col].tolist()])
@@ -450,45 +847,44 @@ def estimate_confounding(run_folder: Path, n_perm: int = 500, out_dir: Optional[
     rows = [
         {"metric": "contrast", "value": contrast_name, "note": "%s - %s" % (arm_a, arm_b)},
         {"metric": "n_samples", "value": len(sample_cols), "note": ""},
-        {"metric": "n_proteins_complete", "value": int(df.shape[0]), "note": "效应估计与置换使用同一完整集合"},
-        {"metric": "contrast_estimable", "value": int(estimable), "note": "对比在 row space(X) 上的投影残差 %.3g" % resid_norm},
+        {"metric": "n_proteins_complete", "value": int(df.shape[0]),
+         "note": t("conf_note_same_complete_set")},
+        {"metric": "contrast_estimable", "value": int(estimable),
+         "note": t("conf_note_projection_residual", resid_norm)},
         {"metric": "contrast_vif", "value": round(vif, 3) if np.isfinite(vif) else None,
-         "note": "对比估计相对无批次设计的方差膨胀"},
-        {"metric": "contrast_weakly_identified", "value": int(weakly_identified), "note": "VIF > 50 时判为弱识别"},
-        {"metric": "treatment_levels", "value": len(levels), "note": "、".join(levels)},
-        {"metric": "batch_levels", "value": len(b_levels), "note": "、".join(b_levels)},
-        {"metric": "min_cell_size_treatment_x_batch", "value": min_cell, "note": "0 表示存在空交叉格"},
-        {"metric": "adjusted_contrast_median", "value": round(float(np.median(adj_ok)), 4) if adj_ok.size else None, "note": "批次校正后 %s" % contrast_name},
+         "note": t("conf_note_variance_inflation")},
+        {"metric": "contrast_weakly_identified", "value": int(weakly_identified),
+         "note": t("conf_note_weak_identification")},
+        {"metric": "treatment_levels", "value": len(levels),
+         "note": t("list_separator").join(levels)},
+        {"metric": "batch_levels", "value": len(b_levels),
+         "note": t("list_separator").join(b_levels)},
+        {"metric": "min_cell_size_treatment_x_batch", "value": min_cell,
+         "note": t("conf_note_empty_cell")},
+        {"metric": "adjusted_contrast_median", "value": round(float(np.median(adj_ok)), 4) if adj_ok.size else None,
+         "note": t("conf_note_adjusted_median", contrast_name)},
         {"metric": "adjusted_contrast_iqr", "value": round(float(np.percentile(adj_ok, 75) - np.percentile(adj_ok, 25)), 4) if adj_ok.size else None, "note": ""},
         {"metric": "unadjusted_vs_adjusted_spearman", "value": round(corr, 4) if corr == corr else None, "note": ""},
         {"metric": "unadjusted_vs_adjusted_sign_agreement", "value": "%d/%d" % (sign_agree, adj_ok.size), "note": ""},
         {"metric": "within_batch_permutation_p", "value": round(p_adj, 4) if p_adj == p_adj else None,
-         "note": "%d 次批次内置换；观测与置换使用同一固定集合（按蛋白方差预选 %d/%d 个，与处理标签无关）"
-                 % (n_perm, int(min(800, Y.shape[1])), int(Y.shape[1]))},
-        {"metric": "eta2_treatment_pc_descriptive", "value": round(eta_t, 4), "note": "仅描述性：主成分上与处理的单因素关联"},
-        {"metric": "eta2_batch_pc_descriptive", "value": round(eta_b, 4), "note": "仅描述性：主成分上与批次的单因素关联"},
+         "note": t("conf_note_permutation", n_perm, int(min(800, Y.shape[1])), int(Y.shape[1]))},
+        {"metric": "eta2_treatment_pc_descriptive", "value": round(eta_t, 4),
+         "note": t("conf_note_eta2_treatment")},
+        {"metric": "eta2_batch_pc_descriptive", "value": round(eta_b, 4),
+         "note": t("conf_note_eta2_batch")},
     ]
-    cell_note = ("；存在空交叉格（最小格 0 个观测）：加性模型下该对比仍可估计，但不能估计该格的处理×批次交互"
-                 if min_cell == 0 else "")
+    cell_note = t("conf_note_empty_cell_estimable") if min_cell == 0 else ""
     if not estimable:
-        verdict = ("目标对比 %s 在联合设计中不可估计（对比向量几乎完全落在批次空间内，残差范数 %.4g）："
-                   "不报告批次校正后的效应，也不做处理与批次效应的强弱比较；结果按处理+批次合并效应报告。"
-                   % (contrast_name, resid_norm))
+        verdict = t("conf_verdict_not_estimable", contrast_name, resid_norm)
     elif weakly_identified:
-        verdict = ("目标对比 %s 可估计但只是弱识别（相对无批次设计的方差膨胀 VIF=%.1f；%s）："
-                   "批次校正后的效应不稳定，只能作为参考，不用于与批次效应比较强弱；"
-                   "处理×批次覆盖情况必须与结果一同引用。"
-                   % (contrast_name, vif, cell_note or "处理与批次接近共线"))
+        verdict = t("conf_verdict_weakly_identified", contrast_name, vif,
+                    cell_note or t("conf_nearly_collinear"))
     else:
-        verdict = ("目标对比 %s 在联合设计中可估计（VIF=%.2f，处理×批次最小格 %d 个观测%s）："
-                   "批次校正后对比效应中位数 %.3f、四分位距 %.3f，与未校正均值差的 Spearman 相关 %.3f、符号一致 %d/%d；"
-                   "批次内置换检验 p=%.4f，观测与置换使用同一固定集合（按蛋白方差预选 %d/%d 个，与处理标签无关）。"
-                   "主成分上的处理/批次单因素关联（%.3f / %.3f）只作描述性指标。"
-                   % (contrast_name, vif, min_cell, cell_note,
-                      float(np.median(adj_ok)) if adj_ok.size else float("nan"),
-                      float(np.percentile(adj_ok, 75) - np.percentile(adj_ok, 25)) if adj_ok.size else float("nan"),
-                      corr, sign_agree, adj_ok.size, p_adj,
-                      int(min(800, Y.shape[1])), int(Y.shape[1]), eta_t, eta_b))
+        verdict = t("conf_verdict_estimable", contrast_name, vif, min_cell, cell_note,
+                    float(np.median(adj_ok)) if adj_ok.size else float("nan"),
+                    float(np.percentile(adj_ok, 75) - np.percentile(adj_ok, 25)) if adj_ok.size else float("nan"),
+                    corr, sign_agree, adj_ok.size, p_adj,
+                    int(min(800, Y.shape[1])), int(Y.shape[1]), eta_t, eta_b)
     try:
         target_dir = Path(out_dir) if out_dir else (run_folder / "evaluation_evidence_ext")
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -515,7 +911,7 @@ def _effect_scale(design: Dict[str, Any], transform_record: Optional[Dict[str, A
     if record is None and isinstance(transform_record, dict):
         _applied = (transform_record.get('log2_transform') or {}).get('applied')
         if _applied is True:
-            return ('log2FC（依据本次运行写出的矩阵变换执行记录）', True, 'log2')
+            return (t('scale_log2_from_record'), True, 'log2')
         if _applied is False:
             record = False
     mn, mx = matrix.get("numeric_min"), matrix.get("numeric_max")
@@ -526,12 +922,12 @@ def _effect_scale(design: Dict[str, Any], transform_record: Optional[Dict[str, A
     except Exception:
         range_large_positive = None
     if record is True:
-        return "log2FC（分析设计明确记录已执行对数变换）", True, "log2"
+        return t("scale_log2_from_design"), True, "log2"
     if record is False and range_large_positive:
-        return "均值差（设计记录未做对数变换，数值范围与线性强度一致；单位为矩阵强度）", False, "linear"
+        return t("scale_linear_recorded"), False, "linear"
     if bool(matrix.get("looks_logged")):
-        return "均值差（仅有尺度启发式提示，未记录对数变换；尺度未知，不能称为 log2FC）", False, "unknown"
-    return "均值差（未记录对数变换，尺度未知；不能称为 log2FC）", False, "unknown"
+        return t("scale_unknown_heuristic"), False, "unknown"
+    return t("scale_unknown"), False, "unknown"
 
 
 
@@ -633,9 +1029,9 @@ def stratified_contrasts(run_folder: Path, min_n: int = 5, contrast_name: Option
             ids_b = set(sub_meta.loc[sub_meta[group_col].astype(str) == arm_b, "_sid"].astype(str))
             cols_a = [c for c in matrix.columns if str(c) in ids_a]
             cols_b = [c for c in matrix.columns if str(c) in ids_b]
-            threshold_text = ("|logFC| > %.2f 且 adj.P < %.2f" % (logfc_thresh, p_thresh)
+            threshold_text = (t("strat_threshold_joint", logfc_thresh, p_thresh)
                               if log2_confirmed else
-                              "仅 adj.P < %.2f（尺度未确认为 log2，未套用 logFC 阈值）" % p_thresh)
+                              t("strat_threshold_fdr_only", p_thresh))
             base = {"stratifier": strat, "level": str(level), "contrast": contrast,
                     "direction": "%s - %s" % (arm_a, arm_b), "effect_scale": scale_label,
                     "scale_state": scale_state, "threshold_used": threshold_text,
@@ -644,15 +1040,15 @@ def stratified_contrasts(run_folder: Path, min_n: int = 5, contrast_name: Option
                 base["n_%s_a" % replicate] = int(sub_meta.loc[sub_meta[group_col].astype(str) == arm_a, replicate].nunique())
                 base["n_%s_b" % replicate] = int(sub_meta.loc[sub_meta[group_col].astype(str) == arm_b, replicate].nunique())
             if len(cols_a) < min_n or len(cols_b) < min_n:
-                rows.append({**base, "tested_proteins": 0, "n_sig": 0, "verdict": "未分层（低于最低计算门槛）",
-                             "note": "两臂各需 ≥%d，实际 %d vs %d；该门槛只是计算下限，不代表设计上可分层"
-                                     % (min_n, len(cols_a), len(cols_b))})
+                rows.append({**base, "tested_proteins": 0, "n_sig": 0,
+                             "verdict": t("strat_verdict_below_min_n"),
+                             "note": t("strat_note_min_n", min_n, len(cols_a), len(cols_b))})
                 continue
             effective_logfc = logfc_thresh if log2_confirmed else 0.0
             table = _welch_table(matrix, cols_a, cols_b, gene_col, prot_col, effective_logfc, p_thresh)
-            table["threshold_used"] = ("|logFC| > %.2f 且 adj.P < %.2f" % (logfc_thresh, p_thresh)
+            table["threshold_used"] = (t("strat_threshold_joint", logfc_thresh, p_thresh)
                                        if log2_confirmed else
-                                       "仅 adj.P < %.2f（尺度未确认为 log2，未套用 logFC 阈值）" % p_thresh)
+                                       t("strat_threshold_fdr_only", p_thresh))
             table.insert(0, "contrast", contrast)
             table.insert(1, "stratifier", strat)
             table.insert(2, "level", str(level))
@@ -672,14 +1068,15 @@ def stratified_contrasts(run_folder: Path, min_n: int = 5, contrast_name: Option
                 joined = merged.merge(pooled_small, on="key", how="inner").dropna()
                 total = int(joined.shape[0])
                 agree = int((np.sign(joined["logFC_stratum"]) == np.sign(joined["logFC_pooled"])).sum())
-            rows.append({**base, "tested_proteins": int(table.shape[0]), "n_sig": n_sig, "verdict": "已分层",
-                         "note": "按完整蛋白组标识与合并结果对齐；同向 %d/%d、异向 %d；逐蛋白结果见 %s.csv"
-                                 % (agree, total, total - agree, safe_name)})
+            rows.append({**base, "tested_proteins": int(table.shape[0]), "n_sig": n_sig,
+                         "verdict": t("strat_verdict_stratified"),
+                         "note": t("strat_note_alignment", agree, total, total - agree, safe_name)})
     if rows:
         rows.append({"stratifier": "—", "level": "—", "contrast": contrast, "direction": "%s - %s" % (arm_a, arm_b),
                      "effect_scale": scale_label, "n_a": "", "n_b": "", "min_n_rule": min_n,
-                     "tested_proteins": "", "n_sig": "", "verdict": "口径说明",
-                     "note": "分别按各变量分层不等于同时控制这些变量；需要联合控制时应把两个因素放进同一模型。"})
+                     "tested_proteins": "", "n_sig": "",
+                     "verdict": t("strat_verdict_convention_note"),
+                     "note": t("strat_note_separate_not_joint")})
     return pd.DataFrame(rows)
 
 
@@ -726,9 +1123,10 @@ def contrast_concordance(run_folder: Path, p_thresh: float = 0.05, logfc_thresh:
                 rows.append({"contrast_a": names[i], "contrast_b": names[j], "shared_proteins": len(shared),
                              "spearman_logfc": None, "median_abs_logfc_a": None, "median_abs_logfc_b": None,
                              "n_sig_a": 0, "n_sig_b": 0, "overlap_sig": None, "fisher_p": None,
-                             "sign_agreement": "不适用", "fdr_source_a": fdr_source.get(names[i], ""),
+                             "sign_agreement": t("conc_not_applicable"),
+                             "fdr_source_a": fdr_source.get(names[i], ""),
                              "fdr_source_b": fdr_source.get(names[j], ""),
-                             "verdict": "共享蛋白不足，无法比较"})
+                             "verdict": t("conc_insufficient_shared")})
                 continue
             sa = a.reindex(shared)["logFC"].astype(float)
             sb = b.reindex(shared)["logFC"].astype(float)
@@ -747,12 +1145,11 @@ def contrast_concordance(run_folder: Path, p_thresh: float = 0.05, logfc_thresh:
                 neither = len(set(shared) - set_a - set_b)
                 _, fisher_p = stats.fisher_exact([[len(both), max(0, only_a)], [max(0, only_b), max(0, neither)]])
             if set_a and set_b:
-                verdict = "可比较（两对比均有显著蛋白）"
-                sign_text = "%d/%d" % (sum(1 for k in both if np.sign(a.loc[k, "logFC"]) == np.sign(b.loc[k, "logFC"])), len(both)) if both else "无共同显著蛋白"
+                verdict = t("conc_comparable")
+                sign_text = "%d/%d" % (sum(1 for k in both if np.sign(a.loc[k, "logFC"]) == np.sign(b.loc[k, "logFC"])), len(both)) if both else t("conc_no_shared_significant")
             else:
-                verdict = ("显著集合重叠为零（%s 显著 %d 个，%s 显著 %d 个）；方向一致率不适用。"
-                           "整体足迹仍可比：见效应量分布与共享蛋白相关性。" % (names[i], len(set_a), names[j], len(set_b)))
-                sign_text = "不适用"
+                verdict = t("conc_zero_overlap", names[i], len(set_a), names[j], len(set_b))
+                sign_text = t("conc_not_applicable")
             rows.append({"contrast_a": names[i], "contrast_b": names[j], "shared_proteins": len(shared),
                          "spearman_logfc": round(rho, 4) if rho == rho else None,
                          "median_abs_logfc_a": round(float(sa.abs().median()), 4),
@@ -762,7 +1159,7 @@ def contrast_concordance(run_folder: Path, p_thresh: float = 0.05, logfc_thresh:
                          "fisher_p": round(float(fisher_p), 4) if fisher_p is not None else None,
                          "sign_agreement": sign_text,
                          "fdr_source_a": fdr_source.get(names[i], ""), "fdr_source_b": fdr_source.get(names[j], ""),
-                         "note": "显著集合用 adj.P（FDR）判定；原始 P 单列保留。Spearman 基于全部共享蛋白，含近零效应。",
+                         "note": t("conc_note_fdr_scope"),
                          "verdict": verdict})
     return pd.DataFrame(rows)
 
@@ -1026,6 +1423,13 @@ UNIT_EXCLUSION_RULE = ("实验单位的独立生物学个体判定规则：标�
                        "未确认来源处理；两者都不作为独立生物学个体进入个体层检验，也不参与个体间比较。")
 
 
+def unit_exclusion_rule() -> str:
+    """The released zh rule for a zh run; the registered bilingual entry for an en run."""
+    if report_language.get_language() != "en":
+        return UNIT_EXCLUSION_RULE
+    return t("unit_exclusion_rule")
+
+
 def _unit_label_tokens(label: Any) -> set:
     """Token set of a unit label, split on case boundaries so OldMixed -> {old, mixed}."""
     text = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", str(label).strip())
@@ -1106,7 +1510,7 @@ def effect_scale_record(design: Dict[str, Any], run_folder=None) -> Dict[str, An
     declared = (design.get('matrix') or {}).get('log2_transform_applied') if isinstance(design.get('matrix'), dict) else None
     if state == 'log2' and declared is None and transform_record:
         source = str(transform_record.get('record_source') or
-                     'processed_proteins/matrix_transform_record.json（本次运行写出的变换执行记录）')
+                     t('scale_source_run_record'))
     else:
         source = 'parameters.json -> analysis_design.matrix'
     return {"state": state, "label": label, "confirmed_log2": bool(confirmed_log2),
@@ -1138,7 +1542,7 @@ def unit_structure_diagnostics(sampleinfo: pd.DataFrame, design: Dict[str, Any],
     if not group_col or group_col not in sampleinfo.columns:
         out["estimability"] = "not_estimable"
         out["analysis_route"] = "none"
-        out["reasons"] = ["分组列不在样本元数据中（group column is missing from the sample metadata）"]
+        out["reasons"] = [t("unit_reason_group_col_missing")]
         return out
     sub = sampleinfo.loc[sampleinfo[group_col].astype(str).isin([arm_a, arm_b])].copy()
     out["n_observations"] = {
@@ -1151,8 +1555,7 @@ def unit_structure_diagnostics(sampleinfo: pd.DataFrame, design: Dict[str, Any],
     if not unit_col:
         out["estimability"] = "not_estimable"
         out["analysis_route"] = "none"
-        out["reasons"] = ["分析设计未声明实验单位列，元数据中也未推断出可用列"
-                          "（no experimental-unit column is declared and none could be inferred）"]
+        out["reasons"] = [t("unit_reason_no_unit_column")]
         return out
     sub = sub[sub[unit_col].notna()].copy()
     sub[unit_col] = sub[unit_col].astype(str).str.strip()
@@ -1160,7 +1563,7 @@ def unit_structure_diagnostics(sampleinfo: pd.DataFrame, design: Dict[str, Any],
     if sub.empty:
         out["estimability"] = "not_estimable"
         out["analysis_route"] = "none"
-        out["reasons"] = ["实验单位列在参与分析的样本上全部为空（the unit column is empty for every analysed sample）"]
+        out["reasons"] = [t("unit_reason_unit_col_empty")]
         return out
     classes: Dict[str, List[str]] = {"individual_like": [], "pooled_source": [], "unconfirmed_source": []}
     for value in sorted(set(sub[unit_col])):
@@ -1171,7 +1574,7 @@ def unit_structure_diagnostics(sampleinfo: pd.DataFrame, design: Dict[str, Any],
         "n_excluded": len(excluded),
         "pooled_source": classes["pooled_source"],
         "unconfirmed_source": classes["unconfirmed_source"],
-        "rule": UNIT_EXCLUSION_RULE,
+        "rule": unit_exclusion_rule(),
     }
     all_units_a = set(sub.loc[sub[group_col].astype(str) == arm_a, unit_col])
     all_units_b = set(sub.loc[sub[group_col].astype(str) == arm_b, unit_col])
@@ -1181,8 +1584,7 @@ def unit_structure_diagnostics(sampleinfo: pd.DataFrame, design: Dict[str, Any],
     if included.empty:
         out["estimability"] = "not_estimable"
         out["analysis_route"] = "none"
-        out["reasons"] = ["排除混合来源与未确认来源后没有剩余实验单位"
-                          "（no experimental unit remains after excluding pooled and unconfirmed sources）"]
+        out["reasons"] = [t("unit_reason_no_unit_left")]
         return out
     units_a = set(included.loc[included[group_col].astype(str) == arm_a, unit_col])
     units_b = set(included.loc[included[group_col].astype(str) == arm_b, unit_col])
@@ -1216,11 +1618,9 @@ def unit_structure_diagnostics(sampleinfo: pd.DataFrame, design: Dict[str, Any],
         design_class = "crossed"
     out["design_class"] = design_class
     class_notes = {
-        "nested_within_arm": "每个个体只出现在一个臂上：处理与个体身份在联合模型中不可分离。"
-                             "个体间比较仍然可用，但它比较的是不同个体，不能排除个体来源差异。",
-        "partially_crossed": "部分个体同时出现在两臂：个体内（配对）估计目标可识别；"
-                             "只在一个臂出现的个体为个体间估计目标提供独立观测。",
-        "crossed": "每个个体在两臂都有观测：两种估计目标都基于同一批个体。",
+        "nested_within_arm": t("unit_structure_nested"),
+        "partially_crossed": t("unit_structure_partially_crossed"),
+        "crossed": t("unit_structure_crossed"),
     }
     out["joint_model"] = {
         "model": "arm indicator + unit dummies (fixed effects)",
@@ -1228,8 +1628,7 @@ def unit_structure_diagnostics(sampleinfo: pd.DataFrame, design: Dict[str, Any],
         "residual_df": out["residual_df"],
         "vif_arm": vif.get("vif_arm"),
         "r2_arm_from_units": vif.get("r2_arm_from_units"),
-        "note": ("该秩与残余自由度只描述「处理与个体身份能否放进同一个固定效应模型」，"
-                  "是诊断，不用来一概否决个体间比较。"),
+        "note": t("unit_note_rank"),
     }
     out["confounding"] = {
         "design_class": design_class,
@@ -1240,39 +1639,33 @@ def unit_structure_diagnostics(sampleinfo: pd.DataFrame, design: Dict[str, Any],
         "estimable": bool(len(shared) >= UNIT_MIN_PAIRED_UNITS),
         "n_shared_units": len(shared),
         "min_shared_units": int(UNIT_MIN_PAIRED_UNITS),
-        "estimand": "个体内（同一实验单位在两臂都有观测）的均值差",
+        "estimand": t("unit_estimand_within"),
         "reason": "",
     }
     if not within["estimable"]:
-        within["reason"] = ("同时出现在两臂的独立个体只有 %d 个（配对分析门槛 %d 个）：共享个体属于两臂，"
-                            "把它同时当成两臂的独立样本会重复计数，因此不进入个体间检验。"
-                            % (len(shared), UNIT_MIN_PAIRED_UNITS))
+        within["reason"] = t("unit_reason_within_insufficient", len(shared), UNIT_MIN_PAIRED_UNITS)
     between = {
         "estimable": bool(len(a_only) >= UNIT_MIN_UNITS_PER_ARM and len(b_only) >= UNIT_MIN_UNITS_PER_ARM),
         "n_units_arm_a_only": len(a_only),
         "n_units_arm_b_only": len(b_only),
         "min_units_per_arm": int(UNIT_MIN_UNITS_PER_ARM),
         "excludes_shared_units": True,
-        "estimand": "个体间（每条臂只使用只在该臂观测的独立个体）的均值差",
+        "estimand": t("unit_estimand_between"),
         "reason": "",
     }
     if not between["estimable"]:
-        between["reason"] = ("只在一个臂上观测的独立个体不足（A 臂 %d 个、B 臂 %d 个，门槛各 %d 个）："
-                             "共享个体不能同时充当两臂的独立样本。"
-                             % (len(a_only), len(b_only), UNIT_MIN_UNITS_PER_ARM))
+        between["reason"] = t("unit_reason_between_insufficient", len(a_only), len(b_only),
+                              UNIT_MIN_UNITS_PER_ARM)
     out["within_unit"] = within
     out["between_unit"] = between
     reasons: List[str] = list(out["reasons"])
     if unit_source == "column_name_match_unconfirmed":
-        reasons.append("单位列是按列名匹配推断的，未在分析设计中确认"
-                       "（the unit column was matched by name only and is not declared in the analysis design）。")
+        reasons.append(t("unit_reason_matched_by_name"))
     if unit_source == "analysis_design.pair_col_auto_inferred":
-        reasons.append("单位列来自自动生成的分析设计（按列名匹配，未由研究者确认）："
-                       "“标签对应独立生物学个体”是标签层假定，单位层结果按标签层探索性分析解读"
-                       "（the unit column comes from the auto-inferred design; label-level independence is assumed, not confirmed）。")
+        reasons.append(t("unit_reason_auto_design"))
     if excluded:
-        reasons.append("已排除 %d 个混合来源或未确认来源标签（%s）：混合池与未知标签不能包装成独立生物学个体。"
-                       % (len(excluded), "、".join(sorted(excluded))))
+        reasons.append(t("unit_reason_excluded_labels", len(excluded),
+                         t("list_separator").join(sorted(excluded))))
     if within["estimable"]:
         out["estimability"] = "estimable_paired_within_unit"
         out["analysis_route"] = "within_unit_paired"
@@ -1282,8 +1675,7 @@ def unit_structure_diagnostics(sampleinfo: pd.DataFrame, design: Dict[str, Any],
         out["estimability"] = "estimable_between_unit"
         out["analysis_route"] = "between_unit_unpaired"
         out["estimand"] = between["estimand"]
-        reasons.append(within["reason"] + "本节改用个体间估计目标：只使用单臂专属个体（A 臂 %d 个、B 臂 %d 个）。"
-                       % (len(a_only), len(b_only)))
+        reasons.append(within["reason"] + t("unit_reason_switched_between", len(a_only), len(b_only)))
         out["estimand_alternatives"] = {}
     else:
         out["estimability"] = "not_estimable"
@@ -1293,8 +1685,8 @@ def unit_structure_diagnostics(sampleinfo: pd.DataFrame, design: Dict[str, Any],
         reasons.append(between["reason"])
         out["estimand_alternatives"] = {"within_unit": within["reason"], "between_unit": between["reason"]}
     if out["estimability"].startswith("estimable") and out["unit_arm_imbalance"]["units_in_one_arm"]:
-        reasons.append("结构变量在两臂分布不均：%d 个个体只在其中一个臂出现（共 %d 个个体）。"
-                       % (out["unit_arm_imbalance"]["units_in_one_arm"], len(units_a | units_b)))
+        reasons.append(t("unit_reason_unbalanced_structure",
+                         out["unit_arm_imbalance"]["units_in_one_arm"], len(units_a | units_b)))
     out["reasons"] = reasons
     return out
 
@@ -1417,7 +1809,7 @@ def unit_aware_sensitivity(matrix: pd.DataFrame, sampleinfo: pd.DataFrame, desig
         "contrast": contrast,
         "direction": diagnostics.get("direction", ""),
         "role": "sensitivity_analysis",
-        "reference_analysis": "observation-level Welch t-test (differential_%s.csv)" % contrast,
+        "reference_analysis": t("unit_reference_analysis", contrast),
         "reference_result_file": "processed_proteins/differential_%s.csv" % contrast,
         "backend": "python_fallback_scipy",
         "status": "not_estimable",
@@ -1516,10 +1908,9 @@ def unit_aware_sensitivity(matrix: pd.DataFrame, sampleinfo: pd.DataFrame, desig
                      or declared.get("group_a") != len(eff_a)
                      or declared.get("group_b") != len(eff_b)):
         result["reasons"] = list(result["reasons"]) + [
-            "矩阵匹配后有已声明的单位找不到可分析的样本列：已声明个体（A %s / B %s / 共同 %s）→ "
-            "实际参与（A %d / B %d / 共同 %d）。"
-            % (declared.get("group_a"), declared.get("group_b"), declared.get("shared"),
-               len(eff_a), len(eff_b), len(eff_shared))]
+            t("unit_reason_matrix_matched_units_unresolved",
+              declared.get("group_a"), declared.get("group_b"), declared.get("shared"),
+              len(eff_a), len(eff_b), len(eff_shared))]
     units_a = sorted({u for u, arm in key_set if arm == arm_a})
     units_b = sorted({u for u, arm in key_set if arm == arm_b})
     shared = [u for u in units_a if u in set(units_b)]
@@ -1622,19 +2013,15 @@ def unit_aware_sensitivity(matrix: pd.DataFrame, sampleinfo: pd.DataFrame, desig
     result["n_passing_fdr_only"] = fdr_only
     if logfc_thresh is None:
         result["n_passing_joint"] = None
-        result["filter_rule"] = ("FDR scope only: adjusted P < %s (BH over the %d protein groups of this "
-                                 "contrast that pass the minimum-sample condition)"
-                                 % (p_thresh, result["n_proteins_tested"]))
+        result["filter_rule"] = t("unit_filter_rule_fdr_only", p_thresh,
+                                  result["n_proteins_tested"])
     else:
         joint = int(((tested["adj.P.Val"] < float(p_thresh))
                      & (np.abs(tested[effect_column]) > float(logfc_thresh))).sum())
         result["n_passing_joint"] = joint
-        result["filter_rule"] = ("joint threshold: adjusted P < %s and |%s| > %s "
-                                 "(thresholds inherited from the observation-level design; effect scale state: %s)"
-                                 % (p_thresh, effect_column, logfc_thresh, scale.get("state")))
-    result["correction_scope"] = ("BH correction scope: the %d protein groups of this contrast that pass the "
-                                  "minimum-sample condition; not pooled across contrasts or datasets."
-                                  % result["n_proteins_tested"])
+        result["filter_rule"] = t("unit_filter_rule_joint", p_thresh, effect_column, logfc_thresh,
+                                  scale.get("state"))
+    result["correction_scope"] = t("unit_correction_scope", result["n_proteins_tested"])
     result["n_units_tested"] = {"group_a": len(units_a), "group_b": len(units_b),
                                 "shared": len(shared),
                                 "group_a_only": len(a_only), "group_b_only": len(b_only),
@@ -1644,9 +2031,7 @@ def unit_aware_sensitivity(matrix: pd.DataFrame, sampleinfo: pd.DataFrame, desig
     result["status"] = "completed" if result["n_proteins_tested"] else "skipped"
     result["min_p_value"] = float(tested["P.Value"].min()) if result["n_proteins_tested"] else None
     result["min_adj_p_value"] = float(tested["adj.P.Val"].min()) if result["n_proteins_tested"] else None
-    result["row_level_note"] = ("Per protein the table reports the effective number of units (or pairs), the "
-                                "degrees of freedom, the standard error and the 95% confidence interval; rows "
-                                "below the minimum sample condition are marked as not tested and carry no P value.")
+    result["row_level_note"] = t("unit_row_level_note")
     if out_dir is not None:
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
