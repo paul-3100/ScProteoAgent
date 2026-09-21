@@ -1,0 +1,9 @@
+FileName,Cluster,Donor,Batch
+CTRL_1,Control,D1,B1
+CTRL_2,Control,D1,B1
+CTRL_3,Control,D2,B2
+CTRL_4,Control,D2,B2
+TRT_1,Stimulated,D1,B1
+TRT_2,Stimulated,D1,B1
+TRT_3,Stimulated,D2,B2
+TRT_4,Stimulated,D2,B2

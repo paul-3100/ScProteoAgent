@@ -1,0 +1,43 @@
+# Citation metadata for the software release candidate.
+# No release tag, commit hash or DOI exists yet, so none is claimed here: add `identifiers`,
+# `repository-code` and `version` only after the repository is published and a DOI is minted.
+cff-version: 1.2.0
+message: "If you use ScProteoAgent, please cite the manuscript listed below."
+title: "ScProteoAgent enables natural-language-driven single-cell proteomics analysis and interpretation"
+type: software
+authors:
+  - family-names: Hu
+    given-names: Runwen
+    affiliation: "College of Computer Science, City University of Hong Kong, Hong Kong SAR, China"
+  - family-names: Ding
+    given-names: Keyan
+    affiliation: "Single-Cell Proteomics Research Center and Zhejiang Key Laboratory of Intelligent Manufacturing for Functional Chemicals, ZJU-Hangzhou Global Scientific and Technological Innovation Center, Zhejiang University, Hangzhou, China"
+  - family-names: Wang
+    given-names: Wenwen
+    affiliation: "Single-Cell Proteomics Research Center and Zhejiang Key Laboratory of Intelligent Manufacturing for Functional Chemicals, ZJU-Hangzhou Global Scientific and Technological Innovation Center, Zhejiang University, Hangzhou, China; Department of Chemistry, Zhejiang University, Hangzhou, China"
+  - family-names: Zhu
+    given-names: Zhihui
+    affiliation: "School of Intelligent Science and Engineering, Harbin Institute of Technology, Shenzhen, China"
+  - family-names: Chen
+    given-names: Peilin
+    affiliation: "College of Computer Science, City University of Hong Kong, Hong Kong SAR, China"
+  - family-names: Wang
+    given-names: Shiqi
+    affiliation: "College of Computer Science, City University of Hong Kong, Hong Kong SAR, China"
+  - family-names: Wang
+    given-names: Yu
+    affiliation: "Single-Cell Proteomics Research Center and Zhejiang Key Laboratory of Intelligent Manufacturing for Functional Chemicals, ZJU-Hangzhou Global Scientific and Technological Innovation Center, Zhejiang University, Hangzhou, China; Department of Chemistry, Zhejiang University, Hangzhou, China"
+abstract: "ScProteoAgent translates natural-language research requests into domain-specific single-cell proteomics computations, preserves analysis design and processing history as reusable analytical state, and supports follow-up questions that reuse applicable products."
+keywords:
+  - single-cell proteomics
+  - large language model agent
+  - reproducible analysis
+  - data analysis agent
+# `license` is intentionally absent: no software licence has been chosen yet, and the CFF 1.2.0
+# schema makes the field optional. The placeholder value `LicenseRef-Proprietary` used in earlier
+# drafts was not an SPDX identifier of an existing licence and has been removed rather than
+# presented as a decision. Add the real SPDX identifier once the rights holder confirms the
+# software licence (see LICENSE_PENDING.md); the data archive keeps its own terms.
+# Runwen Hu and Keyan Ding contributed equally; Shiqi Wang (shiqwang@cityu.edu.hk) and
+# Yu Wang (wangyu310@zju.edu.cn) are the corresponding authors. Email addresses are listed in
+# the manuscript because the CFF 1.2.0 schema has no field for them.

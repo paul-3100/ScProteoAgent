@@ -1,0 +1,132 @@
+# Frozen environment record - the environment in which this package was verified.
+#
+# This is a RECORD, not an installer, and it was NOT produced by re-installing anything while
+# the delivery round was assembled: it transcribes the measured `pip freeze` of the one-off
+# verification environment. The direct dependency files requirements-reproduction.txt and
+# requirements-agent.txt remain the install entry points.
+#
+# interpreter      : CPython 3.13.9 (Anaconda build, MSC v.1929 64-bit) in a one-off virtual
+#                    environment created from D:\ProgramData\anaconda3\python.exe; pip 25.2
+# operating system : Windows 10 Pro, version 10.0.19045, 64-bit
+# date             : measured 2026-09-20 (round date; the freeze file is timestamped
+#                    2026-09-21 00:14 local time, as the install crossed local midnight)
+# install          : one command, `pip install -r requirements-agent.txt`; about 110
+#                    distributions in 323 s; `pip check` -> "No broken requirements found."
+# install log      : the install log of the release candidate that was verified with this
+#                    environment (sections 2-3 and "Environment record"; sha256 4e862d269a4bf6fd...).
+#                    The log belongs to the submission materials, not to this repository.
+# source record    : the one-off venv freeze of that round,
+#                    sha256 0b6e22e0f774ed99ef566d69a5364e08b8eb7617ee152b54aea67caa6049deec
+#
+# 110 pinned entries, sorted case-insensitively by distribution name, exactly as recorded.
+
+adjustText==1.4.0
+anndata==0.13.4
+annotated-types==0.8.0
+anyio==4.15.1
+array-api-compat==1.15.0
+biopython==1.88
+biothings_client==0.5.1
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.1
+click==8.5.0
+cloudpickle==3.1.2
+colorama==0.4.6
+contourpy==1.4.0
+cryptography==50.0.1
+cycler==0.12.1
+ddgs==9.16.0
+distro==1.9.0
+donfig==0.8.1.post1
+fast-array-utils==1.5.1
+fonttools==4.65.0
+formulaic==1.2.2
+google-auth==2.58.0
+google-crc32c==1.8.0
+google-genai==2.24.0
+gseapy==1.3.1
+h11==0.16.0
+h5py==3.16.0
+httpcore==1.0.9
+httpcore2==2.13.0
+httpx==0.28.1
+httpx2==2.13.0
+idna==3.20
+igraph==1.0.0
+interface_meta==2.0.1
+jiter==0.17.0
+joblib==1.6.0
+jsonpatch==1.33
+jsonpointer==3.1.1
+kiwisolver==1.5.1
+langchain==1.4.2
+langchain-core==1.6.3
+langchain-openai==1.6.2
+langchain-protocol==0.0.19
+langgraph==1.2.11
+langgraph-checkpoint==4.2.0
+langgraph-prebuilt==1.1.0
+langgraph-sdk==0.4.4
+langsmith==0.13.0
+legacy-api-wrap==1.5
+llvmlite==0.49.0
+lxml==6.1.3
+matplotlib==3.11.2
+mpmath==1.4.1
+msgspec==0.21.1
+mygene==3.2.2
+narwhals==2.26.0
+natsort==8.4.0
+networkx==3.6.1
+numba==0.67.0
+numcodecs==0.17.0
+numpy==2.5.3
+openai==3.16.2
+orjson==3.12.0
+ormsgpack==1.12.2
+packaging==26.3
+pandas==3.0.6
+patsy==1.0.3
+pillow==12.3.0
+primp==2.0.1
+pyasn1==0.6.4
+pyasn1_modules==0.4.2
+pycparser==3.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+pydantic_core==2.46.5
+pynndescent==0.6.0
+pyparsing==3.3.2
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.3
+PyYAML==6.0.3
+regex==2026.9.10
+requests==2.34.2
+requests-toolbelt==1.0.0
+scanpy==1.12.4
+scikit-learn==1.9.1
+scipy==1.18.1
+scverse-misc==0.1.6
+seaborn==0.13.2
+session-info2==0.4.2
+six==1.17.0
+sniffio==1.3.1
+statsmodels==0.15.0
+tenacity==9.1.4
+texttable==1.7.0
+threadpoolctl==3.7.0
+tiktoken==0.14.0
+tqdm==4.70.1
+truststore==0.10.4
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+tzdata==2026.4
+umap-learn==0.5.12
+urllib3==2.8.0
+uuid_utils==0.17.1
+websockets==16.1.1
+wrapt==2.4.2rc1
+xxhash==4.0.1
+zarr==3.4.0
+zstandard==0.25.0

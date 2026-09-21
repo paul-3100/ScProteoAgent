@@ -1,0 +1,61 @@
+# Dependencies of a live ScProteoAgent run (main_agent.py and the engine modules).
+#
+# Derivation: this list was generated from the actual import statements of the 17 engine modules
+# and of the scripts that drive them, not from a full `pip freeze` of the development machine.
+# Per line, `tested:` records the measured version of that distribution in the verification
+# environment of 2026-09-20; `installed and verified` means it is present at that version in
+# requirements-lock.txt. A distribution marked `not installed` is imported by the code but
+# was not installed or exercised on the release host.
+#
+# A full `pip install -r requirements-agent.txt` was executed on 2026-09-20 with the Anaconda
+# interpreter (Python 3.13.9) in a one-off virtual environment. Attempt 1 failed inside pip's
+# resolution: rpy2 3.6.8 requires rpy2-rinterface>=3.6.7, which has no Windows wheel for
+# CPython 3.13. Attempt 2, with this corrected file, installed about 110 distributions in
+# 323 s and `pip check` reported no broken requirements. The exact resulting versions are
+# recorded in requirements-lock.txt. The strict import test imported 36 of the 40 checked
+# modules (four of the 40 expect the data archive); for everything the import test did not
+# exercise, the install itself is the evidence.
+
+numpy                 # tested: 2.5.3 - installed and verified (requirements-lock.txt)
+pandas                # tested: 3.0.6 - installed and verified (requirements-lock.txt)
+scipy                 # tested: 1.18.1 - installed and verified (requirements-lock.txt)
+statsmodels           # tested: 0.15.0 - installed and verified (requirements-lock.txt)
+scikit-learn          # tested: 1.9.1 - installed and verified (requirements-lock.txt)
+matplotlib            # tested: 3.11.2 - installed and verified (requirements-lock.txt)
+seaborn               # tested: 0.13.2 - installed and verified (requirements-lock.txt)
+networkx              # tested: 3.6.1 - installed and verified (requirements-lock.txt)
+PyYAML                # tested: 6.0.3 - installed and verified (requirements-lock.txt)
+python-dotenv         # tested: 1.2.3 - installed and verified (requirements-lock.txt)
+requests              # tested: 2.34.2 - installed and verified (requirements-lock.txt)
+openai                # tested: 3.16.2 - installed and verified (requirements-lock.txt; needed for a live model connection)
+langchain             # tested: 1.4.2 - installed and verified (requirements-lock.txt)
+langchain-core        # tested: 1.6.3 - installed and verified (requirements-lock.txt)
+langchain-openai      # tested: 1.6.2 - installed and verified (requirements-lock.txt)
+langgraph             # tested: 1.2.11 - installed and verified (requirements-lock.txt)
+google-genai          # tested: 2.24.0 - installed and verified (requirements-lock.txt; import name: google.genai)
+tiktoken              # tested: 0.14.0 - installed and verified (requirements-lock.txt; token accounting)
+ddgs                  # tested: 9.16.0 - installed and verified (requirements-lock.txt; web-search tool)
+igraph                # tested: 1.0.0 - installed and verified (requirements-lock.txt; graph helper)
+gseapy                # tested: 1.3.1 - installed and verified (requirements-lock.txt; enrichment)
+mygene                # tested: 3.2.2 - installed and verified (requirements-lock.txt; gene annotation)
+biopython             # tested: 1.88 - installed and verified (requirements-lock.txt; Bio.* imports)
+joblib                # tested: 1.6.0 - installed and verified (requirements-lock.txt)
+tqdm                  # tested: 4.70.1 - installed and verified (requirements-lock.txt)
+umap-learn            # tested: 0.5.12 - installed and verified (requirements-lock.txt; import name: umap)
+adjustText            # tested: 1.4.0 - installed and verified (requirements-lock.txt; plot label placement)
+scanpy                # tested: 1.12.4 - installed and verified (requirements-lock.txt; single-cell objects and clustering)
+pillow                # tested: 12.3.0 - installed and verified (requirements-lock.txt; import name: PIL)
+mpmath                # tested: 1.4.1 - installed and verified (requirements-lock.txt; reproduce/go_background/c4_verify.py imports it at module level)
+# --- Optional extra: the R bridge (kept out of the default install) ---
+# rpy2 only works with an R installation, so it must not block the default install.
+# rpy2-rinterface 3.6.7 has no Windows wheel for CPython 3.13 and its source distribution needs a
+# C toolchain (this is why the first unpinned install failed). The pinned pair installs from
+# wheels on CPython 3.13 / Windows:  python -m pip install "rpy2==3.6.6" "rpy2-rinterface==3.6.6"
+# tools.py imports rpy2 inside a try/except and sets R_AVAILABLE = False when it is absent.
+# rpy2 and rpy2-rinterface were not installed and not exercised on the release host: neither
+# appears in requirements-lock.txt.
+
+# R (not a pip package): the rpy2 bridge calls limma and the enrichment packages
+# clusterProfiler, org.Hs.eg.db, org.Mm.eg.db and ReactomePA. R was not installed on the release
+# host, so those paths were not exercised. Install R and those packages from CRAN/Bioconductor in
+# the same environment before running analyses that use them.

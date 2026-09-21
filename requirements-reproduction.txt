@@ -1,0 +1,27 @@
+# Minimum dependencies for the reproduction scripts and tests in this repository.
+#
+# Derivation: every import statement in scripts/validate_dataset_inputs.py,
+# examples/saved_results/read_saved_table.py, reproduce/scoring/*.py and tests/*.py is standard
+# library only. reproduce/intervals/*.py needs numpy; reproduce/go_background/*.py needs numpy,
+# pandas, scipy, statsmodels and mpmath (mpmath is the independent high-precision reference used
+# by the verifier).
+# reproduce/figures/plot_panels.py needs matplotlib (3.11.2 in requirements-lock.txt) to
+# redraw the statistical panels.
+#
+# Exercised on the release host (2026-09-20) with Python 3.13.9 (numpy 2.3.5, pandas 2.3.3,
+# scipy 1.16.3, statsmodels 0.14.5, mpmath 1.3.0, matplotlib 3.10.6) and, for the numpy-free
+# checks, with Python 3.14.3. The exact versions of the verified environment in which the
+# dependency install and the import checks were run are recorded in requirements-lock.txt
+# (numpy 2.5.3, pandas 3.0.6, scipy 1.18.1, statsmodels 0.15.0, mpmath 1.4.1,
+# matplotlib 3.11.2). A fresh environment should install current releases; record your
+# versions in your own report.
+numpy
+pandas
+scipy
+statsmodels
+mpmath
+matplotlib
+
+# Not needed for reproduction: no model client and no agent framework.
+# tests/test_pair_ci_determinism.py calls numpy in a subprocess for the index-matrix hash, so
+# numpy must be installed in the same interpreter that runs the tests.

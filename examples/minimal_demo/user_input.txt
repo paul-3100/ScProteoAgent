@@ -1,0 +1,16 @@
+[SYNTHETIC SOFTWARE DEMO - NOT STUDY DATA]
+
+I have a small synthetic protein quantification matrix (ProteinQuant.csv) and sample metadata
+(SampleInfo.csv). The matrix has proteins in rows, one annotation block in the first columns
+and one column per sample; the sample columns match the FileName column of SampleInfo.csv.
+
+[Background]
+This example was written by hand to demonstrate the input format only. It is not from any
+published study, it contains no measured values, and it must not be reported as a result.
+
+[Requested analysis]
+Compare the Stimulated group with the Control group and report effect estimates with their
+statistical evidence. State which proteins change most strongly, whether the donors in the
+metadata are biological individuals that should be treated as experimental units, and which
+processing choices were applied before the comparison. Finish with an explicit statement of
+the evidence boundaries of this dataset.

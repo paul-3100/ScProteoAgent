@@ -1,0 +1,31 @@
+# Local configuration and credentials: never commit these.
+.env
+.env.*
+!.env.example
+auth.json
+credentials.json
+*.pem
+*.key
+
+# Run outputs and caches
+runs/
+tmp/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Local data archives and acquired third-party resources
+data/
+*.gmt
+*.bgz
+kb_source/
+
+# Editor and OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+~$*
+*.bak
