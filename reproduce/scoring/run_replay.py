@@ -128,6 +128,22 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest().upper()
 
 
+def load_public_report_hashes(path: Path) -> dict[tuple[str, str, str], tuple[str, str]]:
+    """Load only explicitly registered original-to-public report hash pairs."""
+    mapping = {}
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        for row in csv.DictReader(handle, delimiter="\t"):
+            parts = row["relative_path"].replace("\\", "/").split("/")
+            if len(parts) != 6 or parts[:3] != ["data", "scoring", "runs"]:
+                raise ValueError("Invalid public report hash path: %r" % row["relative_path"])
+            key = (parts[3], parts[4], parts[5])
+            pair = (row["sha256_original"].upper(), row["sha256_public"].upper())
+            if key in mapping and mapping[key] != pair:
+                raise ValueError("Conflicting public report hash registration: %r" % (key,))
+            mapping[key] = pair
+    return mapping
+
+
 def run_system(system: str, runs_root: Path, examples_root: Path, out_dir: Path,
                datasets: list[str] | None) -> dict:
     # The child runs in its own directory, so every path handed to it must be absolute: relative
@@ -297,6 +313,7 @@ def compare_with_expected(rows: list[dict], expected_path: Path, systems: list[s
                           requested_datasets: list[str] | None, subset_mode: bool,
                           tolerance: float, expected_method: str | None = None,
                           check_report_sha256: bool = False,
+                          public_report_hashes: dict[tuple[str, str, str], tuple[str, str]] | None = None,
                           prior_failures: list[str] | None = None) -> dict:
     """Completeness first, then values. Returns the comparison record for the summary."""
     failures: list[str] = list(prior_failures or [])
@@ -379,8 +396,11 @@ def compare_with_expected(rows: list[dict], expected_path: Path, systems: list[s
             observed_sha = sha256_file(report_file)
             report_sha_checked += 1
             if observed_sha != expected_sha:
-                failures.append("report sha256 for %s / %s: expected %s, observed %s (%s)"
-                                % (key[0], key[1], expected_sha, observed_sha, report_path))
+                registered = (public_report_hashes or {}).get(
+                    (key[1], report_file.parent.name, report_file.name))
+                if registered != (expected_sha, observed_sha):
+                    failures.append("report sha256 for %s / %s: expected %s, observed %s (%s)"
+                                    % (key[0], key[1], expected_sha, observed_sha, report_path))
 
     differences.sort(key=lambda item: (-item["abs_diff"], item["key"], item["field"]))
     if differences:
@@ -447,11 +467,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check-report-sha256", action="store_true",
                         help="also require the sha256 of every replayed report to equal the "
                              "report_sha256 column of the frozen table")
+    parser.add_argument("--public-report-hashes", type=Path, default=None,
+                        help="archive TSV registering exact original-to-public report hashes")
     args = parser.parse_args(argv)
 
     if args.tolerance < 0:
         print("FATAL: --tolerance must not be negative (got %r)" % args.tolerance, file=sys.stderr)
         return 1
+    if args.public_report_hashes and not args.public_report_hashes.is_file():
+        print("FATAL: --public-report-hashes file is missing: %s" % args.public_report_hashes,
+              file=sys.stderr)
+        return 1
+    public_report_hashes = (load_public_report_hashes(args.public_report_hashes)
+                            if args.public_report_hashes else {})
     for required in (FROZEN_SCORER, GUARDED_LAUNCHER):
         if not required.is_file():
             print("FATAL: missing %s" % required, file=sys.stderr)
@@ -496,6 +524,7 @@ def main(argv: list[str] | None = None) -> int:
                                           subset_mode, args.tolerance,
                                           expected_method=args.expected_method,
                                           check_report_sha256=args.check_report_sha256,
+                                          public_report_hashes=public_report_hashes,
                                           prior_failures=failures)
         summary["comparison"] = comparison
         failures = comparison["failures"]

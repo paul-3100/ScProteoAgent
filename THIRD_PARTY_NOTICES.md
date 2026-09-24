@@ -45,18 +45,13 @@ is recorded with that archive. Publishing derived statistics does not grant righ
 underlying gene-set membership, which is why the full membership tables require the same review
 as the GMT files themselves.
 
-## What to do before publishing
-
 ## Derived inputs added for the case reproduction
 
 `reproduce/cases/` recomputes the five case-study results from archived inputs. The
 run-processed artifacts it reads - normalized matrices, QC tables, protein-to-gene maps and
 per-protein result tables produced by the analysis runs - are derived from third-party study
-data. They ship with the data archive rather than with this repository, and every one of them
-carries `rights_status=UNCONFIRMED` together with an author-decision number in the rights table of
-the archive. Treat them under the same review as the study matrices themselves.
-
-1. Confirm the software licence with the rights holder (`LICENSE_PENDING.md`).
-2. Review the exact MSigDB release licence and the GO Consortium terms before any gene-set
-   content is redistributed.
-3. Keep the data archive's terms separate from the software licence.
+data. They ship with the data archive rather than with this repository. The archive's
+`RIGHTS_AND_SOURCES.tsv` and `SOURCE_LINKS.tsv` identify the source and applicable terms for each
+third-party input; the Brain and SCPro processed matrices are included under documented author
+decisions, with rights retained by the original authors. The repository's software licence does
+not change those data terms. The MSigDB GMT files themselves are not redistributed here.

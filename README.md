@@ -18,17 +18,17 @@ repository contains the
 current engine, the frozen scoring implementation used for the cross-system comparison, the
 reproduction scripts and frozen tables for the reported deterministic results, the scripts that
 re-derive the reported case-study numbers field by field, a statistical panel redraw entry point,
-one synthetic example and the offline tests. No DOI, release tag or version badge is claimed,
-because none exists yet.
+one synthetic example and the offline tests. No software DOI, release tag or version badge is
+claimed, because none exists yet.
 
-This repository is a **candidate** for publication, not a published release. It is hosted at
-https://github.com/paul-3100/ScProteoAgent and is currently **private**. The author team has
-confirmed the software licence with every contributor, so what the public release waits for is the
-preprint and a settled access route to the data archive; `LICENSE_PENDING.md` records the decision,
-the grantor and what is still open. No tag, release or archive location exists yet. The data archive
-that supplies the frozen inputs is a local candidate of the same submission and is described in
-`docs/DATA_MANIFEST.md`; `docs/REPRODUCTION.md` records, per component, what runs, which fields were
-checked and what is not reproduced.
+This repository hosts the **1.0.0-rc.1 release candidate** at
+https://github.com/paul-3100/ScProteoAgent. The author team has confirmed the software licence
+with every contributor; `LICENSE_PENDING.md` records that decision and its scope. No software
+release tag or software DOI is claimed yet. The supporting data have been uploaded to an
+unpublished Zenodo draft (reserved data DOI: 10.5281/zenodo.22918085); its confidential review
+link is provided in the manuscript submission, not in this public repository. The reserved DOI
+will become active when the data record is published. `docs/DATA_MANIFEST.md` describes the data
+archive; `docs/REPRODUCTION.md` records what each component checks and what remains unresolved.
 
 ## Choose a workflow
 
@@ -109,7 +109,7 @@ is not reproduced. `<archive>` is the root of the data archive (the directory ho
 
 | reported item | command | status |
 |---|---|---|
-| cross-system scores (88 study-system cells) | `python reproduce/scoring/prepare_scoring_inputs.py --archive <archive> --out-dir <work>` then `python reproduce/scoring/run_replay.py --runs-root <work>/scoring/runs --examples-root <work>/examples --out-dir <work>/replay --expected-tsv <archive>/scores/HW_RULE_SCORES.tsv --check-report-sha256` | executed: 88/88 cells, maximum absolute difference 0 on `rule_total` and all six dimensions, 88/88 report hashes checked |
+| cross-system scores (88 study-system cells) | `python reproduce/scoring/prepare_scoring_inputs.py --archive <archive> --out-dir <work>` then `python reproduce/scoring/run_replay.py --runs-root <work>/scoring/runs --examples-root <work>/examples --out-dir <work>/replay --expected-tsv <archive>/scores/HW_RULE_SCORES.tsv --check-report-sha256 --public-report-hashes <archive>/scoring/PUBLIC_REPORT_HASHES.tsv` | executed: 88/88 cells, maximum absolute difference 0 on `rule_total` and all six dimensions, 88/88 report hashes checked against their original bytes or the exact registered public-copy mapping |
 | paired differences and their seven intervals | `python reproduce/intervals/recompute_paired_ci.py --data-dir <archive> --out-dir <work>` then `python reproduce/intervals/ci_verify.py --data-dir <archive> --out-dir <work>` | executed: endpoints reproduced, verifier 10/10 |
 | GO background analysis of the migration case | `python reproduce/go_background/c1_go_datasets.py --data-dir <archive>/go_background --gmt-dir <gmt> --out-dir <work>`, then `c2`, `c3`, `c4` with the same flags | executed: 12 families, 62,584 term rows, fixed 24-position display 15/5/0/4, verifier PASS |
 | five case-study computations | `python reproduce/cases/<theme>/run_<theme>.py --data-dir <archive> --out-dir <work>` | executed: each theme compares the reported tables of its case field by field, and every case exits 0 with no FAIL and no BLOCKED check; the per-check status is in `docs/REPRODUCTION.md` and `reproduce/cases/README.md` |
@@ -133,11 +133,13 @@ spectrometry files stay with the original repositories. Every matrix is describe
 numbers - protein rows, columns (annotation columns included), matched observations and biological
 units - and `docs/DATA_MANIFEST.md` defines them.
 
-The archive is a local candidate of this submission, not a published download. Whether each study
-matrix may be redistributed is an author decision that is still open; every item carries its own
-rights status and access route in the archive's `RIGHTS_STATUS.tsv`, and the resources that are
-**not** redistributed at all are listed separately in `THIRD_PARTY_NOTICES.md` with the steps to
-obtain them.
+The uploaded Zenodo draft contains all eleven study input sets. The public record is not yet
+available; editors and reviewers receive its confidential preview link with the manuscript.
+`RIGHTS_AND_SOURCES.tsv` and `SOURCE_LINKS.tsv` in the data record identify the upstream sources,
+transformations, attribution and terms for each third-party input. Brain and SCPro inputs are
+included under a documented author decision, with source rights retained by the original authors.
+The record-level data licence does not relicense third-party matrices. Resources that are not
+redistributed at all are listed in `THIRD_PARTY_NOTICES.md` with acquisition steps.
 
 The GO analysis needs MSigDB/Gene Ontology gene-set files, third-party resources that are **not**
 redistributed here. `reproduce/go_background/RESOURCE_ACQUISITION.md` gives the download steps, the
@@ -150,8 +152,8 @@ off by default.
 
 If you use this software, cite the manuscript named in `CITATION.cff`, with the authors, title and
 software version given there. The file validates against the Citation File Format 1.2.0 schema. The
-code accompanying this text is the `main` branch of https://github.com/paul-3100/ScProteoAgent
-(private); no DOI, release tag or archived snapshot is claimed, because none exists yet.
+code accompanying this text is the `main` branch of https://github.com/paul-3100/ScProteoAgent;
+no software DOI, release tag or archived software snapshot is claimed yet.
 
 **Licence.** The software is released under the ScProteoAgent Research Licence 1.0 (`LICENSE`).
 Research, teaching, reproducing published results, and non-commercial modification and

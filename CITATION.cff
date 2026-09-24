@@ -1,7 +1,7 @@
 # Citation metadata for the software release candidate.
-# The repository that hosts this software is recorded in repository-code; it is private at the
-# time of writing. No release tag, archived snapshot or DOI exists yet, so the commit,
-# date-released and doi fields are added once the repository becomes public.
+# The repository that hosts this software is recorded in repository-code. No software release tag,
+# archived software snapshot or software DOI exists yet. The reserved Zenodo DOI refers to the
+# separate data record and is intentionally absent from this software citation.
 cff-version: 1.2.0
 message: "If you use ScProteoAgent, please cite the manuscript listed below."
 title: "ScProteoAgent enables natural-language-driven single-cell proteomics analysis and interpretation"

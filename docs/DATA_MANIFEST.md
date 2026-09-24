@@ -1,9 +1,11 @@
 # Data manifest
 
-The data archive is a local candidate of this submission, not a published download: no archive URL
-or accession exists yet. This page describes what the reproduction scripts expect to find, how
-they find it, and what the studies are. The authoritative file-by-file list, with byte sizes,
-hashes and rights status, is the release manifest that accompanies the archive.
+The supporting data have been uploaded to an unpublished Zenodo draft (reserved data DOI:
+10.5281/zenodo.22918085). Editors and reviewers receive the confidential preview link with the
+manuscript; the data record is not yet a public download. This page describes what the reproduction
+scripts expect to find, how they find it, and what the studies are. The authoritative file-by-file
+list, with byte sizes, hashes and rights status, accompanies the archive. The reviewer access token
+is intentionally absent from this public code repository.
 
 ## Layout expected by the scripts
 
@@ -94,11 +96,11 @@ full precision, and no column is filled with zeros to make a table rectangular.
 
 ## Inputs, references and rights
 
-* `inputs/` holds the study matrices and metadata used for the analyses, with the study directory
-  names above. Whether each matrix can be redistributed is recorded per study in the archive's own
-  `RIGHTS_STATUS.tsv` (rights status, access route and the author decision that covers it); most
-  entries are still `THIRD_PARTY_UNCONFIRMED`, so redistribution remains an author decision rather
-  than an assumption, and the original repository and accession are recorded for every study.
+* `inputs/` holds all eleven study matrices and metadata sets used for the analyses. The archive's
+  `RIGHTS_AND_SOURCES.tsv` and `SOURCE_LINKS.tsv` record the source, transformation, attribution
+  and applicable terms for each third-party input. The Brain and SCPro processed matrices are
+  included under a documented author decision; rights remain with the original authors. The
+  record-level data licence does not override those third-party terms.
 * `evaluation_references/` holds the task and grading references. They are evaluation material:
   they are kept in a directory of their own, outside the study inputs, and the released engine
   does not read them from there; the scoring replay assembles its own copy when it needs them.

@@ -386,12 +386,32 @@ def parse_hash_pairs(value: str) -> dict[str, str]:
     return pairs
 
 
+def registered_public_report_hashes(archive: Path) -> dict[tuple[str, str, str], tuple[str, str]]:
+    """Read the archive's exact original-to-public report hash registrations."""
+    path = archive / "scoring" / "PUBLIC_REPORT_HASHES.tsv"
+    if not path.is_file():
+        return {}
+    mapping = {}
+    with as_path(path).open(encoding="utf-8-sig", newline="") as handle:
+        for row in csv.DictReader(handle, delimiter="\t"):
+            parts = row["relative_path"].replace("\\", "/").split("/")
+            if len(parts) != 6 or parts[:3] != ["data", "scoring", "runs"]:
+                raise ValueError("Invalid public report hash path: %r" % row["relative_path"])
+            key = (parts[3], parts[4], parts[5])
+            pair = (row["sha256_original"].upper(), row["sha256_public"].upper())
+            if key in mapping and mapping[key] != pair:
+                raise ValueError("Conflicting public report hash registration: %r" % (key,))
+            mapping[key] = pair
+    return mapping
+
+
 def cross_check_archive(archive: Path, entries: list[dict], contradictions: list[str],
                         warnings: list[str]) -> int:
     """Compare the registry tables in this file with registry files shipped by the archive."""
     checks = 0
     registry_tsv = archive / ARCHIVE_REGISTRY_TSV[0] / ARCHIVE_REGISTRY_TSV[1]
     by_cell = {(entry["system"], entry["study"]): entry for entry in entries}
+    public_hashes = registered_public_report_hashes(archive)
     if registry_tsv.is_file():
         with as_path(registry_tsv).open(encoding="utf-8-sig", newline="") as handle:
             rows = list(csv.DictReader(handle, delimiter="\t"))
@@ -417,8 +437,14 @@ def cross_check_archive(archive: Path, entries: list[dict], contradictions: list
                                       % (key[0], key[1], report_filename, entry["report_file"]))
             sha = str(row.get("report_sha256", "")).upper()
             if sha and entry["report_sha256"] and sha != entry["report_sha256"]:
-                contradictions.append("report sha256 for %s / %s: archive registry %s, run directory %s"
-                                      % (key[0], key[1], sha, entry["report_sha256"]))
+                registered = public_hashes.get(
+                    (entry["system"], entry["run_dir"], entry["report_file"]))
+                if registered == (sha, entry["report_sha256"]):
+                    warnings.append("registered report normalisation accepted for %s / %s"
+                                    % key)
+                else:
+                    contradictions.append("report sha256 for %s / %s: archive registry %s, run directory %s"
+                                          % (key[0], key[1], sha, entry["report_sha256"]))
     else:
         warnings.append("archive ships no %s; the registry tables in this script were used alone"
                         % "/".join(ARCHIVE_REGISTRY_TSV))

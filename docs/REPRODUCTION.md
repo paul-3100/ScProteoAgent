@@ -1,9 +1,10 @@
 # Reproducing the reported analyses
 
 Everything here runs offline and calls no model. The data archive that supplies the frozen inputs
-is a local candidate of the same submission, not a published download; `docs/DATA_MANIFEST.md`
-describes its layout and resolution order, and every command below is written against
-`<archive>`, the archive root.
+has been uploaded to an unpublished Zenodo draft (reserved data DOI: 10.5281/zenodo.22918085).
+Editors and reviewers receive its confidential preview link with the manuscript. Once available,
+extract the three data ZIPs into one directory and use its `data/` directory as `<archive>`.
+`docs/DATA_MANIFEST.md` describes the layout and resolution order.
 
 Every command runs with the interpreter of the environment installed above
 (`.venv\Scripts\python` on Windows, `.venv/bin/python` on POSIX); the plain `python` of the
@@ -61,7 +62,7 @@ revision, so they were not re-run.
 
 | manuscript item | command | expected output |
 |---|---|---|
-| cross-system scores and dimension contributions | `python reproduce/scoring/prepare_scoring_inputs.py --archive <archive> --out-dir <work>` then `python reproduce/scoring/run_replay.py --runs-root <work>/scoring/runs --examples-root <work>/examples --out-dir <work>/replay --expected-tsv <archive>/scores/HW_RULE_SCORES.tsv --check-report-sha256` | one row per (study, system) with six dimensions and `rule_total`; 88 unique keys; maximum absolute difference 0 against the frozen table; 88/88 archived reports hash-matched |
+| cross-system scores and dimension contributions | `python reproduce/scoring/prepare_scoring_inputs.py --archive <archive> --out-dir <work>` then `python reproduce/scoring/run_replay.py --runs-root <work>/scoring/runs --examples-root <work>/examples --out-dir <work>/replay --expected-tsv <archive>/scores/HW_RULE_SCORES.tsv --check-report-sha256 --public-report-hashes <archive>/scoring/PUBLIC_REPORT_HASHES.tsv` | one row per (study, system) with six dimensions and `rule_total`; 88 unique keys; maximum absolute difference 0 against the frozen table; 88/88 archived reports hash-matched directly or through their exact registered original-to-public mapping |
 | paired differences and their seven intervals | `python reproduce/intervals/recompute_paired_ci.py --data-dir <archive> --out-dir <work>` then `python reproduce/intervals/ci_verify.py --data-dir <archive> --out-dir <work>` | `paired_ci_recomputed.tsv` at 17 significant digits, `paired_ci_indices.npy`, `environment.json`, and the verifier's ten checks |
 | GO background comparison for the migration case | `python reproduce/go_background/c1_go_datasets.py --data-dir <archive>/go_background --gmt-dir <gmt> --out-dir <work>`, then `c2` -> `c3` -> `c4` with the same flags | six query sets, 12 families, 62,584 term rows, the historical reproduction gate, the fixed 24 display positions (15/5/0/4) and the verifier verdict |
 | case-study computations (HeLa migration, liver zonation, brain states, membrane integrity, haematopoiesis) | `python reproduce/cases/<theme>/run_<theme>.py --data-dir <archive> --out-dir <work>` | a per-check ledger over the frozen tables of that theme; exit 0 all checks passed, 1 a check failed, 2 a required input is missing, 3 partial (a check is BLOCKED). See `reproduce/cases/README.md` |
